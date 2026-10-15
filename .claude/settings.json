@@ -1,0 +1,10 @@
+{
+  "extraKnownMarketplaces": {
+    "limits-mod": {
+      "source": { "source": "github", "repo": "tchzhanartemij-cyber/limits-mod" }
+    }
+  },
+  "enabledPlugins": {
+    "limits@limits-mod": true
+  }
+}
