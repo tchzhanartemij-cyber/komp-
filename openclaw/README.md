@@ -11,7 +11,7 @@ Telegram ──► OpenClaw (Джарвис) ──┐
 ```
 
 - **Сервер (VPS):** на нём круглосуточно работают Джарвис и дашборд.
-- **OpenClaw + Claude:** сам Джарвис. Скил `life-ledger` из этой папки учит его вести учёт.
+- **OpenClaw + Claude Code:** сам Джарвис. Думает Claude через Claude Code, который стоит на этом же сервере и вошёл в твой аккаунт, поэтому расход идёт из лимитов твоей подписки, а не по отдельному счёту. Скил `life-ledger` из этой папки учит его вести учёт.
 - **Groq:** расшифровывает голосовые. У него есть бесплатный тариф.
 - **Дашборд** (`dashboard/`): маленький сайт на Python. Он показывает те же файлы, которые ведёт Джарвис.
 - **Caddy:** даёт дашборду адрес с HTTPS (вида `https://1-2-3-4.sslip.io`, свой домен покупать не нужно) и закрывает его паролем.
@@ -27,7 +27,7 @@ Telegram ──► OpenClaw (Джарвис) ──┐
 | Что | Где взять | Сколько стоит |
 |---|---|---|
 | VPS на Ubuntu 24.04, от 2 ГБ памяти | Hetzner, DigitalOcean, Timeweb и т.п. | ~$5–10 в месяц |
-| Ключ Claude API | console.anthropic.com → API Keys | оплата по факту, для личного учёта это немного |
+| Подписка Claude (Pro или Max) | у тебя уже есть | Джарвис тратит её лимиты, те же, что и твои чаты с Claude |
 | Ключ Groq для голосовых | console.groq.com → API Keys | есть бесплатный тариф |
 | Telegram-бот | @BotFather в Telegram | бесплатно |
 
@@ -68,14 +68,37 @@ usermod -aG sudo jarvis
 
 Все следующие команды выполняй под пользователем `jarvis`.
 
-## Шаг 3. Установи OpenClaw
+## Шаг 3. Поставь Claude Code и войди в аккаунт
+
+```bash
+curl -fsSL https://claude.ai/install.sh | bash
+```
+
+Если после установки команда `claude` не находится, закрой сессию (`exit`), снова выполни `su - jarvis` и повтори.
+
+Войди в свой аккаунт Claude:
+
+```bash
+claude auth login
+```
+
+На сервере нет браузера, поэтому команда покажет ссылку. Открой её на телефоне или компьютере, войди в аккаунт, скопируй код, который покажет сайт, и вставь его обратно в окно сервера.
+
+Проверь, что вход прошёл:
+
+```bash
+claude --version
+claude auth status --text
+```
+
+## Шаг 4. Установи OpenClaw
 
 ```bash
 curl -fsSL https://openclaw.ai/install.sh | bash
 ```
 
 Установщик сам поставит нужную версию Node.js и запустит мастер настройки. В мастере:
-- **модель (provider):** выбери **Anthropic API key** и вставь ключ Claude;
+- **модель (provider):** выбери **Claude CLI**. Тогда OpenClaw будет работать через Claude Code, в который ты вошёл на шаге 3. Ключ API не нужен;
 - **запуск в фоне (daemon):** соглашайся, тогда ассистент будет работать постоянно.
 
 Если мастер не запустился сам:
@@ -84,13 +107,23 @@ curl -fsSL https://openclaw.ai/install.sh | bash
 openclaw onboard --install-daemon
 ```
 
-Проверь, что всё работает:
+Проверь, что всё работает и Claude виден:
 
 ```bash
 openclaw gateway status
+openclaw models list --provider anthropic
 ```
 
-## Шаг 4. Подключи Telegram
+**Важно про лимиты.** Джарвис расходует лимиты твоей подписки, те же самые, что и твои чаты с Claude. Если ты упрёшься в лимит в чатах, Джарвис тоже будет ждать до сброса, и наоборот. Для трат, дел и заметок он тратит мало. Если когда-нибудь дашь ему много работы, его можно перевести на отдельный ключ API, чтобы он не съедал твои лимиты.
+
+Если Claude Code обновился и OpenClaw перестал отвечать, обнови его и перезапусти Джарвиса:
+
+```bash
+claude update
+openclaw gateway restart
+```
+
+## Шаг 5. Подключи Telegram
 
 1. В Telegram открой **@BotFather** (проверь, что ник именно такой), отправь `/newbot`, придумай имя и сохрани **токен**, который он выдаст.
 2. На сервере выполни:
@@ -109,7 +142,7 @@ openclaw gateway status
 
    Код действует 1 час. После подтверждения бот отвечает только тебе, а чужие сообщения ждут твоего подтверждения.
 
-## Шаг 5. Включи голосовые
+## Шаг 6. Включи голосовые
 
 Открой файл настроек:
 
@@ -135,16 +168,16 @@ openclaw gateway restart
 openclaw capability audio providers
 ```
 
-## Шаг 6. Научи Джарвиса тратам, делам и заметкам
+## Шаг 7. Научи Джарвиса тратам, делам и заметкам
 
 ```bash
 mkdir -p ~/.openclaw/workspace/skills
 cp -r ~/openclaw/skills/life-ledger ~/.openclaw/workspace/skills/
 ```
 
-Если в шаге 3 мастер выбрал другую рабочую папку (workspace), положи скил в `<твоя рабочая папка>/skills/`. Посмотреть её можно в `~/.openclaw/openclaw.json`.
+Если в шаге 4 мастер выбрал другую рабочую папку (workspace), положи скил в `<твоя рабочая папка>/skills/`. Посмотреть её можно в `~/.openclaw/openclaw.json`.
 
-## Шаг 7. Поставь дашборд «Сводка»
+## Шаг 8. Поставь дашборд «Сводка»
 
 ```bash
 bash ~/openclaw/dashboard/install.sh
@@ -160,7 +193,7 @@ bash ~/openclaw/dashboard/install.sh
 LIFE_DIR=<твоя рабочая папка>/life bash ~/openclaw/dashboard/install.sh
 ```
 
-## Шаг 8. Проверь
+## Шаг 9. Проверь
 
 Напиши боту или скажи голосом:
 - «потратил 450 на продукты»
@@ -180,6 +213,7 @@ LIFE_DIR=<твоя рабочая папка>/life bash ~/openclaw/dashboard/ins
 - Бот молчит: `openclaw channels status --probe` и `openclaw logs --follow`.
 - Ошибка «unauthorized token»: токен скопирован не полностью. Возьми новый у @BotFather (`/token`).
 - Дашборд не открывается: `sudo systemctl status life-dashboard caddy` и `sudo journalctl -u caddy -n 50`.
+- Джарвис отвечает ошибкой про вход или модель: `claude auth status --text`. Если вход слетел, снова `claude auth login`.
 - Общая диагностика OpenClaw: `openclaw doctor`.
 
 ## Безопасность
