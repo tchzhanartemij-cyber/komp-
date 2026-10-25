@@ -10,41 +10,53 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Nunito:wght@600;700;800&family=Golos+Text:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
 <style>
-/* Layout: a soft beige notebook with three tabs. Summary cards on top, rounded working cards below; everything stacks on a phone. */
+/* Layout: white (or black) page, beige cards, pastel accents; three tabs, cards stack on a phone. */
 :root {
-  --paper: #f4ede3; --paper-2: #efe6d9; --sheet: #fcf9f4; --field: #f6f0e7;
-  --ink: #3b342d; --muted: #8b8075; --rule: #e8dfd2;
-  --accent: #6f9277; --accent-soft: #e5eee3; --on-accent: #fcf9f4;
-  --work: #7489a8; --work-soft: #e6ebf2;
-  --good: #6f9a68; --warn: #c48d45; --bad: #c46a55;
-  --shadow: 0 1px 2px rgba(80, 60, 40, 0.04), 0 8px 24px rgba(80, 60, 40, 0.06);
+  --paper: #ffffff; --paper-2: #ffffff; --sheet: #f8f3ec; --field: #ffffff;
+  --ink: #2b2723; --muted: #8a8178; --rule: #ebe3d8;
+  --accent: #a8cfae; --accent-soft: #e2f0e2; --accent-ink: #4c7a56; --on-accent: #1f2b22;
+  --work: #b3cdec; --work-soft: #e3edf9; --work-ink: #456a96;
+  --t1: #fde8dc; --t2: #e3f1e3; --t3: #ece6f6; --t4: #e2edf8;
+  --good: #6f9a68; --warn: #e3b06a; --bad: #d07a66;
+  --shadow: 0 1px 2px rgba(60, 45, 30, 0.04), 0 6px 18px rgba(60, 45, 30, 0.05);
   --display: "Nunito", "Segoe UI", system-ui, sans-serif;
   --body: "Golos Text", "Segoe UI", system-ui, sans-serif;
   --mono: "JetBrains Mono", ui-monospace, "Cascadia Mono", monospace;
   color-scheme: light;
 }
 @media (prefers-color-scheme: dark) {
-  :root {
-    --paper: #1d1916; --paper-2: #221d19; --sheet: #29231f; --field: #322b26;
-    --ink: #eee5d9; --muted: #a59a8d; --rule: #3a322c;
-    --accent: #a5c4a8; --accent-soft: #33402f; --on-accent: #1d1916;
-    --work: #a6b8d3; --work-soft: #2e3542;
-    --good: #9cc493; --warn: #e0ac66; --bad: #e08f7c;
-    --shadow: 0 1px 2px rgba(0, 0, 0, 0.25), 0 8px 24px rgba(0, 0, 0, 0.25);
+  :root:not([data-theme="light"]) {
+    --paper: #0f0f0f; --paper-2: #0f0f0f; --sheet: #1d1a17; --field: #272320;
+    --ink: #f1ebe3; --muted: #a39a90; --rule: #332e29;
+    --accent: #a8cfae; --accent-soft: #24332a; --accent-ink: #b9ddbf; --on-accent: #142018;
+    --work: #b3cdec; --work-soft: #23303f; --work-ink: #c3d7f1;
+    --t1: #3a2b24; --t2: #24322a; --t3: #2d2937; --t4: #233040;
+    --good: #9cc493; --warn: #e6bb7d; --bad: #e39a87;
+    --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 6px 18px rgba(0, 0, 0, 0.35);
     color-scheme: dark;
   }
+}
+:root[data-theme="dark"] {
+    --paper: #0f0f0f; --paper-2: #0f0f0f; --sheet: #1d1a17; --field: #272320;
+    --ink: #f1ebe3; --muted: #a39a90; --rule: #332e29;
+    --accent: #a8cfae; --accent-soft: #24332a; --accent-ink: #b9ddbf; --on-accent: #142018;
+    --work: #b3cdec; --work-soft: #23303f; --work-ink: #c3d7f1;
+    --t1: #3a2b24; --t2: #24322a; --t3: #2d2937; --t4: #233040;
+    --good: #9cc493; --warn: #e6bb7d; --bad: #e39a87;
+    --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 6px 18px rgba(0, 0, 0, 0.35);
+    color-scheme: dark;
 }
 * { box-sizing: border-box; }
 html, body { margin: 0; }
 body {
-  background: var(--paper) radial-gradient(1200px 600px at 10% -10%, var(--paper-2), transparent 70%) no-repeat;
+  background: var(--paper);
   min-height: 100vh;
   color: var(--ink); font: 15px/1.5 var(--body);
   padding-left: max(16px, env(safe-area-inset-left, 0px));
   padding-right: max(16px, env(safe-area-inset-right, 0px));
   padding-block: max(24px, env(safe-area-inset-top, 0px)) max(48px, env(safe-area-inset-bottom, 0px));
 }
-body.is-work { --accent: var(--work); --accent-soft: var(--work-soft); }
+body.is-work { --accent: var(--work); --accent-soft: var(--work-soft); --accent-ink: var(--work-ink); }
 .wrap { max-width: 1180px; margin: 0 auto; display: grid; gap: 20px; }
 .page { display: grid; gap: 20px; min-width: 0; }
 header { display: flex; flex-wrap: wrap; align-items: end; justify-content: space-between; gap: 12px 16px; }
@@ -57,11 +69,21 @@ h1 { font: 800 clamp(26px, 4.5vw, 34px)/1.1 var(--display); margin: 0; letter-sp
 .tabs a[aria-current="page"] { background: var(--accent); color: var(--on-accent); }
 .tabs a:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .right { display: grid; justify-items: end; gap: 6px; }
+.theme { display: inline-flex; gap: 2px; background: var(--sheet); border-radius: 999px; padding: 3px; }
+.theme button { font: 700 12px var(--display); border: 0; background: none; color: var(--muted); padding: 4px 10px; border-radius: 999px; cursor: pointer; }
+.theme button[aria-pressed="true"] { background: var(--paper); color: var(--ink); box-shadow: var(--shadow); }
+.bar-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; justify-content: flex-end; }
+@media (max-width: 520px) { .bar-row { justify-content: flex-start; } }
 @media (max-width: 520px) { .right { justify-items: start; } }
 .strip { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 14px; }
 @media (max-width: 520px) { .strip { grid-template-columns: 1fr 1fr; } .tile .v { font-size: 20px; } }
 .tile { background: var(--sheet); border-radius: 20px; padding: 16px 18px; display: grid; gap: 6px; min-width: 0; box-shadow: var(--shadow); }
 .tile .k { font: 700 13px var(--display); color: var(--muted); }
+.strip .tile:nth-child(1) { background: var(--t1); }
+.strip .tile:nth-child(2) { background: var(--t2); }
+.strip .tile:nth-child(3) { background: var(--t3); }
+.strip .tile:nth-child(4) { background: var(--t4); }
+.strip .tile .k, .strip .tile .s { color: color-mix(in srgb, var(--ink) 62%, transparent); }
 .tile .v { font: 800 26px/1.1 var(--display); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
 .tile .s { font-size: 13px; color: var(--muted); }
 .cols { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px; align-items: start; }
@@ -77,6 +99,7 @@ form { display: flex; flex-wrap: wrap; gap: 8px; }
 input, select, button, textarea { font: inherit; color: inherit; }
 input, select, textarea { background: var(--field); border: 1px solid transparent; border-radius: 14px; padding: 9px 13px; min-width: 0; transition: border-color .2s, background .2s; }
 input:hover, select:hover, textarea:hover { border-color: var(--rule); }
+input, select, textarea { border-color: var(--rule); }
 input::placeholder, textarea::placeholder { color: var(--muted); opacity: 0.8; }
 textarea { flex: 1 1 100%; resize: vertical; min-height: 64px; }
 input:focus-visible, select:focus-visible, button:focus-visible, textarea:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
@@ -102,7 +125,7 @@ li:first-child { border-top: 0; }
 .grow1 { flex: 1; min-width: 0; overflow-wrap: anywhere; }
 .meta { font-size: 12px; color: var(--muted); }
 .money { font: 700 14px var(--display); font-variant-numeric: tabular-nums; white-space: nowrap; }
-.chip { font: 700 11px var(--display); padding: 3px 10px; border-radius: 99px; background: var(--accent-soft); color: var(--accent); white-space: nowrap; }
+.chip { font: 700 11px var(--display); padding: 3px 10px; border-radius: 99px; background: var(--accent-soft); color: var(--accent-ink); white-space: nowrap; }
 .chip.late { background: color-mix(in srgb, var(--bad) 15%, transparent); color: var(--bad); }
 .done .grow1 { text-decoration: line-through; color: var(--muted); }
 input[type="checkbox"] { width: 18px; height: 18px; accent-color: var(--accent); padding: 0; flex: none; }
@@ -126,9 +149,9 @@ input[type="checkbox"] { width: 18px; height: 18px; accent-color: var(--accent);
 .macros span { font: 600 12px var(--display); color: var(--muted); }
 .goal { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--muted); }
 .goal input { width: 90px; font-variant-numeric: tabular-nums; }
-button.ent { font: inherit; font-size: 0.92em; font-weight: 500; border: 0; cursor: pointer; padding: 0 8px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); }
+button.ent { font: inherit; font-size: 0.92em; font-weight: 500; border: 0; cursor: pointer; padding: 0 8px; border-radius: 999px; background: var(--accent-soft); color: var(--accent-ink); }
 button.ent:hover { filter: brightness(1.1); }
-button.ent.tag { background: transparent; padding: 0 2px; text-decoration: underline; text-underline-offset: 2px; }
+button.ent.tag { background: transparent; padding: 0 2px; text-decoration: underline; text-underline-offset: 2px; text-decoration-color: var(--accent); }
 .graph-wrap { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); gap: 16px; align-items: start; }
 @media (max-width: 860px) { .graph-wrap { grid-template-columns: 1fr; } }
 .graph-box { position: relative; background: var(--field); border-radius: 20px; overflow: hidden; touch-action: pan-y; }
@@ -158,7 +181,14 @@ input[type="date"] { color: var(--muted); }
         <a href="#work" id="tab-work">Работа</a>
         <a href="#graph" id="tab-graph">Память</a>
       </nav>
-      <div class="status" id="status">Загружаю…</div>
+      <div class="bar-row">
+        <div class="theme" role="group" aria-label="Тема">
+          <button type="button" data-theme-set="auto">Авто</button>
+          <button type="button" data-theme-set="light">Светлая</button>
+          <button type="button" data-theme-set="dark">Тёмная</button>
+        </div>
+        <div class="status" id="status">Загружаю…</div>
+      </div>
     </div>
   </header>
 
@@ -698,6 +728,20 @@ document.querySelectorAll('form[data-notes]').forEach(f => f.addEventListener('s
   f.reset();
   post('/api/notes/add', { list: f.dataset.notes, text });
 }));
+
+function applyTheme(t) {
+  if (t === 'light' || t === 'dark') document.documentElement.setAttribute('data-theme', t); else document.documentElement.removeAttribute('data-theme');
+  document.querySelectorAll('[data-theme-set]').forEach(b => b.setAttribute('aria-pressed', b.dataset.themeSet === (t || 'auto') ? 'true' : 'false'));
+  renderGraph();
+}
+let savedTheme = 'auto';
+try { savedTheme = localStorage.getItem('svodka-theme') || 'auto'; } catch {}
+document.querySelectorAll('[data-theme-set]').forEach(b => b.addEventListener('click', () => {
+  try { localStorage.setItem('svodka-theme', b.dataset.themeSet); } catch {}
+  applyTheme(b.dataset.themeSet);
+}));
+matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => renderGraph());
+applyTheme(savedTheme);
 
 showPage();
 load();
