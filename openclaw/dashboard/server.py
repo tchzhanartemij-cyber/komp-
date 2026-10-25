@@ -8,6 +8,8 @@ The data lives in plain files in LIFE_DIR (default ~/.openclaw/workspace/life):
   notes.md         personal notes    - 2026-10-25 14:30 · text
   work-tasks.md    work to-dos, same format as tasks.md
   work-notes.md    work notes, same format as notes.md
+  food.csv         date,time,item,grams,kcal,protein,fat,carbs,source
+  settings.json    {"kcalGoal": 2200}
 
 Jarvis writes them from Telegram; this server shows them and lets you edit them
 from any browser. Only the Python standard library is used.
@@ -30,6 +32,9 @@ PORT = int(os.environ.get("DASHBOARD_PORT", "8787"))
 STATIC = Path(__file__).resolve().parent / "index.html"
 
 EXPENSE_FIELDS = ["date", "amount", "currency", "category", "note"]
+FOOD_FIELDS = ["date", "time", "item", "grams", "kcal", "protein", "fat", "carbs", "source"]
+FOOD_NUMBERS = ["grams", "kcal", "protein", "fat", "carbs"]
+DEFAULT_SETTINGS = {"kcalGoal": 2200}
 # Which file each list lives in; the page names lists, never file paths.
 TASK_FILES = {"tasks": "tasks.md", "plans": "plans.md", "work": "work-tasks.md"}
 NOTE_FILES = {"notes": "notes.md", "work": "work-notes.md"}
@@ -96,6 +101,46 @@ def write_expenses(rows):
         w.writerow({**{k: r[k] for k in EXPENSE_FIELDS if k != "amount"},
                     "amount": int(amount) if float(amount).is_integer() else amount})
     write_text("expenses.csv", out.getvalue())
+
+
+# --- food ---------------------------------------------------------------
+
+def number(value):
+    try:
+        return float(str(value or "").replace(",", ".").replace(" ", ""))
+    except ValueError:
+        return 0.0
+
+
+def read_food():
+    rows = []
+    for i, row in enumerate(csv.DictReader(io.StringIO(read_text("food.csv")))):
+        rows.append({
+            "id": i,
+            "date": (row.get("date") or "").strip(),
+            "time": (row.get("time") or "").strip(),
+            "item": (row.get("item") or "").strip(),
+            "source": (row.get("source") or "").strip(),
+            **{k: number(row.get(k)) for k in FOOD_NUMBERS},
+        })
+    return rows
+
+
+def write_food(rows):
+    out = io.StringIO()
+    w = csv.DictWriter(out, fieldnames=FOOD_FIELDS, lineterminator="\n")
+    w.writeheader()
+    for r in rows:
+        w.writerow({k: (int(r[k]) if k in FOOD_NUMBERS and float(r[k]).is_integer() else r[k]) for k in FOOD_FIELDS})
+    write_text("food.csv", out.getvalue())
+
+
+def read_settings():
+    try:
+        saved = json.loads(read_text("settings.json") or "{}")
+    except ValueError:
+        saved = {}
+    return {**DEFAULT_SETTINGS, **(saved if isinstance(saved, dict) else {})}
 
 
 # --- tasks, plans -------------------------------------------------------
@@ -202,6 +247,8 @@ class Handler(BaseHTTPRequestHandler):
                     "expenses": read_expenses(),
                     "tasks": {k: read_tasks(f) for k, f in TASK_FILES.items()},
                     "notes": {k: read_notes(f) for k, f in NOTE_FILES.items()},
+                    "food": read_food(),
+                    "settings": read_settings(),
                     "today": datetime.now().strftime("%Y-%m-%d"),
                 }
             self.send_json(200, payload)
@@ -241,7 +288,8 @@ class Handler(BaseHTTPRequestHandler):
             write_expenses(rows)
         elif p == "/api/tasks/add":
             name = TASK_FILES[b.get("list", "tasks")]
-            title = one_line(b["title"]).replace("[", "(").replace("]", ")")
+            # single brackets would read as a checkbox; [[links]] stay as they are
+            title = re.sub(r"(?<!\[)\[(?!\[)|(?<!\])\](?!\])", lambda m: "(" if m.group() == "[" else ")", one_line(b["title"]))
             due = b.get("due") or ""
             if not title or (due and not DATE_RE.match(due)):
                 raise ValueError()
@@ -262,6 +310,27 @@ class Handler(BaseHTTPRequestHandler):
             append_line(NOTE_FILES[b.get("list", "notes")], f"- {today} {datetime.now().strftime('%H:%M')} · {text}")
         elif p == "/api/notes/delete":
             replace_line(NOTE_FILES[b.get("list", "notes")], int(b["line"]), b.get("raw"), None)
+        elif p == "/api/food/add":
+            item = one_line(b["item"], 200)
+            kcal = number(b.get("kcal"))
+            if not item or not 0 < kcal < 10000:
+                raise ValueError()
+            rows = read_food()
+            rows.append({"date": today, "time": datetime.now().strftime("%H:%M"), "item": item, "source": "вручную",
+                         **{k: max(0.0, number(b.get(k))) for k in FOOD_NUMBERS}, "kcal": kcal})
+            write_food(rows)
+        elif p == "/api/food/delete":
+            rows = read_food()
+            i = int(b["id"])
+            if i >= len(rows) or rows[i]["date"] != b.get("date") or rows[i]["item"] != b.get("item"):
+                raise Conflict()
+            del rows[i]
+            write_food(rows)
+        elif p == "/api/settings":
+            goal = int(number(b["kcalGoal"]))
+            if not 800 <= goal <= 6000:
+                raise ValueError()
+            write_text("settings.json", json.dumps({**read_settings(), "kcalGoal": goal}, ensure_ascii=False) + "\n")
         else:
             self.send_json(404, {"error": "not found"})
             return

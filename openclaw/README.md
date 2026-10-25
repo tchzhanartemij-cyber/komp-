@@ -16,7 +16,7 @@ Telegram ──► OpenClaw (Джарвис) ──┐
 - **Дашборд** (`dashboard/`): маленький сайт на Python. Он показывает те же файлы, которые ведёт Джарвис.
 - **Caddy:** даёт дашборду адрес с HTTPS (вида `https://1-2-3-4.sslip.io`, свой домен покупать не нужно) и закрывает его паролем.
 
-Данные лежат обычными файлами в `~/.openclaw/workspace/life/`: `expenses.csv` (траты), `tasks.md` (дела), `plans.md` (планы), `notes.md` (заметки), `work-tasks.md` и `work-notes.md` (работа). Их легко скачать, перенести или открыть в Excel.
+Данные лежат обычными файлами в `~/.openclaw/workspace/life/`: `expenses.csv` (траты), `food.csv` (еда и калории), `settings.json` (норма калорий), `receipts/` (разобранные чеки), `tasks.md` (дела), `plans.md` (планы), `notes.md` (заметки), `work-tasks.md` и `work-notes.md` (работа). Заметки и дела — обычный Markdown со ссылками `[[…]]` и `#тегами`, как в Obsidian. Их легко скачать, перенести или открыть в Excel.
 
 Команды OpenClaw взяты из его официальной документации (github.com/openclaw/openclaw, октябрь 2026).
 
@@ -207,6 +207,17 @@ LIFE_DIR=<твоя рабочая папка>/life bash ~/openclaw/dashboard/ins
 Через 10 секунд всё это появится на дашборде: личное на первой странице, рабочее на вкладке «Работа». Добавь что-нибудь на дашборде и спроси Джарвиса: он это тоже увидит.
 
 ---
+
+## Обновление
+
+Когда в репозитории появилась новая версия, на сервере под пользователем `jarvis`:
+
+```bash
+cd ~/komp && git pull && cp -r ~/komp/openclaw/. ~/openclaw/ && cd ~
+cp -r ~/openclaw/skills/life-ledger ~/.openclaw/workspace/skills/
+cp ~/openclaw/dashboard/server.py ~/openclaw/dashboard/index.html ~/life-dashboard/
+sudo systemctl restart life-dashboard
+```
 
 ## Если что-то не работает
 
