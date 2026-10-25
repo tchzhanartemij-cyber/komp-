@@ -10,6 +10,8 @@ The data lives in plain files in LIFE_DIR (default ~/.openclaw/workspace/life):
   work-notes.md    work notes, same format as notes.md
   food.csv         date,time,item,grams,kcal,protein,fat,carbs,source
   settings.json    {"kcalGoal": 2200}
+  memory/<Имя>.md  one page per person, place, project or topic, Obsidian style:
+                   "# Дима", "тип: человек", then facts "- 2026-10-25 · text with [[links]]"
 
 Jarvis writes them from Telegram; this server shows them and lets you edit them
 from any browser. Only the Python standard library is used.
@@ -45,6 +47,9 @@ DONE_RE = re.compile(r"\(сделано (\d{4}-\d{2}-\d{2})\)")
 NOTE_RE = re.compile(r"^\s*[-*]\s+(\d{4}-\d{2}-\d{2})(?: (\d{2}:\d{2}))?\s*·\s*(.*?)\s*$")
 DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
+PAGE_NAME_RE = re.compile(r"[\w .,()«»'’&+-]{1,80}")
+KIND_RE = re.compile(r"^\s*тип:\s*(.+?)\s*$")
+
 lock = threading.Lock()
 
 
@@ -61,11 +66,12 @@ def read_text(name):
 
 def write_text(name, text):
     """Write atomically, so Jarvis never reads a half-written file."""
-    LIFE_DIR.mkdir(parents=True, exist_ok=True)
-    fd, tmp = tempfile.mkstemp(dir=LIFE_DIR, prefix=f".{name}.")
+    target = path(name)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=target.parent, prefix=f".{target.name}.")
     with os.fdopen(fd, "w", encoding="utf-8", newline="") as f:
         f.write(text)
-    os.replace(tmp, path(name))
+    os.replace(tmp, target)
 
 
 def one_line(value, limit=500):
@@ -186,6 +192,35 @@ def read_notes(name):
     return notes
 
 
+# --- memory pages -------------------------------------------------------
+
+def page_file(name):
+    name = one_line(name, 80)
+    if not PAGE_NAME_RE.fullmatch(name) or name.startswith("."):
+        raise ValueError()
+    return name, f"memory/{name}.md"
+
+
+def read_memory():
+    pages = []
+    folder = LIFE_DIR / "memory"
+    if not folder.is_dir():
+        return pages
+    for f in sorted(folder.glob("*.md")):
+        kind, facts = "", []
+        for i, line in enumerate(f.read_text(encoding="utf-8").splitlines()):
+            m = NOTE_RE.match(line)
+            k = KIND_RE.match(line)
+            if m:
+                facts.append({"line": i, "raw": line, "date": m.group(1), "text": m.group(3)})
+            elif k and not kind:
+                kind = k.group(1)
+            elif line.strip() and not line.startswith("#"):
+                facts.append({"line": i, "raw": line, "date": "", "text": line.strip().lstrip("-* ").strip()})
+        pages.append({"name": f.stem, "kind": kind, "facts": facts})
+    return pages
+
+
 # --- HTTP ---------------------------------------------------------------
 
 class Conflict(Exception):
@@ -248,6 +283,7 @@ class Handler(BaseHTTPRequestHandler):
                     "tasks": {k: read_tasks(f) for k, f in TASK_FILES.items()},
                     "notes": {k: read_notes(f) for k, f in NOTE_FILES.items()},
                     "food": read_food(),
+                    "memory": read_memory(),
                     "settings": read_settings(),
                     "today": datetime.now().strftime("%Y-%m-%d"),
                 }
@@ -310,6 +346,18 @@ class Handler(BaseHTTPRequestHandler):
             append_line(NOTE_FILES[b.get("list", "notes")], f"- {today} {datetime.now().strftime('%H:%M')} · {text}")
         elif p == "/api/notes/delete":
             replace_line(NOTE_FILES[b.get("list", "notes")], int(b["line"]), b.get("raw"), None)
+        elif p == "/api/memory/add":
+            name, file = page_file(b["name"])
+            text = one_line(b["text"], 2000)
+            if not text:
+                raise ValueError()
+            if not path(file).exists():
+                kind = one_line(b.get("kind"), 40)
+                write_text(file, f"# {name}\n" + (f"тип: {kind}\n" if kind else "") + "\n")
+            append_line(file, f"- {today} · {text}")
+        elif p == "/api/memory/delete":
+            _, file = page_file(b["name"])
+            replace_line(file, int(b["line"]), b.get("raw"), None)
         elif p == "/api/food/add":
             item = one_line(b["item"], 200)
             kcal = number(b.get("kcal"))

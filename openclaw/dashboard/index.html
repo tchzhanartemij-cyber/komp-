@@ -146,7 +146,7 @@ button.ent.tag { background: transparent; padding: 0 2px; text-decoration: under
       <nav class="tabs" aria-label="Разделы">
         <a href="#life" id="tab-life">Личное</a>
         <a href="#work" id="tab-work">Работа</a>
-        <a href="#graph" id="tab-graph">Связи</a>
+        <a href="#graph" id="tab-graph">Память</a>
       </nav>
       <div class="status" id="status">Загружаю…</div>
     </div>
@@ -267,17 +267,29 @@ button.ent.tag { background: transparent; padding: 0 2px; text-decoration: under
     </div>
   </div>
 
-  <!-- ===== Связи ===== -->
+  <!-- ===== Память ===== -->
   <div id="page-graph" class="page" hidden>
     <section aria-labelledby="h-graph">
-      <h2 id="h-graph">Связи <small id="g-count"></small></h2>
-      <p class="hint">Люди, места, проекты и темы из твоих дел, планов, заметок и трат. Джарвис отмечает их как [[Дима]] или #отпуск. Нажми на узел или на имя ниже, чтобы увидеть всё, что с ним связано.</p>
+      <h2 id="h-graph">Память <small id="g-count"></small></h2>
+      <p class="hint">Страницы про людей, места, проекты и темы, связанные друг с другом, как в Obsidian. Джарвис сам дописывает сюда то, что узнаёт из разговоров. Линия между узлами значит, что они упоминаются вместе. Нажми на узел, чтобы открыть страницу.</p>
       <div class="ent-list" id="g-ents"></div>
       <div class="graph-wrap">
-        <div class="graph-box"><canvas id="g-canvas" aria-label="Граф связей"></canvas></div>
-        <div style="display:grid;gap:10px;min-width:0">
-          <h2 id="g-sel-title">Выбери узел</h2>
-          <ul id="g-sel-list"></ul>
+        <div class="graph-box"><canvas id="g-canvas" aria-label="Граф памяти"></canvas></div>
+        <div style="display:grid;gap:12px;min-width:0;align-content:start">
+          <div>
+            <h2 id="g-sel-title">Выбери страницу</h2>
+            <div class="meta" id="g-sel-kind"></div>
+          </div>
+          <ul id="g-facts"></ul>
+          <form id="f-fact">
+            <input class="grow" id="fa-name" placeholder="Имя страницы" required aria-label="Имя страницы">
+            <input class="grow" id="fa-text" placeholder="Новый факт, можно с [[ссылками]]" required aria-label="Новый факт">
+            <button class="add" type="submit">Запомнить</button>
+          </form>
+          <div id="g-mentions-box" hidden>
+            <h2 style="margin-bottom:6px">Упоминания <small>в делах, заметках и тратах</small></h2>
+            <ul id="g-mentions"></ul>
+          </div>
         </div>
       </div>
     </section>
@@ -312,7 +324,7 @@ const NOTE_EMPTY = {
   work: 'Скажи Джарвису «рабочая заметка: …», и она будет здесь.',
 };
 const $ = id => document.getElementById(id);
-let data = { expenses: [], tasks: { tasks: [], plans: [], work: [] }, notes: { notes: [], work: [] }, food: [], settings: { kcalGoal: 2200 }, today: '' };
+let data = { expenses: [], tasks: { tasks: [], plans: [], work: [] }, notes: { notes: [], work: [] }, food: [], memory: [], settings: { kcalGoal: 2200 }, today: '' };
 let selected = '';
 let lastJson = '';
 
@@ -437,43 +449,53 @@ function renderFood() {
     : [el('li', {}, el('span', { class: 'empty', text: 'Сегодня ещё ничего. Скинь Джарвису фото еды или этикетки, или впиши сверху.' }))]));
 }
 
-// ----- graph of [[links]] and #tags -----
-const KIND = { tasks: 'дело', plans: 'план', work: 'работа', notes: 'заметка', worknotes: 'рабочая заметка', expense: 'трата' };
-function graphItems() {
-  const items = [];
-  for (const key of ['tasks', 'plans', 'work']) for (const t of data.tasks[key] || []) items.push({ kind: key, text: t.title, date: t.due, done: t.done });
-  for (const n of data.notes.notes || []) items.push({ kind: 'notes', text: n.text, date: n.date });
-  for (const n of data.notes.work || []) items.push({ kind: 'worknotes', text: n.text, date: n.date });
-  for (const e of data.expenses || []) if (e.note) items.push({ kind: 'expense', text: `${e.note} · ${money(e.amount, e.currency)}`, date: e.date });
+// ----- memory graph: pages and everything they link to -----
+const KIND = { tasks: 'дело', plans: 'план', work: 'рабочее дело', notes: 'заметка', worknotes: 'рабочая заметка', expense: 'трата' };
+function memoryModel() {
   const ents = new Map();
-  for (const it of items) {
-    it.ents = entitiesOf(it.text);
-    for (const [k, v] of it.ents) { const e = ents.get(k) || { key: k, name: v.name, tag: v.tag, items: [] }; e.items.push(it); ents.set(k, e); }
+  const node = (name, tag) => {
+    const k = entKey(name);
+    if (!ents.has(k)) ents.set(k, { key: k, name, tag, page: null, mentions: [], links: new Map() });
+    return ents.get(k);
+  };
+  const link = (a, b) => { if (a === b) return; a.links.set(b.key, (a.links.get(b.key) || 0) + 1); b.links.set(a.key, (b.links.get(a.key) || 0) + 1); };
+  for (const pg of data.memory || []) { const e = node(pg.name, false); e.page = pg; e.name = pg.name; }
+  for (const pg of data.memory || []) {
+    const self = ents.get(entKey(pg.name));
+    for (const f of pg.facts) for (const [, v] of entitiesOf(f.text)) link(self, node(v.name, v.tag));
   }
-  return { items: items.filter(it => it.ents.size), ents };
+  const records = [];
+  for (const key of ['tasks', 'plans', 'work']) for (const t of data.tasks[key] || []) records.push({ kind: key, text: t.title, date: t.due, done: t.done });
+  for (const n of data.notes.notes || []) records.push({ kind: 'notes', text: n.text, date: n.date });
+  for (const n of data.notes.work || []) records.push({ kind: 'worknotes', text: n.text, date: n.date });
+  for (const e of data.expenses || []) if (e.note) records.push({ kind: 'expense', text: `${e.note} · ${money(e.amount, e.currency)}`, date: e.date });
+  for (const r of records) {
+    const found = [...entitiesOf(r.text).values()].map(v => node(v.name, v.tag));
+    for (const e of found) e.mentions.push(r);
+    for (let i = 0; i < found.length; i++) for (let j = i + 1; j < found.length; j++) link(found[i], found[j]);
+  }
+  for (const e of ents.values()) e.weight = (e.page ? e.page.facts.length : 0) + e.mentions.length + e.links.size;
+  return ents;
 }
-let graphCache = { json: '', nodes: [], edges: [], w: 0 };
-function layout(ents, items, w, h) {
-  const nodes = [], index = new Map(), edges = [];
-  for (const e of ents.values()) { index.set('e:' + e.key, nodes.length); nodes.push({ id: 'e:' + e.key, ent: e, r: 6 + Math.min(12, e.items.length * 2) }); }
-  items.forEach((it, i) => {
-    const id = 'i:' + i; const ni = nodes.length; nodes.push({ id, item: it, r: 3.5 });
-    for (const k of it.ents.keys()) edges.push([ni, index.get('e:' + k)]);
-  });
-  // seeded positions so the picture does not jump on every refresh
+let graphCache = { json: '', nodes: [], edges: [] };
+function layout(ents, w, h) {
+  const nodes = [...ents.values()].map(e => ({ ent: e, r: 5 + Math.min(13, Math.sqrt(e.weight) * 3) }));
+  const at = new Map(nodes.map((n, i) => [n.ent.key, i]));
+  const edges = [];
+  for (const n of nodes) for (const [k, c] of n.ent.links) { const j = at.get(k), i = at.get(n.ent.key); if (i < j) edges.push([i, j, c]); }
   let seed = 7; const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
   for (const n of nodes) { n.x = w / 2 + (rnd() - 0.5) * w * 0.8; n.y = h / 2 + (rnd() - 0.5) * h * 0.8; n.vx = 0; n.vy = 0; }
-  const k = Math.sqrt((w * h) / Math.max(1, nodes.length)) * 0.6;
-  for (let step = 0; step < 300; step++) {
-    const t = 1 - step / 300;
+  const k = Math.sqrt((w * h) / Math.max(1, nodes.length)) * 0.7;
+  for (let step = 0; step < 320; step++) {
+    const t = 1 - step / 320;
     for (let a = 0; a < nodes.length; a++) for (let b = a + 1; b < nodes.length; b++) {
-      const A = nodes[a], B = nodes[b]; let dx = A.x - B.x, dy = A.y - B.y; const d2 = dx * dx + dy * dy + 0.01;
-      if (d2 > 90000) continue; const f = (k * k) / d2;
-      A.vx += dx * f * 0.02; A.vy += dy * f * 0.02; B.vx -= dx * f * 0.02; B.vy -= dy * f * 0.02;
+      const A = nodes[a], B = nodes[b]; const dx = A.x - B.x, dy = A.y - B.y; const d2 = dx * dx + dy * dy + 0.01;
+      if (d2 > 160000) continue; const f = (k * k) / d2 * 0.02;
+      A.vx += dx * f; A.vy += dy * f; B.vx -= dx * f; B.vy -= dy * f;
     }
     for (const [a, b] of edges) {
       const A = nodes[a], B = nodes[b]; const dx = B.x - A.x, dy = B.y - A.y; const d = Math.sqrt(dx * dx + dy * dy) + 0.01;
-      const f = (d - k * 0.9) / d * 0.05; A.vx += dx * f; A.vy += dy * f; B.vx -= dx * f; B.vy -= dy * f;
+      const f = (d - k) / d * 0.06; A.vx += dx * f; A.vy += dy * f; B.vx -= dx * f; B.vy -= dy * f;
     }
     for (const n of nodes) {
       n.vx += (w / 2 - n.x) * 0.01; n.vy += (h / 2 - n.y) * 0.01;
@@ -481,62 +503,85 @@ function layout(ents, items, w, h) {
       n.x += n.vx; n.y += n.vy; n.vx *= 0.6; n.vy *= 0.6;
     }
   }
-  // fit the picture into the box, leaving room for labels
-  const xs = nodes.map(n => n.x), ys = nodes.map(n => n.y);
-  const minX = Math.min(...xs), maxX = Math.max(...xs), minY = Math.min(...ys), maxY = Math.max(...ys);
-  const padX = Math.min(80, w * 0.15), padT = 34, padB = 20;
-  const sc = Math.min((w - 2 * padX) / Math.max(1, maxX - minX), (h - padT - padB) / Math.max(1, maxY - minY), 1.6);
-  const offX = (w - (maxX - minX) * sc) / 2, offY = padT + (h - padT - padB - (maxY - minY) * sc) / 2;
-  for (const n of nodes) { n.x = offX + (n.x - minX) * sc; n.y = offY + (n.y - minY) * sc; }
+  if (nodes.length) {
+    const xs = nodes.map(n => n.x), ys = nodes.map(n => n.y);
+    const minX = Math.min(...xs), maxX = Math.max(...xs), minY = Math.min(...ys), maxY = Math.max(...ys);
+    const padX = Math.min(80, w * 0.15), padT = 34, padB = 22;
+    const sc = Math.min((w - 2 * padX) / Math.max(1, maxX - minX), (h - padT - padB) / Math.max(1, maxY - minY), 1.6);
+    const offX = (w - (maxX - minX) * sc) / 2, offY = padT + (h - padT - padB - (maxY - minY) * sc) / 2;
+    for (const n of nodes) { n.x = offX + (n.x - minX) * sc; n.y = offY + (n.y - minY) * sc; }
+  }
   return { nodes, edges };
 }
 function renderGraph() {
   if ($('page-graph').hidden) return;
-  const { items, ents } = graphItems();
+  const ents = memoryModel();
   if (selected && !ents.has(selected)) selected = '';
-  const list = [...ents.values()].sort((a, b) => b.items.length - a.items.length || a.name.localeCompare(b.name));
-  $('g-count').textContent = list.length ? `${list.length} узлов · ${items.length} записей` : '';
+  const list = [...ents.values()].sort((a, b) => (!!b.page - !!a.page) || b.weight - a.weight || a.name.localeCompare(b.name));
+  const pages = list.filter(e => e.page).length;
+  $('g-count').textContent = list.length ? `${pages} страниц · ${list.length} узлов` : '';
   $('g-ents').replaceChildren(...(list.length ? list.map(e => el('button', { type: 'button', 'aria-pressed': e.key === selected ? 'true' : 'false',
-    onclick: () => { selected = selected === e.key ? '' : e.key; renderGraph(); } }, (e.tag ? '#' : '') + e.name, el('span', { text: String(e.items.length) })))
-    : [el('span', { class: 'empty', text: 'Пока связей нет. Напиши Джарвису, например: «запомни: [[Дима]] советовал плёнку [[Hexis]] #работа», и здесь появится первый узел.' })]));
+    title: e.page ? 'Страница памяти' : 'Пока только упоминания',
+    onclick: () => { selected = selected === e.key ? '' : e.key; renderGraph(); } }, (e.tag ? '#' : '') + e.name, el('span', { text: String(e.weight) })))
+    : [el('span', { class: 'empty', text: 'Память пока пустая. Напиши Джарвису, например: «запомни: Дима — мой друг, работает в Monotonica», и здесь появятся первые страницы.' })]));
 
   const canvas = $('g-canvas'), box = canvas.parentElement;
   const w = box.clientWidth, h = canvas.clientHeight, dpr = window.devicePixelRatio || 1;
   canvas.width = w * dpr; canvas.height = h * dpr;
-  const json = JSON.stringify([w, h, items.map(i => i.text)]);
-  if (graphCache.json !== json) graphCache = { json, ...layout(ents, items, w, h) };
+  const json = JSON.stringify([w, h, [...ents.values()].map(e => [e.key, [...e.links.keys()], e.weight])]);
+  if (graphCache.json !== json) graphCache = { json, ...layout(ents, w, h) };
   const { nodes, edges } = graphCache;
   const css = getComputedStyle(document.documentElement), c = name => css.getPropertyValue(name).trim();
   const ctx = canvas.getContext('2d'); ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.clearRect(0, 0, w, h);
-  const hot = new Set();
-  if (selected) { hot.add('e:' + selected); edges.forEach(([a, b]) => { if (nodes[b].id === 'e:' + selected) hot.add(nodes[a].id); }); }
-  for (const [a, b] of edges) {
-    const on = selected && nodes[b].id === 'e:' + selected;
-    ctx.strokeStyle = on ? c('--accent') : c('--rule'); ctx.lineWidth = on ? 1.6 : 1; ctx.globalAlpha = selected && !on ? 0.35 : 1;
+  const near = new Set(selected ? [selected, ...(ents.get(selected)?.links.keys() || [])] : []);
+  for (const [a, b, cnt] of edges) {
+    const on = selected && (nodes[a].ent.key === selected || nodes[b].ent.key === selected);
+    ctx.strokeStyle = on ? c('--accent') : c('--muted'); ctx.lineWidth = Math.min(3, 0.8 + cnt * 0.4) + (on ? 0.6 : 0);
+    ctx.globalAlpha = selected ? (on ? 0.9 : 0.12) : 0.35;
     ctx.beginPath(); ctx.moveTo(nodes[a].x, nodes[a].y); ctx.lineTo(nodes[b].x, nodes[b].y); ctx.stroke();
   }
-  ctx.globalAlpha = 1; ctx.font = `500 12px ${c('--body')}`; ctx.textAlign = 'center';
+  ctx.font = `500 12px ${c('--body')}`; ctx.textAlign = 'center';
   for (const n of nodes) {
-    const dim = selected && !hot.has(n.id);
-    ctx.globalAlpha = dim ? 0.3 : 1;
-    ctx.fillStyle = n.ent ? (n.ent.key === selected ? c('--accent') : n.ent.tag ? c('--warn') : c('--accent')) : c('--muted');
-    ctx.beginPath(); ctx.arc(n.x, n.y, n.r, 0, Math.PI * 2); ctx.fill();
-    if (n.ent) { ctx.fillStyle = c('--ink'); ctx.fillText((n.ent.tag ? '#' : '') + n.ent.name, n.x, n.y - n.r - 5); }
+    const e = n.ent, dim = selected && !near.has(e.key);
+    ctx.globalAlpha = dim ? 0.25 : 1;
+    ctx.fillStyle = e.tag ? c('--warn') : c('--accent');
+    ctx.beginPath(); ctx.arc(n.x, n.y, n.r, 0, Math.PI * 2);
+    if (e.page) ctx.fill(); else { ctx.lineWidth = 2; ctx.strokeStyle = ctx.fillStyle; ctx.stroke(); }
+    if (e.key === selected) { ctx.lineWidth = 2; ctx.strokeStyle = c('--ink'); ctx.beginPath(); ctx.arc(n.x, n.y, n.r + 3, 0, Math.PI * 2); ctx.stroke(); }
+    ctx.fillStyle = c('--ink'); ctx.fillText((e.tag ? '#' : '') + e.name, n.x, n.y - n.r - 5);
   }
   ctx.globalAlpha = 1;
 
   const e = selected && ents.get(selected);
-  $('g-sel-title').textContent = e ? (e.tag ? '#' : '') + e.name : 'Выбери узел';
-  $('g-sel-list').replaceChildren(...(e ? e.items.map(it => el('li', { class: it.done ? 'done' : '' },
+  $('g-sel-title').textContent = e ? (e.tag ? '#' : '') + e.name : 'Выбери страницу';
+  $('g-sel-kind').textContent = e ? [e.page ? (e.page.kind || 'страница') : 'страницы ещё нет, только упоминания',
+    e.links.size ? 'связи: ' + [...e.links.keys()].map(k => ents.get(k).name).slice(0, 6).join(', ') : ''].filter(Boolean).join(' · ') : 'или создай новую: впиши имя и первый факт';
+  if (e && document.activeElement !== $('fa-name')) $('fa-name').value = e.name;
+  const facts = e && e.page ? e.page.facts : [];
+  $('g-facts').replaceChildren(...(facts.length ? facts.map(f => el('li', {},
+    el('div', { class: 'grow1' }, el('div', {}, rich(f.text)), f.date ? el('div', { class: 'meta', text: short(f.date) }) : null),
+    el('button', { class: 'x', 'aria-label': 'Удалить факт', title: 'Удалить', text: '×', onclick: () => post('/api/memory/delete', { name: e.page.name, line: f.line, raw: f.raw }) })))
+    : e ? [el('li', {}, el('span', { class: 'empty', text: 'Фактов пока нет. Добавь первый ниже или скажи Джарвису «запомни про ' + e.name + ': …».' }))] : []));
+  const mentions = e ? e.mentions : [];
+  $('g-mentions-box').hidden = !mentions.length;
+  $('g-mentions').replaceChildren(...mentions.map(it => el('li', { class: it.done ? 'done' : '' },
     el('div', { class: 'grow1' }, el('div', {}, rich(it.text)), it.date ? el('div', { class: 'meta', text: short(it.date) }) : null),
-    el('span', { class: 'kind', text: KIND[it.kind] }))) : [el('li', {}, el('span', { class: 'empty', text: 'Здесь появятся все записи про выбранного человека, место или тему.' }))]));
+    el('span', { class: 'kind', text: KIND[it.kind] }))));
 }
 $('g-canvas').addEventListener('click', ev => {
   const r = ev.currentTarget.getBoundingClientRect(), x = ev.clientX - r.left, y = ev.clientY - r.top;
-  let best = null, bd = 24 * 24;
+  let best = null, bd = 26 * 26;
   for (const n of graphCache.nodes) { const d = (n.x - x) ** 2 + (n.y - y) ** 2; if (d < bd) { bd = d; best = n; } }
-  if (!best) { selected = ''; } else if (best.ent) { selected = best.ent.key; } else { const first = best.item.ents.keys().next().value; if (first) selected = first; }
+  selected = best ? best.ent.key : '';
   renderGraph();
+});
+$('f-fact').addEventListener('submit', ev => {
+  ev.preventDefault();
+  const name = $('fa-name').value.trim(), text = $('fa-text').value.trim();
+  if (!name || !text) return;
+  $('fa-text').value = '';
+  selected = entKey(name);
+  post('/api/memory/add', { name, text });
 });
 let resizeTimer; addEventListener('resize', () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(renderGraph, 150); });
 
