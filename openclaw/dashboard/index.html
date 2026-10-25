@@ -3,16 +3,18 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>Пульт жизни</title>
+<title>Сводка</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 32 32%27%3E%3Crect width=%2732%27 height=%2732%27 rx=%277%27 fill=%27%231f6f5c%27/%3E%3Cpath d=%27M9 21h14M9 15h9M9 9h14%27 stroke=%27white%27 stroke-width=%273%27 stroke-linecap=%27round%27/%3E%3C/svg%3E">
+<meta name="apple-mobile-web-app-title" content="Сводка">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Unbounded:wght@500;700&family=Golos+Text:wght@400;500;600&family=JetBrains+Mono:wght@400;600&display=swap">
 <style>
-/* Layout: a ledger page — summary strip on top, then three working columns (money, tasks, inbox) that stack on a phone. */
+/* Layout: a ledger page with two tabs. Summary strip on top, working columns below; everything stacks on a phone. */
 :root {
   --paper: #f3f5f2; --sheet: #ffffff; --ink: #1b2420; --muted: #5f6b66; --rule: #dfe4e0;
   --grid: rgba(27, 36, 32, 0.045); --accent: #1f6f5c; --accent-soft: #dcefe8;
+  --work: #3d5a80; --work-soft: #e1e8f2;
   --good: #2f8a4c; --warn: #b7791f; --bad: #c2412d;
   --display: "Unbounded", "Arial Black", system-ui, sans-serif;
   --body: "Golos Text", "Segoe UI", system-ui, sans-serif;
@@ -23,6 +25,7 @@
   :root {
     --paper: #121715; --sheet: #1a201e; --ink: #e6ece9; --muted: #95a39d; --rule: #2b3431;
     --grid: rgba(230, 236, 233, 0.035); --accent: #5cc7a8; --accent-soft: #1d3a32;
+    --work: #8fb0d9; --work-soft: #22303f;
     --good: #5fc27d; --warn: #e0a44a; --bad: #ee7a66; color-scheme: dark;
   }
 }
@@ -37,22 +40,32 @@ body {
   padding-right: max(16px, env(safe-area-inset-right, 0px));
   padding-block: max(24px, env(safe-area-inset-top, 0px)) max(48px, env(safe-area-inset-bottom, 0px));
 }
+body.is-work { --accent: var(--work); --accent-soft: var(--work-soft); }
 .wrap { max-width: 1180px; margin: 0 auto; display: grid; gap: 20px; }
-header { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 8px 16px; }
+.page { display: grid; gap: 20px; min-width: 0; }
+header { display: flex; flex-wrap: wrap; align-items: end; justify-content: space-between; gap: 12px 16px; }
 h1 { font: 700 clamp(22px, 4vw, 30px)/1.1 var(--display); margin: 0; letter-spacing: -0.01em; }
 .date { font: 500 13px var(--mono); color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; }
 .status { font-size: 13px; color: var(--muted); }
 .status.err { color: var(--bad); }
+.tabs { display: inline-flex; background: var(--sheet); border: 1px solid var(--rule); border-radius: 10px; padding: 3px; gap: 2px; }
+.tabs a { padding: 6px 16px; border-radius: 7px; text-decoration: none; color: var(--muted); font-weight: 600; font-size: 14px; }
+.tabs a[aria-current="page"] { background: var(--accent); color: var(--sheet); }
+.tabs a:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.right { display: grid; justify-items: end; gap: 6px; }
+@media (max-width: 520px) { .right { justify-items: start; } }
 .strip { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; }
 @media (max-width: 520px) { .strip { grid-template-columns: 1fr 1fr; } .tile .v { font-size: 20px; } }
 .tile { background: var(--sheet); border: 1px solid var(--rule); border-radius: 10px; padding: 14px 16px; display: grid; gap: 6px; min-width: 0; }
 .tile .k { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.07em; }
 .tile .v { font: 600 24px/1.1 var(--mono); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
 .tile .s { font-size: 13px; color: var(--muted); }
-.cols { display: grid; grid-template-columns: 1.25fr 1fr 1fr; gap: 16px; align-items: start; }
-@media (max-width: 980px) { .cols { grid-template-columns: 1fr 1fr; } .cols > :first-child { grid-column: 1 / -1; } }
+.cols { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; align-items: start; }
+.cols .wide { grid-column: span 2; }
+.cols .tall { grid-row: span 2; }
+@media (max-width: 980px) { .cols { grid-template-columns: 1fr 1fr; } .cols .wide { grid-column: 1 / -1; } .cols .tall { grid-row: auto; } }
 @media (max-width: 640px) { .cols { grid-template-columns: 1fr; } }
-section { background: var(--sheet); border: 1px solid var(--rule); border-radius: 12px; padding: 16px; display: grid; gap: 14px; min-width: 0; }
+section { background: var(--sheet); border: 1px solid var(--rule); border-radius: 12px; padding: 16px; display: grid; gap: 14px; min-width: 0; align-content: start; }
 h2 { font: 500 15px var(--display); margin: 0; display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
 h2 small { font: 400 12px var(--mono); color: var(--muted); }
 form { display: flex; flex-wrap: wrap; gap: 8px; }
@@ -66,7 +79,9 @@ button.add { background: var(--accent); color: var(--sheet); border: 0; border-r
 button.add:hover { filter: brightness(1.08); }
 button.x { background: none; border: 0; color: var(--muted); cursor: pointer; padding: 2px 6px; border-radius: 6px; font-size: 16px; line-height: 1; }
 button.x:hover { color: var(--bad); background: var(--paper); }
-.cats { display: grid; gap: 8px; }
+.money-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; }
+@media (max-width: 640px) { .money-grid { grid-template-columns: 1fr; } }
+.cats { display: grid; gap: 8px; align-content: start; }
 .cat { display: grid; grid-template-columns: 110px 1fr auto; gap: 10px; align-items: center; font-size: 13px; }
 .cat .bar { height: 10px; background: var(--paper); border-radius: 5px; overflow: hidden; }
 .cat .bar i { display: block; height: 100%; background: var(--accent); border-radius: 5px; }
@@ -82,8 +97,13 @@ li:first-child { border-top: 0; }
 .done .grow1 { text-decoration: line-through; color: var(--muted); }
 input[type="checkbox"] { width: 18px; height: 18px; accent-color: var(--accent); padding: 0; flex: none; }
 .empty { color: var(--muted); font-size: 14px; padding: 6px 0; display: block; }
+.links { display: grid; gap: 8px; }
+.links a { display: grid; gap: 2px; padding: 10px 12px; border: 1px solid var(--rule); border-radius: 8px; text-decoration: none; color: inherit; background: var(--paper); }
+.links a:hover { border-color: var(--accent); }
+.links a b { font-weight: 600; }
+.links a span { font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }
 .hint { font-size: 13px; color: var(--muted); margin: 0; }
-.hint code { font: 12px var(--mono); background: var(--paper); padding: 1px 5px; border-radius: 4px; }
+[hidden] { display: none !important; }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
 </style>
 </head>
@@ -92,61 +112,138 @@ input[type="checkbox"] { width: 18px; height: 18px; accent-color: var(--accent);
   <header>
     <div>
       <div class="date" id="today">—</div>
-      <h1>Пульт жизни</h1>
+      <h1>Сводка</h1>
     </div>
-    <div class="status" id="status">Загружаю…</div>
+    <div class="right">
+      <nav class="tabs" aria-label="Разделы">
+        <a href="#life" id="tab-life">Личное</a>
+        <a href="#work" id="tab-work">Работа</a>
+      </nav>
+      <div class="status" id="status">Загружаю…</div>
+    </div>
   </header>
 
-  <div class="strip">
-    <div class="tile"><span class="k">Потрачено за месяц</span><span class="v" id="t-spent">—</span><span class="s" id="t-spent-s"></span></div>
-    <div class="tile"><span class="k">Сегодня</span><span class="v" id="t-today">—</span><span class="s" id="t-avg"></span></div>
-    <div class="tile"><span class="k">Дела</span><span class="v" id="t-tasks">—</span><span class="s" id="t-tasks-s"></span></div>
-    <div class="tile"><span class="k">Заметки</span><span class="v" id="t-notes">—</span><span class="s" id="t-notes-s"></span></div>
+  <!-- ===== Личное ===== -->
+  <div id="page-life" class="page">
+    <div class="strip">
+      <div class="tile"><span class="k">Потрачено за месяц</span><span class="v" id="t-spent">—</span><span class="s" id="t-spent-s"></span></div>
+      <div class="tile"><span class="k">Сегодня</span><span class="v" id="t-today">—</span><span class="s" id="t-avg"></span></div>
+      <div class="tile"><span class="k">Дела</span><span class="v" id="t-tasks">—</span><span class="s" id="t-tasks-s"></span></div>
+      <div class="tile"><span class="k">Планы</span><span class="v" id="t-plans">—</span><span class="s" id="t-plans-s"></span></div>
+    </div>
+
+    <div class="cols">
+      <section class="wide" aria-labelledby="h-money">
+        <h2 id="h-money">Траты <small id="month-name"></small></h2>
+        <form id="f-exp">
+          <input class="amt" id="e-amt" type="number" inputmode="decimal" min="0" step="0.01" placeholder="Сумма" required aria-label="Сумма">
+          <select id="e-cat" aria-label="Категория"></select>
+          <input class="grow" id="e-note" placeholder="На что (необязательно)" aria-label="Комментарий">
+          <button class="add" type="submit">Добавить</button>
+        </form>
+        <div class="money-grid">
+          <div class="cats" id="cats"></div>
+          <ul id="exp-list"></ul>
+        </div>
+      </section>
+
+      <section aria-labelledby="h-tasks">
+        <h2 id="h-tasks">Что сделать <small id="tasks-count"></small></h2>
+        <form data-list="tasks">
+          <input class="grow" name="title" placeholder="Новое дело" required aria-label="Новое дело">
+          <input name="due" type="date" aria-label="Срок">
+          <button class="add" type="submit">Добавить</button>
+        </form>
+        <ul id="list-tasks"></ul>
+      </section>
+
+      <section aria-labelledby="h-plans">
+        <h2 id="h-plans">Планы и цели <small>на месяцы вперёд</small></h2>
+        <form data-list="plans">
+          <input class="grow" name="title" placeholder="Например, накопить на отпуск" required aria-label="Новый план">
+          <input name="due" type="date" aria-label="К какому сроку">
+          <button class="add" type="submit">Добавить</button>
+        </form>
+        <ul id="list-plans"></ul>
+      </section>
+
+      <section class="wide" aria-labelledby="h-notes">
+        <h2 id="h-notes">Заметки <small>всё, что закинул</small></h2>
+        <form data-notes="notes">
+          <textarea name="text" placeholder="Мысль, ссылка, идея…" required aria-label="Новая заметка"></textarea>
+          <button class="add" type="submit">Сохранить</button>
+        </form>
+        <ul id="notes-notes"></ul>
+      </section>
+    </div>
   </div>
 
-  <div class="cols">
-    <section aria-labelledby="h-money">
-      <h2 id="h-money">Траты <small id="month-name"></small></h2>
-      <form id="f-exp">
-        <input class="amt" id="e-amt" type="number" inputmode="decimal" min="0" step="0.01" placeholder="Сумма" required aria-label="Сумма">
-        <select id="e-cat" aria-label="Категория"></select>
-        <input class="grow" id="e-note" placeholder="На что (необязательно)" aria-label="Комментарий">
-        <button class="add" type="submit">Добавить</button>
-      </form>
-      <div class="cats" id="cats"></div>
-      <ul id="exp-list"></ul>
-    </section>
+  <!-- ===== Работа ===== -->
+  <div id="page-work" class="page" hidden>
+    <div class="strip">
+      <div class="tile"><span class="k">Рабочие дела</span><span class="v" id="w-open">—</span><span class="s" id="w-open-s"></span></div>
+      <div class="tile"><span class="k">На сегодня</span><span class="v" id="w-today">—</span><span class="s" id="w-today-s"></span></div>
+      <div class="tile"><span class="k">Сделано за неделю</span><span class="v" id="w-done">—</span><span class="s">последние 7 дней</span></div>
+      <div class="tile"><span class="k">Рабочие заметки</span><span class="v" id="w-notes">—</span><span class="s" id="w-notes-s"></span></div>
+    </div>
 
-    <section aria-labelledby="h-tasks">
-      <h2 id="h-tasks">Что сделать <small id="tasks-count"></small></h2>
-      <form id="f-task">
-        <input class="grow" id="t-title" placeholder="Новое дело" required aria-label="Новое дело">
-        <input id="t-due" type="date" aria-label="Срок">
-        <button class="add" type="submit">Добавить</button>
-      </form>
-      <ul id="task-list"></ul>
-    </section>
+    <div class="cols">
+      <section class="wide" aria-labelledby="h-wtasks">
+        <h2 id="h-wtasks">Дела по работе <small id="wtasks-count"></small></h2>
+        <form data-list="work">
+          <input class="grow" name="title" placeholder="Например, ответить на отзыв в 2ГИС" required aria-label="Новое рабочее дело">
+          <input name="due" type="date" aria-label="Срок">
+          <button class="add" type="submit">Добавить</button>
+        </form>
+        <ul id="list-work"></ul>
+      </section>
 
-    <section aria-labelledby="h-notes">
-      <h2 id="h-notes">Заметки <small>всё, что закинул</small></h2>
-      <form id="f-note">
-        <textarea id="n-text" placeholder="Мысль, ссылка, идея…" required aria-label="Новая заметка"></textarea>
-        <button class="add" type="submit">Сохранить</button>
-      </form>
-      <ul id="note-list"></ul>
-    </section>
+      <section class="tall" aria-labelledby="h-links">
+        <h2 id="h-links">Быстрые ссылки</h2>
+        <div class="links" id="links"></div>
+      </section>
+
+      <section class="wide" aria-labelledby="h-wnotes">
+        <h2 id="h-wnotes">Заметки по работе <small>идеи, договорённости, клиенты</small></h2>
+        <form data-notes="work">
+          <textarea name="text" placeholder="Договорились с поставщиком плёнки на скидку 10%…" required aria-label="Новая рабочая заметка"></textarea>
+          <button class="add" type="submit">Сохранить</button>
+        </form>
+        <ul id="notes-work"></ul>
+      </section>
+    </div>
   </div>
-  <p class="hint">Пиши Джарвису в Telegram: «потратил 500 на такси», «надо оплатить интернет до пятницы», «запомни: …». Всё появится здесь само в течение 10 секунд.</p>
+
+  <p class="hint">Пиши Джарвису в Telegram: «потратил 500 на такси», «надо оплатить интернет до пятницы», «по работе: позвонить поставщику плёнки», «запомни: …». Всё появится здесь само в течение 10 секунд.</p>
 </div>
 
 <script>
+// Ссылки на странице «Работа». Поменять или добавить: правь этот список.
+const LINKS = [
+  { title: 'Monotonica: сайт', url: 'https://monotonica-test.vercel.app' },
+  { title: 'Monotonica: заявки и админка', url: 'https://monotonica-test.vercel.app/admin' },
+  { title: 'CRM Monotonica', url: 'https://monotonica.online' },
+  { title: '2ГИС: кабинет компании', url: 'https://account.2gis.com' },
+  { title: 'Яндекс Бизнес', url: 'https://yandex.ru/sprav' },
+  { title: 'Harbin: CRM ресторана', url: 'https://harbin38.online' },
+  { title: 'Instafit: сайт', url: 'https://instafit-eight.vercel.app' },
+];
 const CATS = ['Еда', 'Кафе', 'Транспорт', 'Дом', 'Связь и подписки', 'Развлечения', 'Здоровье', 'Одежда', 'Подарки', 'Другое'];
 const SIGNS = { RUB: '₽', USD: '$', EUR: '€', KZT: '₸', BYN: 'Br', UAH: '₴' };
 const WD = ['вс', 'пн', 'вт', 'ср', 'чт', 'пт', 'сб'];
-const MONTHS_GEN = ['января', 'февраля', 'марта', 'апреля', 'мая', 'июня', 'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря'];
 const MONTHS = ['январь', 'февраль', 'март', 'апрель', 'май', 'июнь', 'июль', 'август', 'сентябрь', 'октябрь', 'ноябрь', 'декабрь'];
+const MONTHS_GEN = ['января', 'февраля', 'марта', 'апреля', 'мая', 'июня', 'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря'];
+const EMPTY = {
+  tasks: 'Дел пока нет. Скажи Джарвису «надо …» или запиши сверху.',
+  plans: 'Планов пока нет. Например: «план: накопить 100 тысяч к лету».',
+  work: 'Рабочих дел нет. Скажи Джарвису «по работе: …» или запиши сверху.',
+};
+const NOTE_EMPTY = {
+  notes: 'Скажи Джарвису «запомни: …» или кинь ссылку, и она будет здесь.',
+  work: 'Скажи Джарвису «рабочая заметка: …», и она будет здесь.',
+};
 const $ = id => document.getElementById(id);
-let data = { expenses: [], tasks: [], notes: [], today: '' };
+let data = { expenses: [], tasks: { tasks: [], plans: [], work: [] }, notes: { notes: [], work: [] }, today: '' };
 let lastJson = '';
 
 const money = (n, cur) => `${Math.round(n).toLocaleString('ru-RU')} ${SIGNS[cur] || cur || ''}`.trim();
@@ -179,7 +276,43 @@ async function post(path, body) {
   await load();
 }
 
-$('e-cat').append(...CATS.map(c => el('option', { text: c })));
+// ----- pages -----
+function showPage() {
+  const work = location.hash === '#work';
+  $('page-life').hidden = work; $('page-work').hidden = !work;
+  document.body.classList.toggle('is-work', work);
+  for (const [tab, on] of [[$('tab-life'), !work], [$('tab-work'), work]]) {
+    if (on) tab.setAttribute('aria-current', 'page'); else tab.removeAttribute('aria-current');
+  }
+}
+addEventListener('hashchange', showPage);
+
+// ----- shared list renderers -----
+function sortTasks(list) {
+  return [...list].sort((a, b) => (a.done - b.done) || (a.due || '9').localeCompare(b.due || '9') || a.line - b.line);
+}
+function renderTasks(key) {
+  const today = data.today;
+  const items = sortTasks(data.tasks[key] || []);
+  const verb = key === 'plans' ? 'к ' : '';
+  $('list-' + key).replaceChildren(...(items.length ? items.map(t => {
+    const isLate = !t.done && t.due && t.due < today;
+    return el('li', { class: t.done ? 'done' : '' },
+      el('input', { type: 'checkbox', 'aria-label': 'Готово', ...(t.done ? { checked: '' } : {}), onchange: () => post('/api/tasks/toggle', { list: key, line: t.line, raw: t.raw }) }),
+      el('div', { class: 'grow1', text: t.title }),
+      t.due ? el('span', { class: 'chip' + (isLate ? ' late' : ''), text: t.due === today ? 'сегодня' : verb + short(t.due) }) : null,
+      el('button', { class: 'x', 'aria-label': 'Удалить', title: 'Удалить', text: '×', onclick: () => post('/api/tasks/delete', { list: key, line: t.line, raw: t.raw }) }));
+  }) : [el('li', {}, el('span', { class: 'empty', text: EMPTY[key] }))]));
+  return items;
+}
+function renderNotes(key) {
+  const notes = [...(data.notes[key] || [])].reverse();
+  $('notes-' + key).replaceChildren(...(notes.length ? notes.slice(0, 40).map(n => el('li', {},
+    el('div', { class: 'grow1' }, el('div', { text: n.text }), el('div', { class: 'meta', text: `${short(n.date)} ${n.time}` })),
+    el('button', { class: 'x', 'aria-label': 'Удалить заметку', title: 'Удалить', text: '×', onclick: () => post('/api/notes/delete', { list: key, line: n.line, raw: n.raw }) })))
+    : [el('li', {}, el('span', { class: 'empty', text: NOTE_EMPTY[key] }))]));
+  return notes;
+}
 
 function sumByCurrency(rows) {
   const t = {};
@@ -193,6 +326,7 @@ function render() {
   $('today').textContent = `${WD[d.getDay()]}, ${d.getDate()} ${MONTHS_GEN[d.getMonth()]} ${d.getFullYear()}`;
   $('month-name').textContent = MONTHS[d.getMonth()];
 
+  // money
   const month = data.expenses.filter(e => e.date.startsWith(today.slice(0, 7)));
   const totals = sumByCurrency(month);
   const main = totals[0] ? totals[0][0] : 'RUB';
@@ -201,44 +335,54 @@ function render() {
   const todaySum = month.filter(e => e.date === today && e.currency === main).reduce((s, e) => s + e.amount, 0);
   $('t-today').textContent = money(todaySum, main);
   $('t-avg').textContent = `в среднем ${money((totals[0] ? totals[0][1] : 0) / d.getDate(), main)} в день`;
-
   const byCat = {};
   for (const e of month.filter(e => e.currency === main)) byCat[e.category] = (byCat[e.category] || 0) + e.amount;
   const catRows = Object.entries(byCat).sort((a, b) => b[1] - a[1]);
   const max = catRows[0] ? catRows[0][1] : 1;
-  $('cats').replaceChildren(...catRows.map(([c, v]) => el('div', { class: 'cat' },
-    el('span', { text: c }), el('div', { class: 'bar' }, el('i', { style: `width:${v / max * 100}%` })), el('b', { text: money(v, main) }))));
-
-  const recent = [...data.expenses].sort((a, b) => b.date.localeCompare(a.date) || b.id - a.id).slice(0, 15);
+  $('cats').replaceChildren(...(catRows.length ? catRows.map(([c, v]) => el('div', { class: 'cat' },
+    el('span', { text: c }), el('div', { class: 'bar' }, el('i', { style: `width:${v / max * 100}%` })), el('b', { text: money(v, main) })))
+    : [el('span', { class: 'empty', text: 'Здесь будет разбивка по категориям за месяц.' })]));
+  const recent = [...data.expenses].sort((a, b) => b.date.localeCompare(a.date) || b.id - a.id).slice(0, 12);
   $('exp-list').replaceChildren(...(recent.length ? recent.map(e => el('li', {},
     el('div', { class: 'grow1' }, el('div', { text: e.note || e.category }), el('div', { class: 'meta', text: `${e.category} · ${short(e.date)}` })),
     el('span', { class: 'money', text: money(e.amount, e.currency) }),
     el('button', { class: 'x', 'aria-label': 'Удалить трату', title: 'Удалить', text: '×', onclick: () => post('/api/expenses/delete', { id: e.id, date: e.date, amount: e.amount }) })))
     : [el('li', {}, el('span', { class: 'empty', text: 'Трат пока нет. Скажи Джарвису «потратил 300 на кофе» или впиши сумму сверху.' }))]));
 
-  const tasks = [...data.tasks].sort((a, b) => (a.done - b.done) || (a.due || '9').localeCompare(b.due || '9') || a.line - b.line);
+  // personal tasks and plans
+  const tasks = renderTasks('tasks');
   const open = tasks.filter(t => !t.done);
   const late = open.filter(t => t.due && t.due < today);
   $('t-tasks').textContent = String(open.length);
   $('t-tasks-s').textContent = open.length ? (late.length ? `просрочено: ${late.length}` : 'всё в срок') : 'открытых дел нет';
   $('tasks-count').textContent = `${open.length} открыто`;
-  $('task-list').replaceChildren(...(tasks.length ? tasks.map(t => {
-    const isLate = !t.done && t.due && t.due < today;
-    return el('li', { class: t.done ? 'done' : '' },
-      el('input', { type: 'checkbox', 'aria-label': 'Готово', ...(t.done ? { checked: '' } : {}), onchange: () => post('/api/tasks/toggle', { line: t.line, raw: t.raw }) }),
-      el('div', { class: 'grow1', text: t.title }),
-      t.due ? el('span', { class: 'chip' + (isLate ? ' late' : ''), text: t.due === today ? 'сегодня' : short(t.due) }) : null,
-      el('button', { class: 'x', 'aria-label': 'Удалить дело', title: 'Удалить', text: '×', onclick: () => post('/api/tasks/delete', { line: t.line, raw: t.raw }) }));
-  }) : [el('li', {}, el('span', { class: 'empty', text: 'Дел пока нет. Скажи Джарвису «надо …» или запиши сверху.' }))]));
+  const plans = renderTasks('plans');
+  const openPlans = plans.filter(t => !t.done);
+  const nextPlan = openPlans.find(t => t.due);
+  $('t-plans').textContent = String(openPlans.length);
+  $('t-plans-s').textContent = nextPlan ? `ближайший к ${short(nextPlan.due)}` : (plans.length ? `выполнено: ${plans.length - openPlans.length}` : 'пока не задано');
+  renderNotes('notes');
 
-  const notes = [...data.notes].reverse();
-  $('t-notes').textContent = String(notes.length);
-  $('t-notes-s').textContent = notes[0] ? `последняя ${short(notes[0].date)} ${notes[0].time}` : 'пока пусто';
-  $('note-list').replaceChildren(...(notes.length ? notes.slice(0, 30).map(n => el('li', {},
-    el('div', { class: 'grow1' }, el('div', { text: n.text }), el('div', { class: 'meta', text: `${short(n.date)} ${n.time}` })),
-    el('button', { class: 'x', 'aria-label': 'Удалить заметку', title: 'Удалить', text: '×', onclick: () => post('/api/notes/delete', { line: n.line, raw: n.raw }) })))
-    : [el('li', {}, el('span', { class: 'empty', text: 'Скажи Джарвису «запомни: …» или кинь ссылку, и она будет здесь.' }))]));
+  // work
+  const work = renderTasks('work');
+  const wOpen = work.filter(t => !t.done);
+  const wLate = wOpen.filter(t => t.due && t.due < today);
+  const wToday = wOpen.filter(t => t.due === today);
+  const weekAgo = new Date(d); weekAgo.setDate(d.getDate() - 6);
+  const weekKey = weekAgo.toISOString().slice(0, 10);
+  $('w-open').textContent = String(wOpen.length);
+  $('w-open-s').textContent = wLate.length ? `просрочено: ${wLate.length}` : 'всё в срок';
+  $('w-today').textContent = String(wToday.length);
+  $('w-today-s').textContent = wToday[0] ? wToday[0].title : 'на сегодня ничего';
+  $('w-done').textContent = String(work.filter(t => t.done && t.doneOn >= weekKey).length);
+  $('wtasks-count').textContent = `${wOpen.length} открыто`;
+  const wNotes = renderNotes('work');
+  $('w-notes').textContent = String(wNotes.length);
+  $('w-notes-s').textContent = wNotes[0] ? `последняя ${short(wNotes[0].date)}` : 'пока пусто';
 }
+
+$('links').replaceChildren(...LINKS.map(l => el('a', { href: l.url, target: '_blank', rel: 'noopener' }, el('b', { text: l.title }), el('span', { text: l.url.replace(/^https?:\/\//, '') }))));
+$('e-cat').append(...CATS.map(c => el('option', { text: c })));
 
 $('f-exp').addEventListener('submit', ev => {
   ev.preventDefault();
@@ -248,20 +392,21 @@ $('f-exp').addEventListener('submit', ev => {
   $('e-amt').value = ''; $('e-note').value = '';
   post('/api/expenses/add', body);
 });
-$('f-task').addEventListener('submit', ev => {
+document.querySelectorAll('form[data-list]').forEach(f => f.addEventListener('submit', ev => {
   ev.preventDefault();
-  const title = $('t-title').value.trim(); if (!title) return;
-  const body = { title, due: $('t-due').value };
-  $('t-title').value = ''; $('t-due').value = '';
+  const title = f.elements.namedItem('title').value.trim(); if (!title) return;
+  const body = { list: f.dataset.list, title, due: f.elements.namedItem('due').value };
+  f.reset();
   post('/api/tasks/add', body);
-});
-$('f-note').addEventListener('submit', ev => {
+}));
+document.querySelectorAll('form[data-notes]').forEach(f => f.addEventListener('submit', ev => {
   ev.preventDefault();
-  const text = $('n-text').value.trim(); if (!text) return;
-  $('n-text').value = '';
-  post('/api/notes/add', { text });
-});
+  const text = f.elements.namedItem('text').value.trim(); if (!text) return;
+  f.reset();
+  post('/api/notes/add', { list: f.dataset.notes, text });
+}));
 
+showPage();
 load();
 setInterval(() => { if (!document.hidden) load(); }, 10000);
 document.addEventListener('visibilitychange', () => { if (!document.hidden) load(); });

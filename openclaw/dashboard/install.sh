@@ -1,5 +1,5 @@
 #!/bin/bash
-# Ставит «Пульт жизни» на сервер рядом с OpenClaw:
+# Ставит дашборд «Сводка» на сервер рядом с OpenClaw:
 #   - дашборд как службу systemd (слушает только 127.0.0.1:8787);
 #   - Caddy: HTTPS-сертификат и вход по паролю, адрес вида https://1-2-3-4.sslip.io.
 # Запуск (под пользователем, от имени которого работает OpenClaw):
@@ -47,7 +47,7 @@ cp "$SRC_DIR/server.py" "$SRC_DIR/index.html" "$APP_DIR/"
 echo "==> Служба life-dashboard"
 sudo tee /etc/systemd/system/life-dashboard.service >/dev/null <<EOF
 [Unit]
-Description=Life dashboard
+Description=Svodka dashboard
 After=network.target
 
 [Service]

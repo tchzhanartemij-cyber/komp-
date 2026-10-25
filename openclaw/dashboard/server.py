@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
-"""Life dashboard: a small web server over the files the OpenClaw life-ledger skill keeps.
+"""«Сводка»: a small web server over the files the OpenClaw life-ledger skill keeps.
 
 The data lives in plain files in LIFE_DIR (default ~/.openclaw/workspace/life):
-  expenses.csv  date,amount,currency,category,note
-  tasks.md      - [ ] title (до 2026-10-30)   /   - [x] title (сделано 2026-10-25)
-  notes.md      - 2026-10-25 14:30 · text
+  expenses.csv     date,amount,currency,category,note
+  tasks.md         personal to-dos   - [ ] title (до 2026-10-30) / - [x] title (сделано 2026-10-25)
+  plans.md         personal plans and goals, same line format as tasks.md
+  notes.md         personal notes    - 2026-10-25 14:30 · text
+  work-tasks.md    work to-dos, same format as tasks.md
+  work-notes.md    work notes, same format as notes.md
 
 Jarvis writes them from Telegram; this server shows them and lets you edit them
 from any browser. Only the Python standard library is used.
@@ -27,6 +30,10 @@ PORT = int(os.environ.get("DASHBOARD_PORT", "8787"))
 STATIC = Path(__file__).resolve().parent / "index.html"
 
 EXPENSE_FIELDS = ["date", "amount", "currency", "category", "note"]
+# Which file each list lives in; the page names lists, never file paths.
+TASK_FILES = {"tasks": "tasks.md", "plans": "plans.md", "work": "work-tasks.md"}
+NOTE_FILES = {"notes": "notes.md", "work": "work-notes.md"}
+
 TASK_RE = re.compile(r"^\s*[-*]\s+\[( |x|X)\]\s+(.*?)\s*$")
 DUE_RE = re.compile(r"\(до (\d{4}-\d{2}-\d{2})\)")
 DONE_RE = re.compile(r"\(сделано (\d{4}-\d{2}-\d{2})\)")
@@ -91,11 +98,11 @@ def write_expenses(rows):
     write_text("expenses.csv", out.getvalue())
 
 
-# --- tasks --------------------------------------------------------------
+# --- tasks, plans -------------------------------------------------------
 
-def read_tasks():
+def read_tasks(name):
     tasks = []
-    for i, line in enumerate(read_text("tasks.md").splitlines()):
+    for i, line in enumerate(read_text(name).splitlines()):
         m = TASK_RE.match(line)
         if not m:
             continue
@@ -125,9 +132,9 @@ def format_task(title, done, due, done_on):
 
 # --- notes --------------------------------------------------------------
 
-def read_notes():
+def read_notes(name):
     notes = []
-    for i, line in enumerate(read_text("notes.md").splitlines()):
+    for i, line in enumerate(read_text(name).splitlines()):
         m = NOTE_RE.match(line)
         if m:
             notes.append({"line": i, "raw": line, "date": m.group(1), "time": m.group(2) or "", "text": m.group(3)})
@@ -152,17 +159,15 @@ def replace_line(name, line_no, expected, new_line):
     write_text(name, "\n".join(lines) + ("\n" if lines else ""))
 
 
-def append_line(name, line, header=None):
+def append_line(name, line):
     text = read_text(name)
-    if not text and header:
-        text = header
     if text and not text.endswith("\n"):
         text += "\n"
     write_text(name, text + line + "\n")
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "LifeDashboard/1"
+    server_version = "Svodka/1"
 
     def log_message(self, fmt, *args):
         pass
@@ -193,8 +198,12 @@ class Handler(BaseHTTPRequestHandler):
             self.wfile.write(data)
         elif self.path == "/api/data":
             with lock:
-                payload = {"expenses": read_expenses(), "tasks": read_tasks(), "notes": read_notes(),
-                           "today": datetime.now().strftime("%Y-%m-%d")}
+                payload = {
+                    "expenses": read_expenses(),
+                    "tasks": {k: read_tasks(f) for k, f in TASK_FILES.items()},
+                    "notes": {k: read_notes(f) for k, f in NOTE_FILES.items()},
+                    "today": datetime.now().strftime("%Y-%m-%d"),
+                }
             self.send_json(200, payload)
         else:
             self.send_json(404, {"error": "not found"})
@@ -206,7 +215,7 @@ class Handler(BaseHTTPRequestHandler):
                 self.route(b)
         except Conflict:
             self.send_json(409, {"error": "Запись уже изменилась. Обнови страницу."})
-        except (ValueError, KeyError, TypeError):
+        except (ValueError, KeyError, TypeError, StopIteration):
             self.send_json(400, {"error": "Неверные данные"})
 
     def route(self, b):
@@ -231,26 +240,28 @@ class Handler(BaseHTTPRequestHandler):
             del rows[i]
             write_expenses(rows)
         elif p == "/api/tasks/add":
+            name = TASK_FILES[b.get("list", "tasks")]
             title = one_line(b["title"]).replace("[", "(").replace("]", ")")
             due = b.get("due") or ""
             if not title or (due and not DATE_RE.match(due)):
                 raise ValueError()
-            append_line("tasks.md", format_task(title, False, due, ""))
+            append_line(name, format_task(title, False, due, ""))
         elif p == "/api/tasks/toggle":
-            t = next(t for t in read_tasks() if t["line"] == int(b["line"]))
+            name = TASK_FILES[b.get("list", "tasks")]
+            t = next(t for t in read_tasks(name) if t["line"] == int(b["line"]))
             if t["raw"] != b.get("raw"):
                 raise Conflict()
             done = not t["done"]
-            replace_line("tasks.md", t["line"], t["raw"], format_task(t["title"], done, t["due"], today if done else ""))
+            replace_line(name, t["line"], t["raw"], format_task(t["title"], done, t["due"], today if done else ""))
         elif p == "/api/tasks/delete":
-            replace_line("tasks.md", int(b["line"]), b.get("raw"), None)
+            replace_line(TASK_FILES[b.get("list", "tasks")], int(b["line"]), b.get("raw"), None)
         elif p == "/api/notes/add":
             text = one_line(b["text"], 2000)
             if not text:
                 raise ValueError()
-            append_line("notes.md", f"- {today} {datetime.now().strftime('%H:%M')} · {text}")
+            append_line(NOTE_FILES[b.get("list", "notes")], f"- {today} {datetime.now().strftime('%H:%M')} · {text}")
         elif p == "/api/notes/delete":
-            replace_line("notes.md", int(b["line"]), b.get("raw"), None)
+            replace_line(NOTE_FILES[b.get("list", "notes")], int(b["line"]), b.get("raw"), None)
         else:
             self.send_json(404, {"error": "not found"})
             return
@@ -259,5 +270,5 @@ class Handler(BaseHTTPRequestHandler):
 
 if __name__ == "__main__":
     LIFE_DIR.mkdir(parents=True, exist_ok=True)
-    print(f"Life dashboard on http://{HOST}:{PORT}, data in {LIFE_DIR}", flush=True)
+    print(f"Сводка on http://{HOST}:{PORT}, data in {LIFE_DIR}", flush=True)
     ThreadingHTTPServer((HOST, PORT), Handler).serve_forever()
