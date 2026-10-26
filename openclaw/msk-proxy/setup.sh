@@ -78,6 +78,8 @@ fi
 echo "   через туннель видна страна: $COUNTRY"
 
 echo "==> Служба туннеля (переподключается сама)"
+# После `su - jarvis` нет связи с systemd пользователя: указываем её явно.
+export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
 mkdir -p "$HOME/.config/systemd/user"
 cat > "$HOME/.config/systemd/user/msk-tunnel.service" <<EOF
 [Unit]
