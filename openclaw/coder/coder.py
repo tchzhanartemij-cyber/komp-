@@ -12,6 +12,8 @@
   coder.py redo N "что переделать"
   coder.py merge N
   coder.py cancel N
+  coder.py repos
+  coder.py connect <репозиторий> "что это за проект"
   coder.py worker            (запускает служба jarvis-coder)
 """
 import argparse
@@ -23,6 +25,8 @@ import signal
 import subprocess
 import sys
 import time
+import urllib.error
+import urllib.request
 from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
@@ -36,9 +40,11 @@ WORK = HOME / "work"
 CONF = HOME / ".config/jarvis"
 TOKEN_FILE = CONF / "github-token"
 ENV_FILE = CONF / "coder.env"
+REPOS_FILE = CONF / "repos.txt"   # подключённые проекты: «имя | описание» на строку
 
 OWNER = "tchzhanartemij-cyber"
 DEFAULT_REPO = "komp-"
+DEFAULT_REPOS = {DEFAULT_REPO: "Джарвис, «Сводка» (openclaw/dashboard), скрипты"}
 TASK_TIMEOUT = 60 * 60      # одна задача не дольше часа
 LIMIT_RETRY = 30 * 60       # кончился лимит подписки: пробуем снова через полчаса
 POLL = 10
@@ -135,6 +141,31 @@ def load_env():
     return env
 
 
+def full_name(repo):
+    """komp- -> tchzhanartemij-cyber/komp-; чужой владелец пишется как owner/repo."""
+    if not re.fullmatch(r"([A-Za-z0-9-]+/)?[A-Za-z0-9._-]+", repo):
+        raise ValueError(f"странное имя репозитория: {repo}")
+    return repo if "/" in repo else f"{OWNER}/{repo}"
+
+
+def load_repos():
+    repos = dict(DEFAULT_REPOS)
+    if REPOS_FILE.exists():
+        for line in REPOS_FILE.read_text().splitlines():
+            name, _, desc = line.partition("|")
+            if name.strip():
+                repos[name.strip()] = desc.strip()
+    return repos
+
+
+def github(path):
+    req = urllib.request.Request(f"https://api.github.com/{path}", headers={
+        "Authorization": f"Bearer {TOKEN_FILE.read_text().strip()}",
+        "Accept": "application/vnd.github+json"})
+    with urllib.request.urlopen(req, timeout=20) as r:
+        return json.load(r)
+
+
 def short(text, n=80):
     text = " ".join(text.split())
     return text if len(text) <= n else text[: n - 1] + "…"
@@ -146,6 +177,10 @@ def cmd_add(args):
     text = " ".join(args.text).strip()
     if not text:
         sys.exit("Пустая задача.")
+    repos = load_repos()
+    if args.repo not in repos:
+        sys.exit(f"Проект {args.repo} не подключён. Подключены: {', '.join(repos)}. "
+                 f"Подключить: connect <репозиторий> \"что это\".")
     with store() as data:
         task_id = data["next"]
         data["next"] += 1
@@ -204,6 +239,32 @@ def cmd_merge(args):
     print(f"Принимаю задачу {args.id}: сливаю ветку в основную, пришлю итог.")
 
 
+def cmd_repos(args):
+    for name, desc in load_repos().items():
+        print(f"{name}: {desc}" if desc else name)
+
+
+def cmd_connect(args):
+    repo = args.repo.strip()
+    desc = " ".join(args.desc).replace("|", "/").strip()
+    try:
+        info = github(f"repos/{full_name(repo)}")
+    except ValueError as e:
+        sys.exit(str(e))
+    except urllib.error.HTTPError as e:
+        if e.code == 404:
+            sys.exit(f"Токен не видит {full_name(repo)}. Проверь имя или добавь репозиторий в токен "
+                     f"на GitHub: Settings → Developer settings → Fine-grained tokens → Edit → Repository access.")
+        sys.exit(f"GitHub ответил ошибкой {e.code}.")
+    if not info.get("permissions", {}).get("push"):
+        sys.exit(f"Токен видит {info['full_name']}, но не может писать: нужно Contents: Read and write.")
+    repos = load_repos()
+    repos[repo] = desc
+    CONF.mkdir(parents=True, exist_ok=True)
+    REPOS_FILE.write_text("".join(f"{n} | {d}\n" for n, d in repos.items() if n not in DEFAULT_REPOS))
+    print(f"Проект {repo} подключён ({info['full_name']}, основная ветка {info['default_branch']}).")
+
+
 def cmd_cancel(args):
     with store() as data:
         t = find(data, args.id)
@@ -231,13 +292,12 @@ CRED_HELPER = ('!f() { test "$1" = get && echo username=x-access-token && '
 
 
 def ensure_repo(repo):
-    if not re.fullmatch(r"[A-Za-z0-9._-]+", repo):
-        raise RuntimeError(f"странное имя репозитория: {repo}")
-    repo_dir = WORK / repo
+    name = full_name(repo)
+    repo_dir = WORK / repo.replace("/", "__")
     if not (repo_dir / ".git").exists():
         WORK.mkdir(parents=True, exist_ok=True)
         subprocess.run(["git", "-c", f"credential.helper={CRED_HELPER}", "clone",
-                        f"https://github.com/{OWNER}/{repo}.git", str(repo_dir)],
+                        f"https://github.com/{name}.git", str(repo_dir)],
                        check=True, capture_output=True, text=True)
     git(repo_dir, "config", "credential.helper", CRED_HELPER)
     git(repo_dir, "config", "user.name", "Jarvis")
@@ -332,7 +392,7 @@ def work(task, env):
         return f"ℹ️ Задача {task['id']}: изменений в коде нет.\n\n{short(text, 3000)}"
 
     git(repo_dir, "push", "-u", "origin", branch)
-    link = f"https://github.com/{OWNER}/{task['repo']}/compare/{base}...{branch}"
+    link = f"https://github.com/{full_name(task['repo'])}/compare/{base}...{branch}"
     update(task["id"], status="done", session=session, result=text, link=link, followup=None)
     return (f"✅ Задача {task['id']} ({task['repo']}): {short(task['text'])}\n\n{short(text, 3000)}\n\n"
             f"Ветка {branch}, коммитов: {ahead}\nИзменения: {link}\n\n"
@@ -418,6 +478,11 @@ def main():
         a.add_argument("id", type=int)
         a.add_argument("text", nargs="+")
         a.set_defaults(fn=lambda args, k=kind: followup(args, k))
+    sub.add_parser("repos").set_defaults(fn=cmd_repos)
+    a = sub.add_parser("connect")
+    a.add_argument("repo")
+    a.add_argument("desc", nargs="+")
+    a.set_defaults(fn=cmd_connect)
     sub.add_parser("worker").set_defaults(fn=cmd_worker)
     args = p.parse_args()
     args.fn(args)
