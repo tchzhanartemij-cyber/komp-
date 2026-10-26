@@ -63,7 +63,13 @@ PY
 
 echo "==> Навык для Джарвиса"
 mkdir -p "$HOME/.openclaw/workspace/skills/coder"
-sed -e "s#__CODER__#$HERE/coder.py#g" -e "s#__FRAMES__#$HERE/frames.sh#g" "$HERE/SKILL.md" > "$HOME/.openclaw/workspace/skills/coder/SKILL.md"
+sed -e "s#__CODER__#$HERE/coder.py#g" -e "s#__FRAMES__#$HERE/frames.sh#g" -e "s#__WATCH__#$HERE/watch.py#g" \
+  "$HERE/SKILL.md" > "$HOME/.openclaw/workspace/skills/coder/SKILL.md"
+if [ -s "$CONF/gemini-key" ]; then
+  echo "   ключ Gemini есть: видео смотрит Gemini"
+else
+  echo "   нет ключа Gemini ($CONF/gemini-key): видео будут разбираться по кадрам"
+fi
 if command -v ffmpeg >/dev/null; then
   echo "   ffmpeg есть: видео-образцы будут раскладываться на кадры"
 else
