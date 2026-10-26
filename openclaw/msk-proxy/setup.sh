@@ -100,12 +100,8 @@ sleep 5
 COUNTRY="$(curl -s --max-time 20 --socks5-hostname "127.0.0.1:$PORT" https://ipinfo.io/country || true)"
 echo "   служба работает, страна: ${COUNTRY:-нет ответа}"
 
-echo "==> Браузер Джарвиса через Москву"
-if openclaw config set browser.extraArgs "[\"--proxy-server=socks5://127.0.0.1:$PORT\"]" --strict-json; then
-  echo "   готово"
-else
-  echo "   Не получилось записать настройку браузера. Пришли этот экран." >&2
-fi
+echo "==> Браузер Джарвиса: российские сайты через Москву, остальное напрямую"
+bash "$(dirname "$0")/ru-sites.sh"
 
 echo
 echo "Готово. Перезапусти Джарвиса: openclaw gateway restart"
