@@ -913,9 +913,13 @@ $('cal-next').addEventListener('click', () => { calStart.setDate(calStart.getDat
 
 // ----- banner: greeting and the day in one sentence -----
 let summary = { life: '', work: '', graph: '' };
+// The owner lives in China, so the greeting follows Shanghai time whatever the device clock says.
+function greeting(date = new Date()) {
+  const h = (date.getUTCHours() + 8) % 24;
+  return h >= 5 && h <= 11 ? 'Доброе утро' : h >= 12 && h <= 17 ? 'Добрый день' : h >= 18 && h <= 22 ? 'Добрый вечер' : 'Доброй ночи';
+}
 function renderBanner() {
-  const h = new Date().getHours();
-  const hello = h < 5 ? 'Доброй ночи' : h < 12 ? 'Доброе утро' : h < 18 ? 'Добрый день' : 'Добрый вечер';
+  const hello = greeting();
   $('b-title').textContent = current === 'work' ? `Рабочий день, ${NAME}` : current === 'graph' ? 'Память' : `${hello}, ${NAME}`;
   $('b-sum').textContent = summary[current] || 'Загружаю сводку дня…';
 }
@@ -1458,7 +1462,7 @@ applyTheme(theme);
 $('banner').classList.add('enter');
 showPage();
 load();
-setInterval(() => { if (!document.hidden) load(); }, 10000);
+setInterval(() => { if (!document.hidden) { load(); renderBanner(); } }, 10000);
 document.addEventListener('visibilitychange', () => { if (!document.hidden) load(); });
 </script>
 </body>
