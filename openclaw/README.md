@@ -206,6 +206,24 @@ LIFE_DIR=<твоя рабочая папка>/life bash ~/openclaw/dashboard/ins
 
 Через 10 секунд всё это появится на дашборде: личное на первой странице, рабочее на вкладке «Работа». Добавь что-нибудь на дашборде и спроси Джарвиса: он это тоже увидит.
 
+## Шаг 10. Задачи по коду
+
+Джарвис принимает задачи по коду в любое время и отдаёт их Claude Code на сервере. Каждая задача делается в своей ветке `jarvis/task-N`, отчёт приходит в Telegram, в основную ветку попадает только после «принять N».
+
+1. Создай на GitHub fine-grained токен только на нужные репозитории с правами Contents и Pull requests: Read and write.
+2. Под jarvis положи его в файл (символы не видны):
+   ```bash
+   mkdir -p ~/.config/jarvis && chmod 700 ~/.config/jarvis
+   read -rsp "GitHub token: " T; echo; printf '%s' "$T" > ~/.config/jarvis/github-token; chmod 600 ~/.config/jarvis/github-token; unset T
+   ```
+3. Поставь очередь и перезапусти Джарвиса:
+   ```bash
+   bash ~/komp/openclaw/coder/install.sh
+   openclaw gateway restart
+   ```
+
+Что писать боту: «в komp- сделай …», «что с задачами?», «ответ 3: …», «переделать 3: …», «принять 3», «отменить 3». Журнал службы: `journalctl --user -u jarvis-coder -f`.
+
 ---
 
 ## Обновление
