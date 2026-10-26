@@ -14,8 +14,17 @@ LIST=""
 for d in $RU_DOMAINS; do LIST="$LIST\"$d\","; done
 LIST="[${LIST%,}]"
 
+# Внутренние адреса сервера уходят «в никуда» (закрытый порт 9): браузер не достанет
+# до «Сводки», панели OpenClaw и других служб на сервере, даже если страница попросит.
 PAC="function FindProxyForURL(url, host) {
-  host = host.toLowerCase();
+  host = host.toLowerCase().replace(/^\\[|\\]$/g, '');
+  if (host === 'localhost' || dnsDomainIs(host, '.localhost') || isPlainHostName(host) ||
+      host === '::1' || host === '0.0.0.0' || shExpMatch(host, '127.*') || shExpMatch(host, '10.*') ||
+      shExpMatch(host, '192.168.*') || shExpMatch(host, '169.254.*') || shExpMatch(host, 'fc*:*') ||
+      shExpMatch(host, 'fd*:*') || shExpMatch(host, 'fe80:*') ||
+      /^172\\.(1[6-9]|2[0-9]|3[01])\\./.test(host) || /^100\\.(6[4-9]|[7-9][0-9]|1[01][0-9]|12[0-7])\\./.test(host)) {
+    return 'PROXY 127.0.0.1:9';
+  }
   var ru = $LIST;
   for (var i = 0; i < ru.length; i++) {
     var d = ru[i];
@@ -25,6 +34,9 @@ PAC="function FindProxyForURL(url, host) {
 }"
 
 B64="$(printf '%s' "$PAC" | base64 -w0)"
-openclaw config set browser.extraArgs "[\"--proxy-pac-url=data:application/x-ns-proxy-autoconfig;base64,$B64\"]" --strict-json
+# <-loopback> заставляет Chrome спрашивать правила и для localhost (по умолчанию он их обходит).
+openclaw config set browser.extraArgs "[\"--proxy-pac-url=data:application/x-ns-proxy-autoconfig;base64,$B64\",\"--proxy-bypass-list=<-loopback>\"]" --strict-json
+# Без этого OpenClaw не пускает браузер через прокси. Внутренние адреса закрыты правилами выше.
+openclaw config set browser.ssrfPolicy.dangerouslyAllowPrivateNetwork true --strict-json
 echo "Готово. Через Москву: $RU_DOMAINS"
 echo "Перезапусти Джарвиса: openclaw gateway restart"
