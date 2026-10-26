@@ -21,6 +21,7 @@ import fcntl
 import json
 import os
 import re
+import shutil
 import signal
 import subprocess
 import sys
@@ -28,7 +29,7 @@ import time
 import urllib.error
 import urllib.request
 from contextlib import contextmanager
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 HOME = Path.home()
@@ -45,7 +46,8 @@ REPOS_FILE = CONF / "repos.txt"   # подключённые проекты: «�
 OWNER = "tchzhanartemij-cyber"
 DEFAULT_REPO = "komp-"
 DEFAULT_REPOS = {DEFAULT_REPO: "Джарвис, «Сводка» (openclaw/dashboard), скрипты"}
-TASK_TIMEOUT = 60 * 60      # одна задача не дольше часа
+TASK_TIMEOUT = 2 * 60 * 60  # один заход не дольше двух часов
+REFS_DIR = ".jarvis-refs"   # кадры и картинки к задаче внутри копии репозитория, в git не попадают
 LIMIT_RETRY = 30 * 60       # кончился лимит подписки: пробуем снова через полчаса
 POLL = 10
 
@@ -98,7 +100,15 @@ FOLLOWUP = {
     "answer": "Ответ владельца на твой вопрос по задаче №{id}:\n{text}\n\nПродолжай работу по тем же правилам.",
     "redo": "Владелец посмотрел результат по задаче №{id} и просит переделать:\n{text}\n\n"
             "Продолжай на той же ветке по тем же правилам.",
+    "continue": "Работа по задаче №{id} прервалась: {text}. Всё сделанное уже закоммичено на этой ветке. "
+                "Продолжай с того места, где остановился, по тем же правилам.",
 }
+
+REFS_PROMPT = """
+
+Владелец приложил образцы ({count} шт.) в папке {path}/ (в git не попадает, не коммить её).
+Это кадры из видео или картинки того, как должно выглядеть. Открой каждый файл инструментом Read
+и посмотри. Анимации на кадрах не видно: как именно всё движется, описано в тексте задачи."""
 
 
 def now():
@@ -181,17 +191,46 @@ def cmd_add(args):
     if args.repo not in repos:
         sys.exit(f"Проект {args.repo} не подключён. Подключены: {', '.join(repos)}. "
                  f"Подключить: connect <репозиторий> \"что это\".")
+    refs = [Path(r).expanduser() for r in args.ref or []]
+    missing = [str(r) for r in refs if not r.is_file()]
+    if missing:
+        sys.exit(f"Нет таких файлов: {', '.join(missing)}")
+    not_before = start_time(args.at) if args.at else 0
     with store() as data:
         task_id = data["next"]
         data["next"] += 1
+        names = []
+        if refs:
+            dest = DATA / "refs" / str(task_id)
+            dest.mkdir(parents=True, exist_ok=True)
+            for i, r in enumerate(refs, 1):
+                name = f"{i:02d}-{re.sub(r'[^A-Za-z0-9._-]', '_', r.name)}"
+                shutil.copy2(r, dest / name)
+                names.append(name)
         data["tasks"].append({
             "id": task_id, "repo": args.repo, "text": text, "status": "queued",
             "created": now(), "updated": now(), "branch": f"jarvis/task-{task_id}",
             "session": None, "followup": None, "action": "work", "result": "", "link": "",
+            "refs": names, "not_before": not_before,
         })
         ahead = sum(1 for t in data["tasks"] if t["status"] in ("queued", "running") and t["id"] != task_id)
-    wait = "начинаю сразу" if ahead == 0 else f"перед ней в очереди: {ahead}"
-    print(f"Задача {task_id} принята ({args.repo}), {wait}.")
+    if not_before:
+        wait = f"начну в {datetime.fromtimestamp(not_before).strftime('%d.%m %H:%M')}"
+    else:
+        wait = "начинаю сразу" if ahead == 0 else f"перед ней в очереди: {ahead}"
+    extra = f", образцов: {len(names)}" if names else ""
+    print(f"Задача {task_id} принята ({args.repo}{extra}), {wait}.")
+
+
+def start_time(hhmm):
+    """«02:00» -> ближайшие 02:00 по времени сервера."""
+    m = re.fullmatch(r"(\d{1,2}):(\d{2})", hhmm.strip())
+    if not m or int(m[1]) > 23 or int(m[2]) > 59:
+        sys.exit("Время пиши как ЧЧ:ММ, например 02:00.")
+    t = datetime.now().replace(hour=int(m[1]), minute=int(m[2]), second=0, microsecond=0)
+    if t <= datetime.now():
+        t += timedelta(days=1)
+    return t.timestamp()
 
 
 def cmd_list(args):
@@ -203,7 +242,10 @@ def cmd_list(args):
     if not shown:
         print("Задач нет.")
     for t in sorted(shown, key=lambda t: t["id"]):
-        print(f"{t['id']}. [{STATUS_RU.get(t['status'], t['status'])}] {t['repo']}: {short(t['text'])}")
+        status = STATUS_RU.get(t["status"], t["status"])
+        if t["status"] == "queued" and t.get("not_before", 0) > time.time():
+            status += datetime.fromtimestamp(t["not_before"]).strftime(", начну в %H:%M")
+        print(f"{t['id']}. [{status}] {t['repo']}: {short(t['text'])}")
 
 
 def cmd_show(args):
@@ -321,8 +363,10 @@ def run_claude(task, repo_dir, env):
         prompt = FOLLOWUP[fu["kind"]].format(id=task["id"], text=fu["text"])
         resume = ["--resume", task["session"]]
     else:
-        text = task["text"] + (f"\n\nДополнение владельца: {fu['text']}" if fu else "")
+        text = task["text"] + (f"\n\nДополнение владельца: {fu['text']}" if fu and fu["kind"] != "continue" else "")
         prompt = PROMPT.format(repo=task["repo"], id=task["id"], text=text, branch=task["branch"])
+        if task.get("refs"):
+            prompt += REFS_PROMPT.format(count=len(task["refs"]), path=f"{REFS_DIR}/task-{task['id']}")
         resume = []
     cmd = [claude, "-p", prompt, "--output-format", "json", "--permission-mode", "acceptEdits",
            *resume, "--allowedTools", *ALLOWED_TOOLS, "--disallowedTools", *DENIED_TOOLS]
@@ -354,34 +398,56 @@ def run_claude(task, repo_dir, env):
     return res if isinstance(res, dict) else {"is_error": True, "result": raw[-800:]}
 
 
+def save_progress(repo_dir, base, branch, task_id, push=True):
+    """Коммитит недоделанное и (по умолчанию) пушит ветку, чтобы ничего не потерять."""
+    if git(repo_dir, "status", "--porcelain"):
+        git(repo_dir, "add", "-A")
+        git(repo_dir, "commit", "-m", f"Jarvis: задача {task_id}")
+    ahead = int(git(repo_dir, "rev-list", "--count", f"origin/{base}..HEAD"))
+    if push and ahead:
+        git(repo_dir, "push", "-u", "origin", branch)
+    return ahead
+
+
 def work(task, env):
     repo_dir, base = ensure_repo(task["repo"])
     branch = task["branch"]
     start = f"origin/{branch}" if remote_has(repo_dir, branch) else f"origin/{base}"
     git(repo_dir, "checkout", "-B", branch, start)
+    if task.get("refs"):
+        exclude = repo_dir / ".git/info/exclude"
+        if f"/{REFS_DIR}/" not in exclude.read_text():
+            with open(exclude, "a") as f:
+                f.write(f"\n/{REFS_DIR}/\n")
+        shutil.copytree(DATA / "refs" / str(task["id"]), repo_dir / REFS_DIR / f"task-{task['id']}",
+                        dirs_exist_ok=True)
 
     res = run_claude(task, repo_dir, env)
     if res.get("stopped") == "cancel":
         update(task["id"], status="cancelled", cancel=False)
         return f"⏹ Задача {task['id']} остановлена."
     if res.get("stopped") == "timeout":
-        update(task["id"], status="failed", result="Не уложился в час.")
-        return f"⚠️ Задача {task['id']}: не уложился в час, остановил. Можно «переделать {task['id']}: ...» с уточнением."
+        ahead = save_progress(repo_dir, base, branch, task["id"])
+        update(task["id"], status="failed", result="Не уложился в два часа.",
+               followup={"kind": "continue", "text": "закончилось время на один заход"})
+        kept = f" Сделанное сохранил в ветке {branch} ({ahead} коммитов)." if ahead else ""
+        return (f"⚠️ Задача {task['id']}: не уложился в два часа, остановил.{kept}\n"
+                f"Продолжить: «переделать {task['id']}: продолжай».")
 
     text = (res.get("result") or "").strip()
     session = res.get("session_id") or task.get("session")
     if res.get("is_error"):
         if re.search(r"limit|usage|quota|лимит", text, re.I):
-            update(task["id"], status="waiting_limit", session=session,
-                   next_try=time.time() + LIMIT_RETRY, result=text)
-            return f"⏳ Задача {task['id']}: закончился лимит Claude. Попробую снова через 30 минут."
+            save_progress(repo_dir, base, branch, task["id"])
+            update(task["id"], status="waiting_limit", session=session, result=text,
+                   next_try=time.time() + LIMIT_RETRY,
+                   followup={"kind": "continue", "text": "закончился лимит подписки"})
+            return (f"⏳ Задача {task['id']}: закончился лимит Claude. Сделанное сохранил, "
+                    f"продолжу сам, проверяю каждые 30 минут.")
         update(task["id"], status="failed", session=session, result=text)
         return f"⚠️ Задача {task['id']} не получилась:\n{short(text, 1500)}"
 
-    if git(repo_dir, "status", "--porcelain"):
-        git(repo_dir, "add", "-A")
-        git(repo_dir, "commit", "-m", f"Jarvis: задача {task['id']}")
-    ahead = int(git(repo_dir, "rev-list", "--count", f"origin/{base}..HEAD"))
+    ahead = save_progress(repo_dir, base, branch, task["id"], push=False)
 
     if text.startswith("ВОПРОС:") and not ahead:
         update(task["id"], status="question", session=session, result=text, followup=None)
@@ -430,7 +496,7 @@ def notify(env, text):
 def claim():
     with store() as data:
         for t in data["tasks"]:
-            ready = t["status"] == "queued" or (
+            ready = (t["status"] == "queued" and t.get("not_before", 0) <= time.time()) or (
                 t["status"] == "waiting_limit" and t.get("next_try", 0) <= time.time())
             if ready:
                 t.update(status="running", cancel=False, updated=now())
@@ -464,6 +530,8 @@ def main():
     sub = p.add_subparsers(dest="cmd", required=True)
     a = sub.add_parser("add")
     a.add_argument("--repo", default=DEFAULT_REPO)
+    a.add_argument("--ref", action="append", help="кадр или картинка-образец, можно несколько раз")
+    a.add_argument("--at", help="не начинать раньше ЧЧ:ММ (например, 02:00)")
     a.add_argument("text", nargs="+")
     a.set_defaults(fn=cmd_add)
     a = sub.add_parser("list")

@@ -63,7 +63,13 @@ PY
 
 echo "==> Навык для Джарвиса"
 mkdir -p "$HOME/.openclaw/workspace/skills/coder"
-sed "s#__CODER__#$HERE/coder.py#g" "$HERE/SKILL.md" > "$HOME/.openclaw/workspace/skills/coder/SKILL.md"
+sed -e "s#__CODER__#$HERE/coder.py#g" -e "s#__FRAMES__#$HERE/frames.sh#g" "$HERE/SKILL.md" > "$HOME/.openclaw/workspace/skills/coder/SKILL.md"
+if command -v ffmpeg >/dev/null; then
+  echo "   ffmpeg есть: видео-образцы будут раскладываться на кадры"
+else
+  echo "   НЕТ ffmpeg: без него видео-образцы не разложить на кадры."
+  echo "   Поставь под root (exit из jarvis): apt install -y ffmpeg"
+fi
 
 echo "==> Служба jarvis-coder"
 export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
