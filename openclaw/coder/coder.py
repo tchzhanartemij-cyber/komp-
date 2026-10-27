@@ -290,6 +290,7 @@ def cmd_merge(args):
 
 CREDS_FILE = HOME / ".claude/.credentials.json"
 LIMITS_MSG_FILE = DATA / "limits_msg.json"
+USAGE_FILE = DATA / "usage.json"   # последний ответ fetch_usage, его читает «Сводка»
 WATCH_EVERY = 60   # секунд между обновлениями закреплённого сообщения
 
 
@@ -372,8 +373,13 @@ def cmd_limits_watch(args):
     while True:
         env = load_env()
         target = env.get("TG_TARGET")
+        usage = fetch_usage(env)
+        if usage:
+            # «Сводка» по этому файлу понимает, что подписка кончилась, и переводит чат на бесплатные модели
+            DATA.mkdir(parents=True, exist_ok=True)
+            USAGE_FILE.write_text(json.dumps({"saved": time.time(), **usage}))
         if target:
-            text = live_text(fetch_usage(env))
+            text = live_text(usage)
             if text != last_text:
                 binary = env.get("OPENCLAW_BIN", "openclaw")
                 try:

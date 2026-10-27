@@ -302,6 +302,59 @@ a.tile span { font-size: 12px; color: color-mix(in srgb, var(--ink) 55%, transpa
 @media (max-width: 1100px) { .g-layout { grid-template-columns: 1fr; } .g-panel { height: auto; min-height: 0; } }
 @media (max-width: 760px) { .g-box { height: 58vh; min-height: 340px; } .g-hint { display: none; } }
 
+/* ----- AI chat ----- */
+body[data-page="ai"] .banner { min-height: 0; padding-block: 22px; }
+body[data-page="ai"] .flower { width: 170px; height: 170px; right: 10px; }
+body[data-page="ai"] .foot-hint { display: none; }
+.ai-card { padding: 18px; gap: 12px; }
+.ai-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.ai-tools select { border-radius: 999px; background: var(--field); border-color: transparent; padding: 8px 14px; font: 600 13px var(--font); max-width: 100%; }
+.ai-status { display: flex; flex-wrap: wrap; gap: 6px; }
+.ai-layout { display: grid; grid-template-columns: 270px minmax(0, 1fr); gap: 14px; }
+.ai-list { background: var(--field); border-radius: 20px; padding: 8px; overflow: auto; height: min(720px, calc(100dvh - 300px)); min-height: 420px; }
+.ai-list li { display: flex; align-items: center; gap: 4px; border-radius: 14px; transition: background .2s; }
+.ai-list li:hover { background: color-mix(in srgb, var(--card) 60%, transparent); }
+.ai-list li.sel { background: var(--card); box-shadow: var(--shadow); }
+.ai-list li > button.grow1 { border: 0; background: none; text-align: left; padding: 10px 6px 10px 12px; cursor: pointer; display: grid; gap: 2px; }
+.ai-list li b { font-weight: 600; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ai-list .empty { padding: 10px 12px; }
+.ai-list li:hover button.x { opacity: 1; }
+.ai-chat { display: grid; grid-template-rows: minmax(0, 1fr) auto; gap: 10px; height: min(720px, calc(100dvh - 300px)); min-height: 420px; min-width: 0; }
+.ai-msgs { overflow: auto; display: flex; flex-direction: column; gap: 14px; padding: 6px 4px; scrollbar-width: thin; overscroll-behavior: contain; }
+.msg { display: grid; gap: 4px; max-width: min(760px, 88%); animation: drop .3s var(--out); }
+.msg.me { align-self: flex-end; justify-items: end; }
+.msg.bot { align-self: flex-start; }
+.bubble { padding: 11px 15px; border-radius: 20px; background: var(--field); white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.5; }
+.msg.me .bubble { background: var(--pill); color: var(--on-pill); border-bottom-right-radius: 6px; }
+.msg.bot .bubble { border-bottom-left-radius: 6px; }
+.msg .meta { padding: 0 6px; }
+.msg .meta b { font-weight: 600; color: var(--accent-ink); }
+.typing { display: flex; gap: 5px; align-items: center; padding: 15px 17px; }
+.typing i { width: 7px; height: 7px; border-radius: 50%; background: var(--muted); animation: blink 1.2s infinite both; }
+.typing i:nth-child(2) { animation-delay: .2s; } .typing i:nth-child(3) { animation-delay: .4s; }
+@keyframes blink { 0%, 80%, 100% { opacity: .25; } 40% { opacity: 1; } }
+.ai-empty { margin: auto; text-align: center; display: grid; gap: 6px; max-width: 360px; padding: 20px; }
+.ai-empty b { font: 600 20px var(--font); letter-spacing: -0.02em; }
+.ai-input { display: flex; flex-wrap: nowrap; align-items: flex-end; gap: 8px; padding: 6px; background: var(--field); border-radius: 26px; }
+.ai-input textarea { flex: 1 1 auto; min-height: 0; height: 44px; max-height: 180px; resize: none; border: 0; background: transparent; padding: 11px 12px; font-size: 16px; line-height: 1.4; box-shadow: none; }
+.ai-input textarea:focus { box-shadow: none; }
+.ai-input .icon-btn { width: 44px; height: 44px; background: var(--pill); color: var(--on-pill); }
+.ai-input .icon-btn:disabled { opacity: .4; cursor: default; }
+.ai-err { font-size: 13px; color: var(--bad); margin: 0; }
+.ai-err.warn { color: var(--warn); }
+#ai-chats-btn { display: none; }
+@media (max-width: 760px) {
+  body[data-page="ai"] .banner { display: none; }
+  .ai-card { padding: 14px; }
+  .ai-layout { grid-template-columns: 1fr; }
+  #ai-chats-btn { display: inline-flex; }
+  .ai-list { display: none; height: auto; min-height: 0; max-height: 50dvh; }
+  .ai-layout.lists .ai-list { display: block; }
+  .ai-layout.lists .ai-chat { display: none; }
+  .ai-chat { height: calc(100dvh - 250px - env(safe-area-inset-bottom, 0px)); min-height: 320px; }
+  .msg { max-width: 92%; }
+}
+
 /* ----- quick add dialog ----- */
 dialog { border: 0; padding: 0; border-radius: 28px; background: var(--card); color: var(--ink); box-shadow: var(--shadow-up); width: min(520px, calc(100vw - 28px)); }
 dialog::backdrop { background: rgba(20, 18, 35, 0.35); backdrop-filter: blur(4px); }
@@ -334,6 +387,7 @@ dialog[open] { animation: pop .4s var(--spring); }
     <a class="item" href="#life" id="tab-life"><svg class="i" viewBox="0 0 24 24"><path d="M4 11.5 12 5l8 6.5V19a1 1 0 0 1-1 1h-4.5v-5h-5v5H5a1 1 0 0 1-1-1z"/></svg><span class="label">Личное</span></a>
     <a class="item" href="#work" id="tab-work"><svg class="i" viewBox="0 0 24 24"><rect x="3.5" y="7.5" width="17" height="12" rx="3"/><path d="M9 7.5V6a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v1.5M3.5 13h17"/></svg><span class="label">Работа</span></a>
     <a class="item" href="#graph" id="tab-graph"><svg class="i" viewBox="0 0 24 24"><circle cx="6" cy="7" r="2.5"/><circle cx="18" cy="6" r="2"/><circle cx="16" cy="18" r="2.5"/><circle cx="6" cy="17" r="1.8"/><path d="M8.4 7.3 16 6.2M7.6 9l7 7.2M17.6 8l-1.2 7.6M7.8 17.2h5.7"/></svg><span class="label">Память</span></a>
+    <a class="item" href="#ai" id="tab-ai"><svg class="i" viewBox="0 0 24 24"><path d="M5 5.5h14a1.5 1.5 0 0 1 1.5 1.5v8.5A1.5 1.5 0 0 1 19 17h-7.5L7 20.5V17H5a1.5 1.5 0 0 1-1.5-1.5V7A1.5 1.5 0 0 1 5 5.5z"/><path d="M8.5 11.25h.01M12 11.25h.01M15.5 11.25h.01" stroke-width="2.4"/></svg><span class="label">ИИ</span></a>
     <span class="sep" aria-hidden="true"></span>
     <button class="item" type="button" id="theme-btn" aria-label="Тема"><svg class="i" viewBox="0 0 24 24" id="theme-ico"></svg><span class="label" id="theme-label">Тема</span></button>
   </nav>
@@ -528,6 +582,33 @@ dialog[open] { animation: pop .4s var(--spring); }
     </section>
   </div>
 
+  <!-- ===== ИИ ===== -->
+  <div id="page-ai" class="page" hidden>
+    <section class="card ai-card" aria-labelledby="h-ai">
+      <div class="ai-tools">
+        <div class="head"><h2 id="h-ai">Чат <small id="ai-now"></small></h2></div>
+        <span class="sp" style="flex:1"></span>
+        <select id="ai-model" aria-label="Модель"><option value="auto">Авто</option></select>
+        <button class="pill soft small" type="button" id="ai-chats-btn" aria-expanded="false">Диалоги</button>
+        <button class="pill dark small" type="button" id="ai-new"><svg class="i" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>Новый</button>
+      </div>
+      <div class="ai-status"><span class="badge" id="ai-claude" hidden></span></div>
+      <div class="ai-layout" id="ai-layout">
+        <aside class="ai-list" id="ai-list" aria-label="Диалоги"></aside>
+        <div class="ai-chat">
+          <div class="ai-msgs" id="ai-msgs" aria-live="polite"></div>
+          <div style="display:grid;gap:6px">
+            <p class="ai-err" id="ai-err" hidden></p>
+            <form class="ai-input" id="ai-form">
+              <textarea id="ai-text" rows="1" placeholder="Сообщение" aria-label="Сообщение"></textarea>
+              <button class="icon-btn" type="submit" id="ai-send" aria-label="Отправить"><svg class="i" viewBox="0 0 24 24"><path d="M12 19V5M6 11l6-6 6 6"/></svg></button>
+            </form>
+          </div>
+        </div>
+      </div>
+    </section>
+  </div>
+
   <p class="hint foot-hint">Пиши Джарвису в Telegram: «потратил 500 на такси», «надо оплатить интернет до пятницы», «по работе: позвонить поставщику плёнки», «запомни: …», а ещё фото еды, этикетки или чека. Всё появится здесь само в течение 10 секунд.</p>
 </main>
 
@@ -680,11 +761,11 @@ async function post(path, body) {
 }
 
 // ----- pages: fade out the old one, cascade the new one in -----
-const PAGES = ['life', 'work', 'graph'];
+const PAGES = ['life', 'work', 'graph', 'ai'];
 let current = '';
 let leaveTimer;
 function showPage() {
-  const page = location.hash === '#work' ? 'work' : location.hash === '#graph' ? 'graph' : 'life';
+  const page = PAGES.includes(location.hash.slice(1)) ? location.hash.slice(1) : 'life';
   if (page === current) { if (page === 'graph') graphShown(); return; }
   const prev = current && $('page-' + current);
   current = page;
@@ -701,6 +782,7 @@ function showPage() {
     void next.offsetWidth;
     next.classList.add('enter');
     if (current === 'graph') requestAnimationFrame(graphShown);
+    if (current === 'ai') aiShown();
   };
   if (prev && !RM.matches) { prev.classList.add('leave'); leaveTimer = setTimeout(swap, 160); } else swap();
 }
@@ -917,7 +999,7 @@ $('cal-prev').addEventListener('click', () => { calStart.setDate(calStart.getDat
 $('cal-next').addEventListener('click', () => { calStart.setDate(calStart.getDate() + 7); renderCalendar(); });
 
 // ----- banner: greeting and the day in one sentence -----
-let summary = { life: '', work: '', graph: '' };
+let summary = { life: '', work: '', graph: '', ai: '' };
 // The owner lives in China, so the greeting follows Shanghai time whatever the device clock says.
 function greeting(date = new Date()) {
   const h = (date.getUTCHours() + 8) % 24;
@@ -925,7 +1007,7 @@ function greeting(date = new Date()) {
 }
 function renderBanner() {
   const hello = greeting();
-  $('b-title').textContent = current === 'work' ? `Рабочий день, ${NAME}` : current === 'graph' ? 'Память' : `${hello}, ${NAME}`;
+  $('b-title').textContent = current === 'work' ? `Рабочий день, ${NAME}` : current === 'graph' ? 'Память' : current === 'ai' ? 'ИИ' : `${hello}, ${NAME}`;
   $('b-sum').textContent = summary[current] || 'Загружаю сводку дня…';
 }
 
@@ -1435,6 +1517,149 @@ $('qa').addEventListener('click', ev => { if (ev.target === $('qa')) $('qa').clo
 
 $('links').replaceChildren(...LINKS.map(l => el('a', { class: 'tile', href: l.url, target: '_blank', rel: 'noopener' },
   el('span', { class: 'prev', text: l.title.trim()[0] || '·' }), el('div', {}, el('b', { text: l.title }), el('span', { text: l.url.replace(/^https?:\/\//, '') })))));
+
+// ----- ИИ: чат с разными моделями -----
+// «Авто» отвечает Claude по подписке, а когда её лимит кончился, первой доступной бесплатной моделью.
+const AI = { models: null, chat: null, chats: [], busy: false, started: false };
+let aiModel = 'auto', aiChatId = '';
+try { aiModel = localStorage.getItem('svodka-ai-model') || 'auto'; aiChatId = localStorage.getItem('svodka-ai-chat') || ''; } catch {}
+function aiSave() { try { localStorage.setItem('svodka-ai-model', aiModel); localStorage.setItem('svodka-ai-chat', aiChatId); } catch {} }
+async function aiGet(url) {
+  const r = await fetch(url, { cache: 'no-store' });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.error || 'Ошибка сервера');
+  return j;
+}
+const aiWhen = ts => new Date(ts * 1000).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+function aiTime(s) {
+  if (!s) return '';
+  const [d, t] = s.split(' ');
+  return d === iso(new Date()) ? t.slice(0, 5) : `${short(d)} ${t.slice(0, 5)}`;
+}
+function aiErr(text, tone) { const e = $('ai-err'); e.textContent = text || ''; e.hidden = !text; e.classList.toggle('warn', tone === 'warn'); }
+function aiWho() {
+  const M = AI.models;
+  if (!M) return null;
+  return aiModel === 'auto' ? M.models.find(m => M.auto && m.id === M.auto.id) : M.models.find(m => m.id === aiModel);
+}
+
+async function aiLoadModels() {
+  try { AI.models = await aiGet('/api/ai/models'); } catch { return; }
+  const M = AI.models;
+  if (aiModel !== 'auto' && !M.models.some(m => m.id === aiModel && m.available)) { aiModel = 'auto'; aiSave(); }
+  $('ai-model').replaceChildren(
+    el('option', { value: 'auto', text: M.auto ? `Авто (${M.auto.title})` : 'Авто: нет моделей' }),
+    ...M.models.map(m => { const o = el('option', { value: m.id, text: m.available ? m.title : `${m.title}: ${m.why}` }); o.disabled = !m.available; return o; }));
+  $('ai-model').value = aiModel;
+  const who = aiWho();
+  $('ai-now').textContent = who ? `отвечает ${who.title}` : 'нет доступных моделей';
+  const c = M.claude, w = c.windows || {};
+  const parts = [w.five_hour && `5 часов ${w.five_hour.pct}%`, w.seven_day && `неделя ${w.seven_day.pct}%`].filter(Boolean);
+  if (c.exhausted) badge('ai-claude', `Лимит Claude исчерпан до ${aiWhen(c.until)}`, 'warn');
+  else badge('ai-claude', parts.length ? 'Claude: ' + parts.join(' · ') : '', 'lav');
+  summary.ai = !who ? 'Нет доступных моделей: нужны ключи в ~/.config/jarvis.'
+    : c.exhausted && aiModel === 'auto' ? `Лимит Claude кончился, пока отвечает ${who.title} (${who.detail}).`
+    : `Сейчас отвечает ${who.title} (${who.detail}).`;
+  renderBanner();
+}
+
+async function aiLoadChats() {
+  try { AI.chats = (await aiGet('/api/ai/chats')).chats; } catch { return; }
+  const list = $('ai-list');
+  if (!AI.chats.length) { list.replaceChildren(el('span', { class: 'empty', text: 'Диалогов пока нет.' })); return; }
+  list.replaceChildren(el('ul', {}, ...AI.chats.map(c => el('li', { class: c.id === aiChatId ? 'sel' : '' },
+    el('button', { type: 'button', class: 'grow1', onclick: () => aiOpen(c.id) },
+      el('b', { text: c.title }), el('span', { class: 'meta', text: `${aiTime(c.updated)} · ${c.count} ${plural(c.count, 'сообщение', 'сообщения', 'сообщений')}` })),
+    el('button', { type: 'button', class: 'x', 'aria-label': 'Удалить диалог', title: 'Удалить', text: '×', onclick: () => aiDelete(c) })))));
+}
+
+function aiBubble(m) {
+  if (m.role === 'user') return el('div', { class: 'msg me' }, el('div', { class: 'bubble', text: m.text }), el('div', { class: 'meta', text: aiTime(m.time) }));
+  return el('div', { class: 'msg bot' }, el('div', { class: 'bubble', text: m.text }),
+    el('div', { class: 'meta' }, el('b', { text: m.model }), ` · ${m.detail}${m.auto ? ' · авто' : ''} · ${aiTime(m.time)}`));
+}
+function aiRender(pending) {
+  const kids = ((AI.chat && AI.chat.messages) || []).map(aiBubble);
+  if (pending) kids.push(
+    el('div', { class: 'msg me' }, el('div', { class: 'bubble', text: pending.text })),
+    el('div', { class: 'msg bot' }, el('div', { class: 'bubble typing', 'aria-label': 'Печатает' }, el('i'), el('i'), el('i')),
+      el('div', { class: 'meta', text: `Отвечает ${pending.who}…` })));
+  if (!kids.length) kids.push(el('div', { class: 'ai-empty' }, el('b', { text: 'О чём поговорим?' }),
+    el('span', { class: 'meta', text: 'Модель выбирается сверху. В режиме «Авто» отвечает Claude, а когда лимит подписки кончится, бесплатная модель. Диалоги сохраняются.' })));
+  $('ai-msgs').replaceChildren(...kids);
+  $('ai-msgs').scrollTop = $('ai-msgs').scrollHeight;
+}
+function aiLists(open) {
+  $('ai-layout').classList.toggle('lists', open);
+  $('ai-chats-btn').setAttribute('aria-expanded', open ? 'true' : 'false');
+  $('ai-chats-btn').textContent = open ? 'К чату' : 'Диалоги';
+}
+async function aiOpen(id) {
+  aiLists(false);
+  aiErr('');
+  try { AI.chat = await aiGet('/api/ai/chat?id=' + encodeURIComponent(id)); aiChatId = id; }
+  catch { AI.chat = null; aiChatId = ''; }
+  aiSave();
+  aiRender();
+  aiLoadChats();
+}
+function aiNew() {
+  aiLists(false);
+  AI.chat = null; aiChatId = ''; aiSave();
+  aiErr('');
+  aiRender();
+  aiLoadChats();
+  $('ai-text').focus();
+}
+async function aiDelete(c) {
+  if (!confirm(`Удалить диалог «${c.title}»?`)) return;
+  try {
+    const r = await fetch('/api/ai/delete', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: c.id }) });
+    if (!r.ok) throw new Error();
+  } catch { aiErr('Не удалось удалить диалог'); return; }
+  if (c.id === aiChatId) { AI.chat = null; aiChatId = ''; aiSave(); aiRender(); }
+  aiLoadChats();
+}
+function aiGrow() { const t = $('ai-text'); t.style.height = 'auto'; t.style.height = Math.min(180, t.scrollHeight) + 'px'; }
+
+$('ai-form').addEventListener('submit', async ev => {
+  ev.preventDefault();
+  const ta = $('ai-text'), text = ta.value.trim();
+  if (!text || AI.busy) return;
+  AI.busy = true; $('ai-send').disabled = true;
+  const who = aiWho();
+  ta.value = ''; aiGrow(); aiErr('');
+  aiRender({ text, who: who ? who.title : 'модель' });
+  try {
+    const r = await fetch('/api/ai/send', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ chat: aiChatId, model: aiModel, text }) });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(j.error || 'Ответа нет');
+    AI.chat = j; aiChatId = j.id; aiSave();
+    if (j.errors && j.errors.length) aiErr('Не ответили и были пропущены: ' + j.errors.join(' · '), 'warn');
+  } catch (e) {
+    if (!ta.value) { ta.value = text; aiGrow(); }
+    aiErr(e instanceof TypeError ? 'Нет связи с сервером' : e.message);
+  }
+  AI.busy = false; $('ai-send').disabled = false;
+  aiRender();
+  aiLoadChats();
+  aiLoadModels();
+});
+$('ai-text').addEventListener('input', aiGrow);
+// На компьютере Enter отправляет, Shift+Enter переносит строку. На телефоне Enter — перенос, отправка кнопкой.
+$('ai-text').addEventListener('keydown', ev => {
+  if (ev.key === 'Enter' && !ev.shiftKey && !ev.isComposing && matchMedia('(hover: hover)').matches) { ev.preventDefault(); $('ai-form').requestSubmit(); }
+});
+$('ai-model').addEventListener('change', () => { aiModel = $('ai-model').value; aiSave(); aiLoadModels(); });
+$('ai-new').addEventListener('click', aiNew);
+$('ai-chats-btn').addEventListener('click', () => aiLists(!$('ai-layout').classList.contains('lists')));
+function aiShown() {
+  aiLoadModels();
+  if (AI.started) return;
+  AI.started = true;
+  if (aiChatId) aiOpen(aiChatId); else { aiRender(); aiLoadChats(); }
+}
+setInterval(() => { if (!document.hidden && current === 'ai') aiLoadModels(); }, 60000);
 
 // ----- theme: auto → light → dark -----
 const THEME_ICON = {

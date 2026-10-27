@@ -12,6 +12,7 @@ The data lives in plain files in LIFE_DIR (default ~/.openclaw/workspace/life):
   settings.json    {"kcalGoal": 2200}
   memory/<Имя>.md  one page per person, place, project or topic, Obsidian style:
                    "# Дима", "тип: человек", then facts "- 2026-10-25 · text with [[links]]"
+  ai/<id>.json     dialogs of the «ИИ» tab: {"title", "messages": [{"role", "text", "model", "time"}]}
 
 Jarvis writes them from Telegram; this server shows them and lets you edit them
 from any browser. Only the Python standard library is used.
@@ -24,9 +25,14 @@ import io
 import json
 import os
 import re
+import secrets
+import shutil
+import subprocess
 import tempfile
 import threading
 import time
+import urllib.error
+import urllib.request
 from urllib.parse import parse_qs, urlsplit
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -232,6 +238,310 @@ def read_memory():
     return pages
 
 
+# --- AI chat ------------------------------------------------------------
+# Keys live only in ~/.config/jarvis, one file per service (gemini-key, groq-key, ...).
+# A model without its key is simply not offered. Claude goes through the Claude Code
+# subscription; when the limits service says it is used up, auto mode skips it.
+
+CONF = Path.home() / ".config/jarvis"
+CODER_DATA = Path.home() / ".openclaw/workspace/coder"   # limits from coder.py (usage.json, limits.json)
+CHAT_ID_RE = re.compile(r"^[0-9a-f]{12}$")
+AI_SYSTEM = ("Ты собеседник владельца в его личном чате. Отвечай на языке вопроса, по делу, "
+             "без эмодзи. Оформление простое: абзацы и списки через дефис.")
+AI_HISTORY_CHARS = 60000     # сколько последних символов переписки отдавать модели
+CLAUDE_TIMEOUT = 300
+CLAUDE_PAUSE = 30 * 60       # Claude сказал «лимит»: не трогаем его полчаса
+
+# All of these speak the OpenAI chat format.
+PROVIDERS = {
+    "gemini": {"title": "Google AI Studio", "key": "gemini-key",
+               "url": "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"},
+    "groq": {"title": "Groq", "key": "groq-key", "url": "https://api.groq.com/openai/v1/chat/completions"},
+    "openrouter": {"title": "OpenRouter", "key": "openrouter-key", "url": "https://openrouter.ai/api/v1/chat/completions"},
+    "openai": {"title": "OpenAI", "key": "openai-key", "url": "https://api.openai.com/v1/chat/completions"},
+    "moonshot": {"title": "Moonshot", "key": "moonshot-key", "url": "https://api.moonshot.ai/v1/chat/completions"},
+}
+
+# The order is the order in the chat's list and the order auto mode tries them in.
+# A route is (provider, model); "free:prefix/" means any free OpenRouter model whose id starts
+# with the prefix, because the free list there changes every few weeks.
+AI_MODELS = [
+    {"id": "claude", "title": "Claude", "routes": [("claude", "sonnet")]},
+    {"id": "gemini", "title": "Gemini", "routes": [("gemini", "gemini-flash-latest"), ("gemini", "gemini-flash-lite-latest")]},
+    {"id": "chatgpt", "title": "ChatGPT", "routes": [("openai", "gpt-5-mini"), ("groq", "openai/gpt-oss-120b"),
+                                                       ("openrouter", "free:openai/")]},
+    {"id": "kimi", "title": "Kimi", "routes": [("moonshot", "kimi-latest"), ("openrouter", "free:moonshotai/")]},
+    {"id": "llama", "title": "Llama", "routes": [("groq", "llama-3.3-70b-versatile"), ("openrouter", "free:meta-llama/")]},
+    {"id": "nemotron", "title": "Nemotron", "routes": [("openrouter", "free:nvidia/nemotron-3-ultra"),
+                                                         ("openrouter", "free:nvidia/nemotron")]},
+    {"id": "gemma", "title": "Gemma", "routes": [("openrouter", "free:google/gemma")]},
+    {"id": "deepseek", "title": "DeepSeek", "routes": [("openrouter", "free:deepseek/")]},
+    {"id": "qwen", "title": "Qwen", "routes": [("openrouter", "free:qwen/")]},
+    {"id": "free", "title": "Любая бесплатная", "routes": [("openrouter", "openrouter/free")]},
+]
+
+ai_lock = threading.Lock()
+claude_pause = {"until": 0.0}
+free_cache = {"at": 0.0, "ids": []}
+
+
+class AIError(Exception):
+    pass
+
+
+def ai_key(provider):
+    try:
+        k = (CONF / PROVIDERS[provider]["key"]).read_text().strip()
+    except OSError:
+        return None
+    return k or None
+
+
+def claude_bin():
+    try:
+        for line in (CONF / "coder.env").read_text().splitlines():
+            if line.strip().startswith("CLAUDE_BIN="):
+                return line.split("=", 1)[1].strip()
+    except OSError:
+        pass
+    found = shutil.which("claude")
+    if found:
+        return found
+    for p in (Path.home() / ".local/bin/claude", Path.home() / ".claude/local/claude"):
+        if p.exists():
+            return str(p)
+    return None
+
+
+def read_json(p):
+    try:
+        return json.loads(Path(p).read_text())
+    except (OSError, ValueError):
+        return None
+
+
+def claude_state():
+    """Подписка Claude: сколько потрачено за 5 часов и неделю и не кончилась ли она."""
+    now = time.time()
+    until, windows = 0.0, {}
+    usage = read_json(CODER_DATA / "usage.json") or {}
+    for key in ("five_hour", "seven_day"):
+        w = usage.get(key)
+        if isinstance(w, dict) and w.get("reset", 0) > now:
+            windows[key] = {"pct": round(float(w.get("pct", 0))), "reset": w["reset"]}
+            if float(w.get("pct", 0)) >= 99.5:
+                until = max(until, w["reset"])
+    info = (read_json(CODER_DATA / "limits.json") or {}).get("info") or {}
+    if info.get("status") == "rejected":
+        resets = [w.get("resetsAt", 0) for w in (info.get("unifiedWindows") or {}).values() if isinstance(w, dict)]
+        resets.append(info.get("resetsAt") or 0)
+        if max(resets) > now:
+            until = max(until, max(resets))
+    if claude_pause["until"] > now:
+        until = max(until, claude_pause["until"])
+    return {"exhausted": until > now, "until": until if until > now else 0, "windows": windows}
+
+
+def openrouter_free():
+    """Бесплатные модели OpenRouter, список берём у них раз в час (без ключа)."""
+    if time.time() - free_cache["at"] > 3600:
+        try:
+            req = urllib.request.Request("https://openrouter.ai/api/v1/models", headers={"User-Agent": "Svodka/1"})
+            with urllib.request.urlopen(req, timeout=15) as r:
+                models = json.loads(r.read()).get("data") or []
+            ids = []
+            for m in models:
+                price = m.get("pricing") or {}
+                free = str(m.get("id", "")).endswith(":free") or (
+                    str(price.get("prompt")) in ("0", "0.0") and str(price.get("completion")) in ("0", "0.0"))
+                outputs = (m.get("architecture") or {}).get("output_modalities") or ["text"]
+                if free and "text" in outputs and not m["id"].startswith("openrouter/") \
+                        and not re.search(r"safety|guard", m["id"]):
+                    ids.append(m["id"])
+            free_cache.update(at=time.time(), ids=ids)
+        except (OSError, ValueError, KeyError, TypeError):
+            free_cache["at"] = time.time() - 3000   # нет связи: попробуем через 10 минут
+    return free_cache["ids"]
+
+
+def ready_routes(m, claude=None):
+    """Маршруты модели, которыми можно воспользоваться прямо сейчас: [(provider, model)]."""
+    out = []
+    for provider, model in m["routes"]:
+        if provider == "claude":
+            if claude_bin() and not (claude or claude_state())["exhausted"]:
+                out.append((provider, model))
+        elif ai_key(provider):
+            if model.startswith("free:"):
+                model = next((i for i in openrouter_free() if i.startswith(model[5:])), None)
+            if model:
+                out.append((provider, model))
+    return out
+
+
+def models_payload():
+    claude = claude_state()
+    models, auto = [], None
+    for m in AI_MODELS:
+        routes = ready_routes(m, claude)
+        why = ""
+        if not routes:
+            if m["id"] == "claude":
+                why = "лимит подписки исчерпан" if claude["exhausted"] and claude_bin() else "не найден Claude Code"
+            else:
+                keys = list(dict.fromkeys(PROVIDERS[p]["key"] for p, _ in m["routes"]))
+                missing = [k for k in keys if not (CONF / k).exists()]
+                why = "нужен ключ: " + " или ".join(missing) if missing else "сейчас нет бесплатной версии"
+        models.append({"id": m["id"], "title": m["title"], "available": bool(routes), "why": why,
+                       "detail": route_name(*routes[0]) if routes else ""})
+        if routes and auto is None:
+            auto = {"id": m["id"], "title": m["title"]}
+    return {"models": models, "auto": auto, "claude": claude}
+
+
+def route_name(provider, model):
+    return "подписка Claude" if provider == "claude" else f"{model} · {PROVIDERS[provider]['title']}"
+
+
+def call_api(provider, model, messages):
+    p = PROVIDERS[provider]
+    body = json.dumps({"model": model, "messages": messages}).encode()
+    headers = {"Authorization": f"Bearer {ai_key(provider)}", "Content-Type": "application/json", "User-Agent": "Svodka/1"}
+    if provider == "openrouter":
+        headers["X-Title"] = "Svodka"
+    try:
+        with urllib.request.urlopen(urllib.request.Request(p["url"], data=body, headers=headers), timeout=180) as r:
+            data = json.loads(r.read())
+    except urllib.error.HTTPError as e:
+        try:
+            err = json.loads(e.read()).get("error")
+            msg = err.get("message") if isinstance(err, dict) else err
+        except (ValueError, AttributeError, OSError):
+            msg = ""
+        raise AIError(f"{p['title']} ({model}): ошибка {e.code} {one_line(msg, 160)}".strip())
+    except (OSError, ValueError) as e:
+        raise AIError(f"{p['title']}: нет ответа ({type(e).__name__})")
+    try:
+        text = data["choices"][0]["message"]["content"]
+    except (KeyError, IndexError, TypeError):
+        raise AIError(f"{p['title']} ({model}): пустой ответ")
+    if not (text or "").strip():
+        raise AIError(f"{p['title']} ({model}): пустой ответ")
+    return text.strip()
+
+
+def call_claude(model, messages):
+    if len(messages) == 1:
+        prompt = messages[0]["content"]
+    else:
+        who = {"user": "Владелец", "assistant": "Ты"}
+        prompt = ("Ниже наша переписка. Ответь на последнее сообщение владельца, только сам ответ.\n\n"
+                  + "\n\n".join(f"{who[m['role']]}: {m['content']}" for m in messages))
+    cmd = [claude_bin(), "-p", "--model", model, "--tools", "", "--system-prompt", AI_SYSTEM,
+           "--output-format", "json", "--no-session-persistence"]
+    try:
+        r = subprocess.run(cmd, input=prompt, capture_output=True, text=True, timeout=CLAUDE_TIMEOUT,
+                           cwd=tempfile.gettempdir())
+    except (OSError, subprocess.SubprocessError) as e:
+        raise AIError(f"Claude: не запустился ({type(e).__name__})")
+    try:
+        out = json.loads(r.stdout)
+    except ValueError:
+        out = {}
+    text = str(out.get("result") or "").strip()
+    if r.returncode != 0 or out.get("is_error") or not text:
+        reason = text or (r.stderr or r.stdout).strip()
+        if re.search(r"limit|usage|quota|лимит", reason, re.I):
+            claude_pause["until"] = time.time() + CLAUDE_PAUSE
+            raise AIError("Claude: лимит подписки исчерпан")
+        raise AIError(f"Claude: {one_line(reason, 160) or 'пустой ответ'}")
+    return text
+
+
+def chat_file(chat_id):
+    if not CHAT_ID_RE.match(str(chat_id)):
+        raise ValueError()
+    return f"ai/{chat_id}.json"
+
+
+def read_chat(chat_id):
+    try:
+        chat = json.loads(read_text(chat_file(chat_id)) or "null")
+    except ValueError:
+        chat = None
+    if not isinstance(chat, dict):
+        raise KeyError()
+    return chat
+
+
+def list_chats():
+    out = []
+    folder = LIFE_DIR / "ai"
+    for f in folder.glob("*.json") if folder.is_dir() else []:
+        try:
+            c = json.loads(f.read_text(encoding="utf-8"))
+            out.append({"id": f.stem, "title": c.get("title") or "Без названия", "updated": c.get("updated", ""),
+                        "count": len(c.get("messages") or [])})
+        except (OSError, ValueError, AttributeError):
+            continue
+    return sorted(out, key=lambda c: c["updated"], reverse=True)
+
+
+def ai_send(chat_id, model_id, text):
+    """Отправляет сообщение и возвращает весь диалог с ответом. Пока модель думает, замков не держим."""
+    stamp = datetime.now().strftime("%Y-%m-%d %H:%M")
+    history = []
+    if chat_id:
+        with ai_lock:
+            history = read_chat(chat_id).get("messages") or []
+    messages, size = [], len(text)
+    for m in reversed(history):
+        size += len(m.get("text", ""))
+        if size > AI_HISTORY_CHARS:
+            break
+        messages.insert(0, {"role": m["role"], "content": m["text"]})
+    messages.append({"role": "user", "content": text})
+
+    auto = model_id == "auto"
+    pool = AI_MODELS if auto else [m for m in AI_MODELS if m["id"] == model_id]
+    if not pool:
+        raise ValueError()
+    errors, answer, used = [], None, None
+    for m in pool:
+        for provider, model in ready_routes(m):
+            try:
+                if provider == "claude":
+                    answer = call_claude(model, messages)
+                else:
+                    answer = call_api(provider, model, [{"role": "system", "content": AI_SYSTEM}] + messages)
+                used = (m, provider, model)
+                break
+            except AIError as e:
+                errors.append(str(e))
+        if answer:
+            break
+    if not answer:
+        if not errors:
+            raise AIError("Эта модель сейчас недоступна." if not auto else "Нет ни одной доступной модели: добавь ключи.")
+        raise AIError("Не ответила ни одна модель. " + " · ".join(errors[-3:]))
+
+    m, provider, model = used
+    with ai_lock:
+        if chat_id:
+            chat = read_chat(chat_id)
+        else:
+            chat_id = secrets.token_hex(6)
+            chat = {"title": one_line(text, 60), "created": stamp, "messages": []}
+        chat["messages"] += [
+            {"role": "user", "text": text, "time": stamp},
+            {"role": "assistant", "text": answer, "time": datetime.now().strftime("%Y-%m-%d %H:%M"),
+             "model": m["title"], "detail": route_name(provider, model), "auto": auto},
+        ]
+        chat["updated"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        write_text(chat_file(chat_id), json.dumps(chat, ensure_ascii=False, indent=1))
+    return {"id": chat_id, **chat, "errors": errors}
+
+
 # --- HTTP ---------------------------------------------------------------
 
 class Conflict(Exception):
@@ -386,6 +696,18 @@ class Handler(BaseHTTPRequestHandler):
                     "today": datetime.now().strftime("%Y-%m-%d"),
                 }
             self.send_json(200, payload)
+        elif route == "/api/ai/models":
+            self.send_json(200, models_payload())
+        elif route == "/api/ai/chats":
+            with ai_lock:
+                self.send_json(200, {"chats": list_chats()})
+        elif route == "/api/ai/chat":
+            try:
+                chat_id = (parse_qs(urlsplit(self.path).query).get("id") or [""])[0]
+                with ai_lock:
+                    self.send_json(200, {"id": chat_id, **read_chat(chat_id)})
+            except (ValueError, KeyError):
+                self.send_json(404, {"error": "Диалог не найден"})
         else:
             self.send_json(404, {"error": "not found"})
 
@@ -396,12 +718,31 @@ class Handler(BaseHTTPRequestHandler):
             return
         try:
             b = self.body()
+            if self.path.startswith("/api/ai/"):
+                self.ai_route(b)
+                return
             with lock:
                 self.route(b)
         except Conflict:
             self.send_json(409, {"error": "Запись уже изменилась. Обнови страницу."})
+        except AIError as e:
+            self.send_json(502, {"error": str(e)})
         except (ValueError, KeyError, TypeError, StopIteration):
             self.send_json(400, {"error": "Неверные данные"})
+
+    def ai_route(self, b):
+        p = self.path
+        if p == "/api/ai/send":
+            text = str(b["text"]).strip()[:20000]
+            if not text:
+                raise ValueError()
+            self.send_json(200, ai_send(b.get("chat") or "", str(b.get("model") or "auto"), text))
+        elif p == "/api/ai/delete":
+            with ai_lock:
+                path(chat_file(b["id"])).unlink(missing_ok=True)
+            self.send_json(200, {"ok": True})
+        else:
+            self.send_json(404, {"error": "not found"})
 
     def route(self, b):
         today = datetime.now().strftime("%Y-%m-%d")
