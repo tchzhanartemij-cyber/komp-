@@ -287,11 +287,126 @@ def cmd_merge(args):
     print(f"Принимаю задачу {args.id}: сливаю ветку в основную, пришлю итог.")
 
 
+
+CREDS_FILE = HOME / ".claude/.credentials.json"
+LIMITS_MSG_FILE = DATA / "limits_msg.json"
+WATCH_EVERY = 60   # секунд между обновлениями закреплённого сообщения
+
+
+def usage_token():
+    try:
+        o = json.loads(CREDS_FILE.read_text()).get("claudeAiOauth") or {}
+    except (OSError, ValueError):
+        return None
+    if o.get("expiresAt", 0) / 1000 < time.time() + 60:
+        return None
+    return o.get("accessToken")
+
+
+def refresh_credentials(env):
+    """Токен подписки обновляет сам Claude Code при запуске: один дешёвый вызов."""
+    claude = env.get("CLAUDE_BIN", "claude")
+    try:
+        subprocess.run([claude, "-p", "1", "--model", "haiku", "--max-turns", "1"],
+                       capture_output=True, text=True, timeout=120, cwd="/tmp", stdin=subprocess.DEVNULL)
+    except (OSError, subprocess.SubprocessError):
+        pass
+
+
+def fetch_usage(env=None):
+    """Расход подписки Claude прямо с сервера Anthropic, без траты лимита. {'five_hour': {...}, 'seven_day': {...}}"""
+    token = usage_token()
+    if token is None and env is not None:
+        refresh_credentials(env)
+        token = usage_token()
+    if token is None:
+        return None
+    req = urllib.request.Request("https://api.anthropic.com/api/oauth/usage", headers={
+        "Authorization": f"Bearer {token}", "anthropic-beta": "oauth-2025-04-20", "User-Agent": "claude-code/2.0"})
+    try:
+        with urllib.request.urlopen(req, timeout=20) as r:
+            data = json.loads(r.read())
+    except (urllib.error.URLError, ValueError, OSError):
+        return None
+    out = {}
+    for key in ("five_hour", "seven_day"):
+        w = data.get(key)
+        if w and w.get("utilization") is not None and w.get("resets_at"):
+            out[key] = {"pct": float(w["utilization"]),
+                        "reset": datetime.fromisoformat(w["resets_at"]).timestamp()}
+    return out or None
+
+
+def bar(pct, width=10):
+    n = max(0, min(width, round(pct / 100 * width)))
+    return "█" * n + "░" * (width - n)
+
+
+def left_text(ts):
+    sec = max(0, int(ts - time.time()))
+    h, m = sec // 3600, sec % 3600 // 60
+    return (f"{h} ч {m} мин" if h else f"{m} мин")
+
+
+def live_text(usage):
+    tz = ZoneInfo(TZ_NAME)
+    now = datetime.now(tz).strftime("%H:%M")
+    if not usage:
+        return f"Лимиты Claude: данных нет (проверено {now})"
+    names = {"five_hour": "5 часов", "seven_day": "Неделя"}
+    lines = [f"Лимиты Claude, обновлено {now}"]
+    for key in ("five_hour", "seven_day"):
+        w = usage.get(key)
+        if not w:
+            continue
+        pct = round(w["pct"])
+        reset = datetime.fromtimestamp(w["reset"], tz).strftime("%d.%m %H:%M")
+        lines.append(f"{names[key].ljust(7)}: {bar(w['pct'])} потрачено {pct}%, осталось {100 - pct}%")
+        lines.append(f"   сброс {reset} (через {left_text(w['reset'])})")
+    return "\n".join(lines)
+
+
+def cmd_limits_watch(args):
+    """Одно закреплённое сообщение в Telegram, обновляется раз в минуту."""
+    last_text = ""
+    while True:
+        env = load_env()
+        target = env.get("TG_TARGET")
+        if target:
+            text = live_text(fetch_usage(env))
+            if text != last_text:
+                binary = env.get("OPENCLAW_BIN", "openclaw")
+                try:
+                    msg_id = json.loads(LIMITS_MSG_FILE.read_text()).get("id")
+                except (OSError, ValueError):
+                    msg_id = None
+                done = False
+                if msg_id:
+                    r = subprocess.run([binary, "message", "edit", "--channel", "telegram", "--target", target,
+                                        "--message-id", str(msg_id), "--message", text], capture_output=True, text=True)
+                    done = r.returncode == 0 or "not modified" in (r.stdout + r.stderr).lower()
+                if not done:
+                    r = subprocess.run([binary, "message", "send", "--channel", "telegram", "--target", target,
+                                        "--message", text, "--silent", "--pin", "--json"], capture_output=True, text=True)
+                    m = re.search(r'"messageId"\s*:\s*"?(\d+)', r.stdout or "")
+                    if m:
+                        DATA.mkdir(parents=True, exist_ok=True)
+                        LIMITS_MSG_FILE.write_text(json.dumps({"id": m.group(1)}))
+                        done = True
+                if done:
+                    last_text = text
+        time.sleep(WATCH_EVERY)
+
+
 def cmd_limits(args):
+    usage = fetch_usage(load_env())
+    if usage:
+        print(live_text(usage))
+        return
     try:
         saved = json.loads(LIMITS_FILE.read_text())
     except (OSError, ValueError):
-        print("Данных о лимитах пока нет: они появляются, когда идёт задача.")
+        print("Данных о лимитах пока нет.")
         return
     ago = int((time.time() - saved.get("saved", 0)) / 60)
     print(f"{limits_text(saved.get('info'))}\n(данные {ago} мин назад)")
@@ -419,11 +534,10 @@ def limits_text(info):
         if not w:
             continue
         pct = round(float(w.get("utilization", 0)) * 100)
-        mark = "🔴" if pct >= 90 else "🟡" if pct >= 70 else "🟢"
         reset = datetime.fromtimestamp(w.get("resetsAt", 0), ZoneInfo(TZ_NAME)).strftime("%d.%m %H:%M")
-        parts.append(f"{mark} {names[key]}: {pct}% (сброс {reset})")
+        parts.append(f"{names[key]}: {pct}% (сброс {reset})")
     if info.get("status") == "rejected":
-        parts.append("⛔ лимит исчерпан")
+        parts.append("лимит исчерпан")
     return "Лимиты Claude: " + " · ".join(parts) if parts else "Лимиты Claude: данных пока нет."
 
 
@@ -464,7 +578,7 @@ class StatusLine:
             return
         self.last = time.time()
         mins = int((time.time() - started) / 60)
-        self._show(f"⏳ Задача {self.task['id']} идёт: {mins} мин\n{limits_text(read_limits(out_path))}")
+        self._show(f"Задача {self.task['id']} идёт: {mins} мин\n{limits_text(read_limits(out_path))}")
 
     def finish(self, out_path):
         info = read_limits(out_path)
@@ -686,6 +800,7 @@ def main():
         a.set_defaults(fn=lambda args, k=kind: followup(args, k))
     sub.add_parser("repos").set_defaults(fn=cmd_repos)
     sub.add_parser("limits").set_defaults(fn=cmd_limits)
+    sub.add_parser("limits-watch").set_defaults(fn=cmd_limits_watch)
     a = sub.add_parser("connect")
     a.add_argument("repo")
     a.add_argument("desc", nargs="+")
