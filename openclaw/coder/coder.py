@@ -29,7 +29,12 @@ import time
 import urllib.error
 import urllib.request
 from contextlib import contextmanager
+<<<<<<< Updated upstream
 from datetime import datetime, timedelta
+=======
+from datetime import datetime
+from zoneinfo import ZoneInfo
+>>>>>>> Stashed changes
 from pathlib import Path
 
 HOME = Path.home()
@@ -41,6 +46,9 @@ WORK = HOME / "work"
 CONF = HOME / ".config/jarvis"
 TOKEN_FILE = CONF / "github-token"
 ENV_FILE = CONF / "coder.env"
+LIMITS_FILE = DATA / "limits.json"
+STATUS_FILE = DATA / "status_msg.json"
+BASES_FILE = CONF / "bases.json"   # {"репозиторий": "ветка"}: рабочая основная ветка, если она не по умолчанию
 REPOS_FILE = CONF / "repos.txt"   # подключённые проекты: «имя | описание» на строку
 
 OWNER = "tchzhanartemij-cyber"
@@ -50,6 +58,8 @@ TASK_TIMEOUT = 2 * 60 * 60  # один заход не дольше двух ч�
 REFS_DIR = ".jarvis-refs"   # кадры и картинки к задаче внутри копии репозитория, в git не попадают
 LIMIT_RETRY = 30 * 60       # кончился лимит подписки: пробуем снова через полчаса
 POLL = 10
+STATUS_EVERY = 60            # как часто обновлять строку состояния в Telegram, сек
+TZ_NAME = "Asia/Shanghai"
 
 ACTIVE = ("queued", "running", "waiting_limit", "question")
 STATUS_RU = {
@@ -281,6 +291,16 @@ def cmd_merge(args):
     print(f"Принимаю задачу {args.id}: сливаю ветку в основную, пришлю итог.")
 
 
+def cmd_limits(args):
+    try:
+        saved = json.loads(LIMITS_FILE.read_text())
+    except (OSError, ValueError):
+        print("Данных о лимитах пока нет: они появляются, когда идёт задача.")
+        return
+    ago = int((time.time() - saved.get("saved", 0)) / 60)
+    print(f"{limits_text(saved.get('info'))}\n(данные {ago} мин назад)")
+
+
 def cmd_repos(args):
     for name, desc in load_repos().items():
         print(f"{name}: {desc}" if desc else name)
@@ -300,6 +320,15 @@ def cmd_connect(args):
         sys.exit(f"GitHub ответил ошибкой {e.code}.")
     if not info.get("permissions", {}).get("push"):
         sys.exit(f"Токен видит {info['full_name']}, но не может писать: нужно Contents: Read and write.")
+    if args.base:
+        try:
+            bases = json.loads(BASES_FILE.read_text())
+        except (OSError, ValueError):
+            bases = {}
+        bases[repo] = args.base
+        CONF.mkdir(parents=True, exist_ok=True)
+        BASES_FILE.write_text(json.dumps(bases, ensure_ascii=False, indent=1))
+        info["default_branch"] = args.base
     repos = load_repos()
     repos[repo] = desc
     CONF.mkdir(parents=True, exist_ok=True)
@@ -347,6 +376,12 @@ def ensure_repo(repo):
     git(repo_dir, "fetch", "origin", "--prune")
     git(repo_dir, "remote", "set-head", "origin", "--auto")
     base = git(repo_dir, "symbolic-ref", "--short", "refs/remotes/origin/HEAD").split("/", 1)[1]
+    try:
+        pinned = json.loads(BASES_FILE.read_text()).get(repo)
+    except (OSError, ValueError):
+        pinned = None
+    if pinned and remote_has(repo_dir, pinned):
+        base = pinned
     git(repo_dir, "reset", "--hard")
     git(repo_dir, "clean", "-fd")
     return repo_dir, base
@@ -354,6 +389,91 @@ def ensure_repo(repo):
 
 def remote_has(repo_dir, branch):
     return git(repo_dir, "rev-parse", "--verify", "--quiet", f"refs/remotes/origin/{branch}", check=False) != ""
+
+
+def read_limits(out_path):
+    """Последние данные о лимитах Claude из потока вывода (событие rate_limit_event)."""
+    info = None
+    try:
+        with open(out_path, errors="ignore") as f:
+            for line in f:
+                if '"rate_limit_event"' not in line:
+                    continue
+                try:
+                    obj = json.loads(line)
+                except ValueError:
+                    continue
+                info = obj.get("rate_limit_info") or info
+    except OSError:
+        return None
+    if info:
+        LIMITS_FILE.write_text(json.dumps({"saved": time.time(), "info": info}))
+    return info
+
+
+def limits_text(info):
+    """Одна-две строки про лимиты подписки: пять часов и неделя, с временем сброса по Пекину."""
+    if not info:
+        return "Лимиты Claude: данных пока нет."
+    wins = info.get("unifiedWindows") or {}
+    names = {"five_hour": "5 часов", "seven_day": "неделя"}
+    parts = []
+    for key in ("five_hour", "seven_day"):
+        w = wins.get(key)
+        if not w:
+            continue
+        pct = round(float(w.get("utilization", 0)) * 100)
+        mark = "🔴" if pct >= 90 else "🟡" if pct >= 70 else "🟢"
+        reset = datetime.fromtimestamp(w.get("resetsAt", 0), ZoneInfo(TZ_NAME)).strftime("%d.%m %H:%M")
+        parts.append(f"{mark} {names[key]}: {pct}% (сброс {reset})")
+    if info.get("status") == "rejected":
+        parts.append("⛔ лимит исчерпан")
+    return "Лимиты Claude: " + " · ".join(parts) if parts else "Лимиты Claude: данных пока нет."
+
+
+class StatusLine:
+    """Одно закреплённое сообщение в Telegram: задача идёт, сколько минут, какие лимиты.
+    Номер сообщения хранится в файле, поэтому оно переиспользуется между задачами."""
+
+    def __init__(self, env, task):
+        self.task = task
+        self.target = env.get("TG_TARGET")
+        self.bin = env.get("OPENCLAW_BIN", "openclaw")
+        self.last, self.sent, self.started = 0, "", time.time()
+        try:
+            self.msg_id = json.loads(STATUS_FILE.read_text()).get("id")
+        except (OSError, ValueError):
+            self.msg_id = None
+
+    def _run(self, *args):
+        r = subprocess.run([self.bin, "message", *args, "--channel", "telegram",
+                            "--target", self.target, "--json"], capture_output=True, text=True)
+        return r.stdout if r.returncode == 0 else None
+
+    def _show(self, text):
+        if text == self.sent:
+            return
+        if self.msg_id and self._run("edit", "--message-id", str(self.msg_id), "--message", text) is not None:
+            self.sent = text
+            return
+        out = self._run("send", "--message", text, "--silent", "--pin")
+        m = re.search(r'"messageId"\s*:\s*"?(\d+)', out or "")
+        if m:
+            self.msg_id, self.sent = m.group(1), text
+            STATUS_FILE.write_text(json.dumps({"id": self.msg_id}))
+
+    def tick(self, started, out_path):
+        self.started = started
+        if not self.target or time.time() - self.last < STATUS_EVERY:
+            return
+        self.last = time.time()
+        mins = int((time.time() - started) / 60)
+        self._show(f"⏳ Задача {self.task['id']} идёт: {mins} мин\n{limits_text(read_limits(out_path))}")
+
+    def finish(self, out_path):
+        info = read_limits(out_path)
+        if self.target:
+            self._show(f"Задача {self.task['id']}: работа закончена\n{limits_text(info)}")
 
 
 def run_claude(task, repo_dir, env):
@@ -368,7 +488,7 @@ def run_claude(task, repo_dir, env):
         if task.get("refs"):
             prompt += REFS_PROMPT.format(count=len(task["refs"]), path=f"{REFS_DIR}/task-{task['id']}")
         resume = []
-    cmd = [claude, "-p", prompt, "--output-format", "json", "--permission-mode", "acceptEdits",
+    cmd = [claude, "-p", prompt, "--output-format", "stream-json", "--verbose", "--permission-mode", "acceptEdits",
            *resume, "--allowedTools", *ALLOWED_TOOLS, "--disallowedTools", *DENIED_TOOLS]
     LOGS.mkdir(parents=True, exist_ok=True)
     out_path = LOGS / f"{task['id']}-{int(time.time())}.json"
@@ -377,8 +497,13 @@ def run_claude(task, repo_dir, env):
         proc = subprocess.Popen(cmd, cwd=repo_dir, stdout=out, stderr=err,
                                 stdin=subprocess.DEVNULL, start_new_session=True)
         started = time.time()
+        status = StatusLine(env, task)
         while proc.poll() is None:
             time.sleep(5)
+            try:
+                status.tick(started, out_path)
+            except Exception as e:  # строка состояния не должна ломать задачу
+                print(f"строка состояния: {e}", file=sys.stderr)
             with store() as data:
                 cancel = find(data, task["id"]).get("cancel")
             if cancel or time.time() - started > TASK_TIMEOUT:
@@ -389,13 +514,24 @@ def run_claude(task, repo_dir, env):
                     os.killpg(proc.pid, signal.SIGKILL)
                     proc.wait()
                 return {"stopped": "cancel" if cancel else "timeout"}
-    raw = out_path.read_text().strip()
     try:
-        res = json.loads(raw)
-    except ValueError:
+        status.finish(out_path)
+    except Exception as e:
+        print(f"строка состояния: {e}", file=sys.stderr)
+    raw = out_path.read_text().strip()
+    res = None
+    for line in reversed(raw.splitlines()):
+        try:
+            obj = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(obj, dict) and obj.get("type") == "result":
+            res = obj
+            break
+    if res is None:
         tail = (raw or err_path.read_text()).strip()[-800:]
         return {"is_error": True, "result": tail or "Claude Code ничего не ответил."}
-    return res if isinstance(res, dict) else {"is_error": True, "result": raw[-800:]}
+    return res
 
 
 def save_progress(repo_dir, base, branch, task_id, push=True):
@@ -521,6 +657,12 @@ def cmd_worker(args):
         except Exception as e:  # раннер не должен падать из-за одной задачи
             update(task["id"], status="failed", result=str(e))
             msg = f"⚠️ Задача {task['id']}: ошибка раннера: {short(str(e), 1500)}"
+        try:
+            saved = json.loads(LIMITS_FILE.read_text()).get("info")
+        except (OSError, ValueError):
+            saved = None
+        if saved:
+            msg = f"{msg}\n\n{limits_text(saved)}"
         print(msg, flush=True)
         notify(env, msg)
 
@@ -547,9 +689,11 @@ def main():
         a.add_argument("text", nargs="+")
         a.set_defaults(fn=lambda args, k=kind: followup(args, k))
     sub.add_parser("repos").set_defaults(fn=cmd_repos)
+    sub.add_parser("limits").set_defaults(fn=cmd_limits)
     a = sub.add_parser("connect")
     a.add_argument("repo")
     a.add_argument("desc", nargs="+")
+    a.add_argument("--base", help="основная ветка, если не по умолчанию")
     a.set_defaults(fn=cmd_connect)
     sub.add_parser("worker").set_defaults(fn=cmd_worker)
     args = p.parse_args()
