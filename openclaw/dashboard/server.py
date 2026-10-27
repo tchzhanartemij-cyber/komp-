@@ -12,7 +12,8 @@ The data lives in plain files in LIFE_DIR (default ~/.openclaw/workspace/life):
   settings.json    {"kcalGoal": 2200}
   memory/<Имя>.md  one page per person, place, project or topic, Obsidian style:
                    "# Дима", "тип: человек", then facts "- 2026-10-25 · text with [[links]]"
-  ai/<id>.json     dialogs of the «ИИ» tab: {"title", "messages": [{"role", "text", "model", "time"}]}
+  ai/<id>.json     dialogs of the «ИИ» tab: {"title", "project", "messages": [{"role", "text", "model", "time"}]}
+  ai/projects.json projects of the «ИИ» tab: {"projects": [{"id", "name", "description", "instructions"}]}
 
 Jarvis writes them from Telegram; this server shows them and lets you edit them
 from any browser. Only the Python standard library is used.
@@ -257,12 +258,6 @@ FREE_URL = "http://127.0.0.1:3187/v1"
 FREE_KEY = "freellm-unified-key"
 FREE_DOWN = "Бесплатный шлюз freellmapi недоступен (127.0.0.1:3187). Проверь, что он запущен."
 
-# The order is the order in the chat's list and the order auto mode tries them in.
-AI_MODELS = [
-    {"id": "claude", "title": "Claude", "routes": [("claude", "sonnet")]},
-    {"id": "free", "title": "Бесплатная (шлюз)", "routes": [("freellm", "auto")]},
-]
-
 ai_lock = threading.Lock()
 claude_pause = {"until": 0.0}
 gate_cache = {"at": 0.0, "up": False}
@@ -316,7 +311,7 @@ def claude_bin():
 
 def read_json(p):
     try:
-        return json.loads(Path(p).read_text())
+        return json.loads(Path(p).read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return None
 
@@ -343,135 +338,251 @@ def claude_state():
     return {"exhausted": until > now, "until": until if until > now else 0, "windows": windows}
 
 
-def ready_routes(m, claude=None):
-    """Маршруты модели, которыми можно воспользоваться прямо сейчас: [(provider, model)].
-    Шлюз пробуем всегда, когда есть ключ: если он лежит, владелец увидит понятную ошибку."""
-    out = []
-    for provider, model in m["routes"]:
-        if provider == "claude":
-            if claude_bin() and not (claude or claude_state())["exhausted"]:
-                out.append((provider, model))
-        elif free_key():
-            out.append((provider, model))
-    return out
+def codex_bin():
+    return shutil.which("codex") or (str(Path.home() / ".npm-global/bin/codex") if (Path.home() / ".npm-global/bin/codex").is_file() else None)
+
+
+chatgpt_pause = {"until": 0.0}
+free_models_cache = {"at": 0.0, "models": []}
+ai_runs = {}
+runs_lock = threading.Lock()
+
+
+# freellmapi пишет у всех моделей owned_by "freellmapi" и не говорит, через какой провайдер
+# (Groq, OpenRouter...) она идёт, поэтому группируем по разработчику модели по её имени.
+FREE_GROUPS = [
+    (r"^(auto|fusion|default|free-router|claude-)|-auto$|auto-route", "Подбор шлюзом"),
+    (r"^(gemini|gemma)", "Google"), (r"^(qwen|qwq)", "Qwen"), (r"^(gpt|o\d)", "OpenAI"),
+    (r"^(mistral|ministral|codestral|devstral|voxtral|open-mistral)", "Mistral"), (r"^llama", "Meta Llama"),
+    (r"^deepseek", "DeepSeek"), (r"^glm", "GLM"), (r"^nemotron", "NVIDIA"), (r"^(command|aya)", "Cohere"),
+    (r"^groq", "Groq"), (r"^minimax", "MiniMax"),
+]
+
+
+def free_group(mid, m):
+    provider = m.get("provider")
+    if isinstance(provider, str) and provider:
+        return provider
+    for pattern, title in FREE_GROUPS:
+        if re.search(pattern, mid, re.I):
+            return title
+    return "Другие"
+
+
+def gateway_models():
+    if not free_key():
+        return []
+    if time.time() - free_models_cache["at"] > 300:
+        models = []
+        try:
+            for m in free_request("/models", timeout=3).get("data", []):
+                if m.get("available") is False:
+                    continue
+                mid = str(m["id"])
+                models.append({"id": mid, "name": one_line(m.get("name"), 120), "provider": free_group(mid, m)})
+        except (OSError, ValueError, KeyError, TypeError):
+            pass
+        free_models_cache.update(at=time.time(), models=models)
+    return free_models_cache["models"]
 
 
 def models_payload():
-    claude = claude_state()
-    models, auto = [], None
-    for m in AI_MODELS:
-        routes = ready_routes(m, claude)
-        why = ""
-        if routes and m["id"] == "free" and not gate_up():
-            routes, why = [], "шлюз не отвечает"
-        elif not routes:
-            if m["id"] == "claude":
-                why = "лимит подписки исчерпан" if claude["exhausted"] and claude_bin() else "не найден Claude Code"
-            else:
-                why = "нет ключа " + FREE_KEY
-        models.append({"id": m["id"], "title": m["title"], "available": bool(routes), "why": why,
-                       "detail": route_name(*routes[0]) if routes else ""})
-        if routes and auto is None:
-            auto = {"id": m["id"], "title": m["title"]}
-    return {"models": models, "auto": auto, "claude": claude}
+    c = claude_state()
+    specs = [("claude", "Claude", bool(claude_bin()) and not c["exhausted"], "лимит подписки исчерпан" if c["exhausted"] else "не найден Claude Code"),
+             ("chatgpt", "ChatGPT", bool(codex_bin()) and chatgpt_pause["until"] <= time.time(),
+              "лимит исчерпан до " + datetime.fromtimestamp(chatgpt_pause["until"]).strftime("%H:%M") if chatgpt_pause["until"] > time.time() else "не найден Codex CLI"),
+             ("free", "Бесплатная", bool(free_key()) and gate_up(), "шлюз не отвечает" if free_key() else "нет ключа")]
+    models = [{"id": i, "title": t, "available": ok, "why": "" if ok else why, "detail": route_name(i, "auto")} for i, t, ok, why in specs]
+    auto = next(({"id": m["id"], "title": m["title"]} for m in models if m["available"]), None)
+    return {"models": models, "auto": auto, "claude": c, "free_models": gateway_models()}
 
 
 def route_name(provider, model):
-    return "подписка Claude" if provider == "claude" else f"{model} · шлюз freellmapi"
-
-
-def call_api(model, messages):
-    """Спрашивает шлюз; возвращает ответ и модель, которую шлюз выбрал на самом деле."""
-    body = json.dumps({"model": model, "messages": messages}).encode()
-    try:
-        data = free_request("/chat/completions", body)
-    except urllib.error.HTTPError as e:
-        if e.code in (401, 403):
-            raise AIError(f"Шлюз freellmapi отклонил ключ ({FREE_KEY}).")
-        try:
-            err = json.loads(e.read()).get("error")
-            msg = err.get("message") if isinstance(err, dict) else err
-        except (ValueError, AttributeError, OSError):
-            msg = ""
-        raise AIError(f"Шлюз freellmapi: ошибка {e.code} {one_line(msg, 160)}".strip())
-    except OSError:
-        gate_cache.update(at=time.time(), up=False)
-        raise AIError(FREE_DOWN)
-    except ValueError:
-        raise AIError("Шлюз freellmapi: непонятный ответ")
-    try:
-        text = data["choices"][0]["message"]["content"]
-    except (KeyError, IndexError, TypeError):
-        raise AIError("Шлюз freellmapi: пустой ответ")
-    if not (text or "").strip():
-        raise AIError("Шлюз freellmapi: пустой ответ")
-    return text.strip(), str(data.get("model") or model)
-
-
-def call_claude(model, messages):
-    if len(messages) == 1:
-        prompt = messages[0]["content"]
-    else:
-        who = {"user": "Владелец", "assistant": "Ты"}
-        prompt = ("Ниже наша переписка. Ответь на последнее сообщение владельца, только сам ответ.\n\n"
-                  + "\n\n".join(f"{who[m['role']]}: {m['content']}" for m in messages))
-    cmd = [claude_bin(), "-p", "--model", model, "--tools", "", "--system-prompt", AI_SYSTEM,
-           "--output-format", "json", "--no-session-persistence"]
-    try:
-        r = subprocess.run(cmd, input=prompt, capture_output=True, text=True, timeout=CLAUDE_TIMEOUT,
-                           cwd=tempfile.gettempdir())
-    except (OSError, subprocess.SubprocessError) as e:
-        raise AIError(f"Claude: не запустился ({type(e).__name__})")
-    try:
-        out = json.loads(r.stdout)
-    except ValueError:
-        out = {}
-    text = str(out.get("result") or "").strip()
-    if r.returncode != 0 or out.get("is_error") or not text:
-        reason = text or (r.stderr or r.stdout).strip()
-        if re.search(r"limit|usage|quota|лимит", reason, re.I):
-            claude_pause["until"] = time.time() + CLAUDE_PAUSE
-            raise AIError("Claude: лимит подписки исчерпан")
-        raise AIError(f"Claude: {one_line(reason, 160) or 'пустой ответ'}")
-    return text
+    return {"claude": "подписка Claude", "chatgpt": "подписка ChatGPT · Codex"}.get(provider, f"{model} · шлюз freellmapi")
 
 
 def chat_file(chat_id):
-    if not CHAT_ID_RE.match(str(chat_id)):
+    if not CHAT_ID_RE.fullmatch(str(chat_id)):
         raise ValueError()
     return f"ai/{chat_id}.json"
 
 
 def read_chat(chat_id):
-    try:
-        chat = json.loads(read_text(chat_file(chat_id)) or "null")
-    except ValueError:
-        chat = None
+    chat = read_json(path(chat_file(chat_id)))
     if not isinstance(chat, dict):
         raise KeyError()
+    chat.setdefault("project", "")
     return chat
+
+
+def save_chat(chat_id, chat):
+    write_text(chat_file(chat_id), json.dumps(chat, ensure_ascii=False, indent=1))
+
+
+def projects():
+    return (read_json(path("ai/projects.json")) or {}).get("projects", [])
+
+
+def save_projects(items):
+    write_text("ai/projects.json", json.dumps({"projects": items}, ensure_ascii=False, indent=1))
 
 
 def list_chats():
     out = []
-    folder = LIFE_DIR / "ai"
-    for f in folder.glob("*.json") if folder.is_dir() else []:
-        try:
-            c = json.loads(f.read_text(encoding="utf-8"))
-            out.append({"id": f.stem, "title": c.get("title") or "Без названия", "updated": c.get("updated", ""),
-                        "count": len(c.get("messages") or [])})
-        except (OSError, ValueError, AttributeError):
+    for f in path("ai").glob("*.json"):
+        if not CHAT_ID_RE.fullmatch(f.stem):
             continue
+        try:
+            c = read_chat(f.stem)
+            out.append({"id": f.stem, "title": c.get("title") or "Без названия", "updated": c.get("updated", ""), "project": c.get("project", ""), "count": len(c.get("messages") or [])})
+        except (OSError, ValueError, KeyError):
+            pass
     return sorted(out, key=lambda c: c["updated"], reverse=True)
 
 
-def ai_send(chat_id, model_id, text):
-    """Отправляет сообщение и возвращает весь диалог с ответом. Пока модель думает, замков не держим."""
+def stop_run(run):
+    run["stop"].set()
+    proc = run.get("proc")
+    if proc and proc.poll() is None:
+        try:
+            proc.kill()
+        except OSError:
+            pass
+
+
+def transcript(messages):
+    return "Ответь на последнее сообщение владельца, только сам ответ.\n\n" + "\n\n".join(("Владелец" if m["role"] == "user" else "Ты") + ": " + m["content"] for m in messages)
+
+
+def call_process(provider, messages, system, run, delta):
+    binary = claude_bin() if provider == "claude" else codex_bin()
+    if not binary:
+        raise AIError("Не найден " + ("Claude Code" if provider == "claude" else "Codex CLI"))
+    with tempfile.TemporaryDirectory() as folder:
+        output = Path(folder) / "answer"
+        cmd = [binary, "-p", "--model", "sonnet", "--tools", "", "--system-prompt", system, "--output-format", "stream-json", "--verbose", "--include-partial-messages", "--no-session-persistence"] if provider == "claude" else [binary, "exec", "--skip-git-repo-check", "--ephemeral", "-s", "read-only", "--color", "never", "-o", str(output), "-"]
+        answer, final, failed = "", "", False
+        diagnostic = ""
+        with tempfile.TemporaryFile(mode="w+") as stderr:
+            proc = None
+            timer = None
+            try:
+                proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=stderr, text=True, cwd=tempfile.gettempdir())
+                run["proc"] = proc
+                timer = threading.Timer(300, proc.kill)
+                timer.start()
+                if run["stop"].is_set():
+                    stop_run(run)
+                try:
+                    proc.stdin.write((system + "\n\n" if provider == "chatgpt" else "") + transcript(messages))
+                    proc.stdin.close()
+                except BrokenPipeError:
+                    pass
+                for line in proc.stdout:
+                    if run["stop"].is_set():
+                        break
+                    if provider == "chatgpt":
+                        diagnostic = (diagnostic + line)[-8000:]
+                    if provider == "claude":
+                        try:
+                            obj = json.loads(line)
+                            event = obj.get("event", {})
+                            d = event.get("delta", {})
+                            if obj.get("type") == "stream_event" and event.get("type") == "content_block_delta" and d.get("type") == "text_delta":
+                                answer += d.get("text", "")
+                                delta(d.get("text", ""))
+                            if obj.get("type") == "result":
+                                final, failed = str(obj.get("result") or ""), bool(obj.get("is_error"))
+                        except (ValueError, AttributeError):
+                            pass
+                proc.wait()
+                if provider == "chatgpt":
+                    final = output.read_text() if output.exists() else ""
+                stderr.seek(0)
+                reason = final + "\n" + diagnostic + "\n" + stderr.read()
+                if run["stop"].is_set():
+                    return answer
+                if proc.returncode or failed or not (final or answer).strip():
+                    # Ищем «лимит» только в неудачном запуске и в хвосте вывода: в начале Codex
+                    # повторяет промпт, а в удачном ответе слово может встретиться по делу.
+                    if re.search(r"limit|quota|usage|лимит", reason[-3000:], re.I):
+                        (claude_pause if provider == "claude" else chatgpt_pause)["until"] = time.time() + CLAUDE_PAUSE
+                        raise AIError(("Claude" if provider == "claude" else "ChatGPT") + ": лимит подписки исчерпан")
+                    tail = reason.strip().splitlines()[-1:] or [""]
+                    login = re.search(r"log.?in|auth|sign.?in", reason[-3000:], re.I)
+                    raise AIError(("Claude" if provider == "claude" else "ChatGPT") + (": требуется вход" if login else ": " + (one_line(tail[0], 160) or "пустой ответ")))
+                if not answer:
+                    answer = final
+                    delta(answer)
+                return answer
+            except OSError:
+                raise AIError("Не удалось запустить " + provider)
+            finally:
+                if timer:
+                    timer.cancel()
+                if proc:
+                    if proc.poll() is None:
+                        proc.kill()
+                    proc.wait()
+                    if proc.stdout:
+                        proc.stdout.close()
+                    if proc.stdin and not proc.stdin.closed:
+                        proc.stdin.close()
+                run["proc"] = None
+
+
+def call_gateway(model, messages, run, delta):
+    body = json.dumps({"model": model, "messages": messages, "stream": True}).encode()
+    req = urllib.request.Request(FREE_URL + "/chat/completions", data=body, headers={"Authorization": f"Bearer {free_key()}", "Content-Type": "application/json"})
+    answer, actual = "", model
+    try:
+        with urllib.request.urlopen(req, timeout=180) as response:
+            for raw in response:
+                if run["stop"].is_set():
+                    break
+                line = raw.decode("utf-8").strip()
+                if not line.startswith("data:"):
+                    continue
+                payload = line[5:].strip()
+                if payload == "[DONE]":
+                    break
+                obj = json.loads(payload)
+                actual = str(obj.get("model") or actual)
+                choices = obj.get("choices") or []
+                chunk = (choices[0].get("delta", {}).get("content") or "") if choices else ""
+                if isinstance(chunk, str) and chunk:
+                    answer += chunk
+                    delta(chunk)
+    except urllib.error.HTTPError as e:
+        if e.code in (401, 403):
+            raise AIError("Шлюз freellmapi отклонил ключ.")
+        raise AIError(f"Шлюз freellmapi: ошибка {e.code}")
+    except OSError:
+        raise AIError(FREE_DOWN)
+    except (ValueError, KeyError, TypeError):
+        raise AIError("Шлюз freellmapi: непонятный ответ")
+    if not answer.strip() and not run["stop"].is_set():
+        raise AIError("Шлюз freellmapi: пустой ответ")
+    return answer, actual
+
+
+def ai_send(chat_id, model_id, text, project, emit):
     stamp = datetime.now().strftime("%Y-%m-%d %H:%M")
-    history = []
-    if chat_id:
-        with ai_lock:
-            history = read_chat(chat_id).get("messages") or []
+    if model_id not in ("auto", "claude", "chatgpt", "free") and not model_id.startswith("free:"):
+        raise ValueError()
+    # Новый чат пишем на диск только вместе с ответом, чтобы ошибка не оставляла пустых диалогов.
+    new = not chat_id
+    with ai_lock:
+        if chat_id:
+            chat = read_chat(chat_id)
+        else:
+            if project and not any(p["id"] == project for p in projects()):
+                raise ValueError()
+            chat_id = secrets.token_hex(6)
+            chat = {"title": one_line(text, 60), "created": stamp, "updated": stamp, "project": project, "messages": []}
+        history = list(chat.get("messages") or [])
+        pr = next((p for p in projects() if p["id"] == chat.get("project")), None)
+    system = (f"Инструкции проекта «{pr['name']}»: {pr['instructions']}\n\n" if pr and pr.get("instructions") else "") + AI_SYSTEM
     messages, size = [], len(text)
     for m in reversed(history):
         size += len(m.get("text", ""))
@@ -479,46 +590,63 @@ def ai_send(chat_id, model_id, text):
             break
         messages.insert(0, {"role": m["role"], "content": m["text"]})
     messages.append({"role": "user", "content": text})
-
-    auto = model_id == "auto"
-    pool = AI_MODELS if auto else [m for m in AI_MODELS if m["id"] == model_id]
+    available = models_payload()["models"]
+    pool = [m["id"] for m in available if m["available"]] if model_id == "auto" else [model_id]
     if not pool:
+        pool = ["free"]
+    if any(i not in ("claude", "chatgpt", "free") and not i.startswith("free:") for i in pool):
         raise ValueError()
-    errors, answer, used = [], None, None
-    for m in pool:
-        for provider, model in ready_routes(m):
+    run_id = secrets.token_hex(12)
+    run = {"proc": None, "stop": threading.Event()}
+    with runs_lock:
+        ai_runs[run_id] = run
+    errors, answer, title, detail = [], "", "", ""
+    def send(obj):
+        try:
+            emit(obj)
+        except (BrokenPipeError, ConnectionResetError, OSError):
+            stop_run(run)
+    def delta(chunk):
+        nonlocal answer
+        answer += chunk
+        send({"type": "delta", "text": chunk})
+    try:
+        for n, mid in enumerate(pool):
+            provider = mid.split(":", 1)[0]
+            model = mid.split(":", 1)[1] if ":" in mid else "auto"
+            title = {"claude": "Claude", "chatgpt": "ChatGPT", "free": "Бесплатная"}[provider]
+            detail = route_name(provider, model)
+            send({"type": "switch" if n else "start", "chat": chat_id, "run": run_id, "model": title, "detail": detail, "reason": errors[-1] if errors else ""})
+            answer = ""
             try:
-                if provider == "claude":
-                    answer = call_claude(model, messages)
+                if provider == "free":
+                    _, actual = call_gateway(model, [{"role": "system", "content": system}] + messages, run, delta)
+                    detail = route_name(provider, actual)
                 else:
-                    answer, model = call_api(model, [{"role": "system", "content": AI_SYSTEM}] + messages)
-                used = (m, provider, model)
+                    call_process(provider, messages, system, run, delta)
                 break
             except AIError as e:
                 errors.append(str(e))
-        if answer:
-            break
-    if not answer:
-        if not errors:
-            raise AIError("Эта модель сейчас недоступна." if not auto else
-                          f"Claude недоступен, а для бесплатного шлюза нет ключа ~/.config/jarvis/{FREE_KEY}.")
-        raise AIError(errors[0] if len(errors) == 1 else "Не ответила ни одна модель. " + " · ".join(errors[-3:]))
-
-    m, provider, model = used
-    with ai_lock:
-        if chat_id:
-            chat = read_chat(chat_id)
-        else:
-            chat_id = secrets.token_hex(6)
-            chat = {"title": one_line(text, 60), "created": stamp, "messages": []}
-        chat["messages"] += [
-            {"role": "user", "text": text, "time": stamp},
-            {"role": "assistant", "text": answer, "time": datetime.now().strftime("%Y-%m-%d %H:%M"),
-             "model": m["title"], "detail": route_name(provider, model), "auto": auto},
-        ]
-        chat["updated"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        write_text(chat_file(chat_id), json.dumps(chat, ensure_ascii=False, indent=1))
-    return {"id": chat_id, **chat, "errors": errors}
+                if run["stop"].is_set():
+                    break
+                answer = ""
+        stopped = run["stop"].is_set()
+        if not answer and not stopped:
+            send({"type": "error", "error": " · ".join(errors) or "Ответа нет"})
+            return
+        with ai_lock:
+            if not new:
+                chat = read_chat(chat_id)
+            chat["messages"].append({"role": "user", "text": text, "time": stamp, "model": "", "detail": "", "auto": False})
+            if answer:
+                chat["messages"].append({"role": "assistant", "text": answer, "time": datetime.now().strftime("%Y-%m-%d %H:%M"), "model": title, "detail": detail, "auto": model_id == "auto", "stopped": stopped})
+            chat["updated"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            save_chat(chat_id, chat)
+        send({"type": "done", "chat": {"id": chat_id, **chat}, "errors": errors})
+    finally:
+        stop_run(run)
+        with runs_lock:
+            ai_runs.pop(run_id, None)
 
 
 # --- HTTP ---------------------------------------------------------------
@@ -677,6 +805,9 @@ class Handler(BaseHTTPRequestHandler):
             self.send_json(200, payload)
         elif route == "/api/ai/models":
             self.send_json(200, models_payload())
+        elif route == "/api/ai/projects":
+            with ai_lock:
+                self.send_json(200, {"projects": projects()})
         elif route == "/api/ai/chats":
             with ai_lock:
                 self.send_json(200, {"chats": list_chats()})
@@ -715,7 +846,72 @@ class Handler(BaseHTTPRequestHandler):
             text = str(b["text"]).strip()[:20000]
             if not text:
                 raise ValueError()
-            self.send_json(200, ai_send(b.get("chat") or "", str(b.get("model") or "auto"), text))
+            self.send_response(200)
+            self.send_header("Content-Type", "application/x-ndjson; charset=utf-8")
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("X-Accel-Buffering", "no")
+            self.send_header("Connection", "close")
+            self.end_headers()
+            self.close_connection = True
+            def emit(obj):
+                self.wfile.write((json.dumps(obj, ensure_ascii=False) + "\n").encode())
+                self.wfile.flush()
+            try:
+                ai_send(b.get("chat") or "", str(b.get("model") or "auto"), text, b.get("project") or "", emit)
+            except (AIError, ValueError, KeyError):
+                try:
+                    emit({"type": "error", "error": "Не удалось отправить сообщение"})
+                except OSError:
+                    pass
+        elif p == "/api/ai/stop":
+            with runs_lock:
+                run = ai_runs.get(b.get("run"))
+                if run:
+                    stop_run(run)
+            self.send_json(200, {"ok": True})
+        elif p in ("/api/ai/rename", "/api/ai/move"):
+            with ai_lock:
+                chat = read_chat(b["id"])
+                if p.endswith("rename"):
+                    title = str(b["title"]).strip()
+                    if not 1 <= len(title) <= 80:
+                        raise ValueError()
+                    chat["title"] = title
+                else:
+                    project = b.get("project") or ""
+                    if project and not any(x["id"] == project for x in projects()):
+                        raise ValueError()
+                    chat["project"] = project
+                save_chat(b["id"], chat)
+            self.send_json(200, {"ok": True})
+        elif p == "/api/ai/project/save":
+            name = str(b.get("name") or "").strip()
+            description, instructions = str(b.get("description") or ""), str(b.get("instructions") or "")
+            if not 1 <= len(name) <= 80 or len(description) > 500 or len(instructions) > 8000:
+                raise ValueError()
+            with ai_lock:
+                items = projects()
+                item = next((x for x in items if x["id"] == b.get("id")), None)
+                if b.get("id") and not item:
+                    raise KeyError()
+                if item is None:
+                    item = {"id": secrets.token_hex(6), "created": datetime.now().isoformat(timespec="seconds")}
+                    items.append(item)
+                item.update(name=name, description=description, instructions=instructions)
+                save_projects(items)
+            self.send_json(200, {"project": item})
+        elif p == "/api/ai/project/delete":
+            with ai_lock:
+                items = projects()
+                if not any(x["id"] == b["id"] for x in items):
+                    raise KeyError()
+                for c in list_chats():
+                    if c["project"] == b["id"]:
+                        chat = read_chat(c["id"])
+                        chat["project"] = ""
+                        save_chat(c["id"], chat)
+                save_projects([x for x in items if x["id"] != b["id"]])
+            self.send_json(200, {"ok": True})
         elif p == "/api/ai/delete":
             with ai_lock:
                 path(chat_file(b["id"])).unlink(missing_ok=True)
