@@ -239,9 +239,9 @@ def read_memory():
 
 
 # --- AI chat ------------------------------------------------------------
-# Keys live only in ~/.config/jarvis, one file per service (gemini-key, groq-key, ...).
-# A model without its key is simply not offered. Claude goes through the Claude Code
-# subscription; when the limits service says it is used up, auto mode skips it.
+# Claude goes through the Claude Code subscription; when the limits service says it is
+# used up, auto mode skips it. Free models go through the local freellmapi gateway, its one
+# key lives only in ~/.config/jarvis/freellm-unified-key.
 
 CONF = Path.home() / ".config/jarvis"
 CODER_DATA = Path.home() / ".openclaw/workspace/coder"   # limits from coder.py (usage.json, limits.json)
@@ -252,49 +252,50 @@ AI_HISTORY_CHARS = 60000     # сколько последних символо�
 CLAUDE_TIMEOUT = 300
 CLAUDE_PAUSE = 30 * 60       # Claude сказал «лимит»: не трогаем его полчаса
 
-# All of these speak the OpenAI chat format.
-PROVIDERS = {
-    "gemini": {"title": "Google AI Studio", "key": "gemini-key",
-               "url": "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"},
-    "groq": {"title": "Groq", "key": "groq-key", "url": "https://api.groq.com/openai/v1/chat/completions"},
-    "openrouter": {"title": "OpenRouter", "key": "openrouter-key", "url": "https://openrouter.ai/api/v1/chat/completions"},
-    "openai": {"title": "OpenAI", "key": "openai-key", "url": "https://api.openai.com/v1/chat/completions"},
-    "moonshot": {"title": "Moonshot", "key": "moonshot-key", "url": "https://api.moonshot.ai/v1/chat/completions"},
-}
+# freellmapi speaks the OpenAI chat format; model "auto" lets it pick a free model itself.
+FREE_URL = "http://127.0.0.1:3187/v1"
+FREE_KEY = "freellm-unified-key"
+FREE_DOWN = "Бесплатный шлюз freellmapi недоступен (127.0.0.1:3187). Проверь, что он запущен."
 
 # The order is the order in the chat's list and the order auto mode tries them in.
-# A route is (provider, model); "free:prefix/" means any free OpenRouter model whose id starts
-# with the prefix, because the free list there changes every few weeks.
 AI_MODELS = [
     {"id": "claude", "title": "Claude", "routes": [("claude", "sonnet")]},
-    {"id": "gemini", "title": "Gemini", "routes": [("gemini", "gemini-flash-latest"), ("gemini", "gemini-flash-lite-latest")]},
-    {"id": "chatgpt", "title": "ChatGPT", "routes": [("openai", "gpt-5-mini"), ("groq", "openai/gpt-oss-120b"),
-                                                       ("openrouter", "free:openai/")]},
-    {"id": "kimi", "title": "Kimi", "routes": [("moonshot", "kimi-latest"), ("openrouter", "free:moonshotai/")]},
-    {"id": "llama", "title": "Llama", "routes": [("groq", "llama-3.3-70b-versatile"), ("openrouter", "free:meta-llama/")]},
-    {"id": "nemotron", "title": "Nemotron", "routes": [("openrouter", "free:nvidia/nemotron-3-ultra"),
-                                                         ("openrouter", "free:nvidia/nemotron")]},
-    {"id": "gemma", "title": "Gemma", "routes": [("openrouter", "free:google/gemma")]},
-    {"id": "deepseek", "title": "DeepSeek", "routes": [("openrouter", "free:deepseek/")]},
-    {"id": "qwen", "title": "Qwen", "routes": [("openrouter", "free:qwen/")]},
-    {"id": "free", "title": "Любая бесплатная", "routes": [("openrouter", "openrouter/free")]},
+    {"id": "free", "title": "Бесплатная (шлюз)", "routes": [("freellm", "auto")]},
 ]
 
 ai_lock = threading.Lock()
 claude_pause = {"until": 0.0}
-free_cache = {"at": 0.0, "ids": []}
+gate_cache = {"at": 0.0, "up": False}
 
 
 class AIError(Exception):
     pass
 
 
-def ai_key(provider):
+def free_key():
     try:
-        k = (CONF / PROVIDERS[provider]["key"]).read_text().strip()
+        k = (CONF / FREE_KEY).read_text().strip()
     except OSError:
         return None
     return k or None
+
+
+def free_request(path, body=None, timeout=180):
+    headers = {"Authorization": f"Bearer {free_key()}", "Content-Type": "application/json", "User-Agent": "Svodka/1"}
+    with urllib.request.urlopen(urllib.request.Request(FREE_URL + path, data=body, headers=headers), timeout=timeout) as r:
+        return json.loads(r.read())
+
+
+def gate_up():
+    """Отвечает ли шлюз; спрашиваем не чаще раза в минуту."""
+    if time.time() - gate_cache["at"] > 60:
+        try:
+            free_request("/models", timeout=2)
+            up = True
+        except (OSError, ValueError):
+            up = False
+        gate_cache.update(at=time.time(), up=up)
+    return gate_cache["up"]
 
 
 def claude_bin():
@@ -342,40 +343,16 @@ def claude_state():
     return {"exhausted": until > now, "until": until if until > now else 0, "windows": windows}
 
 
-def openrouter_free():
-    """Бесплатные модели OpenRouter, список берём у них раз в час (без ключа)."""
-    if time.time() - free_cache["at"] > 3600:
-        try:
-            req = urllib.request.Request("https://openrouter.ai/api/v1/models", headers={"User-Agent": "Svodka/1"})
-            with urllib.request.urlopen(req, timeout=15) as r:
-                models = json.loads(r.read()).get("data") or []
-            ids = []
-            for m in models:
-                price = m.get("pricing") or {}
-                free = str(m.get("id", "")).endswith(":free") or (
-                    str(price.get("prompt")) in ("0", "0.0") and str(price.get("completion")) in ("0", "0.0"))
-                outputs = (m.get("architecture") or {}).get("output_modalities") or ["text"]
-                if free and "text" in outputs and not m["id"].startswith("openrouter/") \
-                        and not re.search(r"safety|guard", m["id"]):
-                    ids.append(m["id"])
-            free_cache.update(at=time.time(), ids=ids)
-        except (OSError, ValueError, KeyError, TypeError):
-            free_cache["at"] = time.time() - 3000   # нет связи: попробуем через 10 минут
-    return free_cache["ids"]
-
-
 def ready_routes(m, claude=None):
-    """Маршруты модели, которыми можно воспользоваться прямо сейчас: [(provider, model)]."""
+    """Маршруты модели, которыми можно воспользоваться прямо сейчас: [(provider, model)].
+    Шлюз пробуем всегда, когда есть ключ: если он лежит, владелец увидит понятную ошибку."""
     out = []
     for provider, model in m["routes"]:
         if provider == "claude":
             if claude_bin() and not (claude or claude_state())["exhausted"]:
                 out.append((provider, model))
-        elif ai_key(provider):
-            if model.startswith("free:"):
-                model = next((i for i in openrouter_free() if i.startswith(model[5:])), None)
-            if model:
-                out.append((provider, model))
+        elif free_key():
+            out.append((provider, model))
     return out
 
 
@@ -385,13 +362,13 @@ def models_payload():
     for m in AI_MODELS:
         routes = ready_routes(m, claude)
         why = ""
-        if not routes:
+        if routes and m["id"] == "free" and not gate_up():
+            routes, why = [], "шлюз не отвечает"
+        elif not routes:
             if m["id"] == "claude":
                 why = "лимит подписки исчерпан" if claude["exhausted"] and claude_bin() else "не найден Claude Code"
             else:
-                keys = list(dict.fromkeys(PROVIDERS[p]["key"] for p, _ in m["routes"]))
-                missing = [k for k in keys if not (CONF / k).exists()]
-                why = "нужен ключ: " + " или ".join(missing) if missing else "сейчас нет бесплатной версии"
+                why = "нет ключа " + FREE_KEY
         models.append({"id": m["id"], "title": m["title"], "available": bool(routes), "why": why,
                        "detail": route_name(*routes[0]) if routes else ""})
         if routes and auto is None:
@@ -400,34 +377,35 @@ def models_payload():
 
 
 def route_name(provider, model):
-    return "подписка Claude" if provider == "claude" else f"{model} · {PROVIDERS[provider]['title']}"
+    return "подписка Claude" if provider == "claude" else f"{model} · шлюз freellmapi"
 
 
-def call_api(provider, model, messages):
-    p = PROVIDERS[provider]
+def call_api(model, messages):
+    """Спрашивает шлюз; возвращает ответ и модель, которую шлюз выбрал на самом деле."""
     body = json.dumps({"model": model, "messages": messages}).encode()
-    headers = {"Authorization": f"Bearer {ai_key(provider)}", "Content-Type": "application/json", "User-Agent": "Svodka/1"}
-    if provider == "openrouter":
-        headers["X-Title"] = "Svodka"
     try:
-        with urllib.request.urlopen(urllib.request.Request(p["url"], data=body, headers=headers), timeout=180) as r:
-            data = json.loads(r.read())
+        data = free_request("/chat/completions", body)
     except urllib.error.HTTPError as e:
+        if e.code in (401, 403):
+            raise AIError(f"Шлюз freellmapi отклонил ключ ({FREE_KEY}).")
         try:
             err = json.loads(e.read()).get("error")
             msg = err.get("message") if isinstance(err, dict) else err
         except (ValueError, AttributeError, OSError):
             msg = ""
-        raise AIError(f"{p['title']} ({model}): ошибка {e.code} {one_line(msg, 160)}".strip())
-    except (OSError, ValueError) as e:
-        raise AIError(f"{p['title']}: нет ответа ({type(e).__name__})")
+        raise AIError(f"Шлюз freellmapi: ошибка {e.code} {one_line(msg, 160)}".strip())
+    except OSError:
+        gate_cache.update(at=time.time(), up=False)
+        raise AIError(FREE_DOWN)
+    except ValueError:
+        raise AIError("Шлюз freellmapi: непонятный ответ")
     try:
         text = data["choices"][0]["message"]["content"]
     except (KeyError, IndexError, TypeError):
-        raise AIError(f"{p['title']} ({model}): пустой ответ")
+        raise AIError("Шлюз freellmapi: пустой ответ")
     if not (text or "").strip():
-        raise AIError(f"{p['title']} ({model}): пустой ответ")
-    return text.strip()
+        raise AIError("Шлюз freellmapi: пустой ответ")
+    return text.strip(), str(data.get("model") or model)
 
 
 def call_claude(model, messages):
@@ -513,7 +491,7 @@ def ai_send(chat_id, model_id, text):
                 if provider == "claude":
                     answer = call_claude(model, messages)
                 else:
-                    answer = call_api(provider, model, [{"role": "system", "content": AI_SYSTEM}] + messages)
+                    answer, model = call_api(model, [{"role": "system", "content": AI_SYSTEM}] + messages)
                 used = (m, provider, model)
                 break
             except AIError as e:
@@ -522,8 +500,9 @@ def ai_send(chat_id, model_id, text):
             break
     if not answer:
         if not errors:
-            raise AIError("Эта модель сейчас недоступна." if not auto else "Нет ни одной доступной модели: добавь ключи.")
-        raise AIError("Не ответила ни одна модель. " + " · ".join(errors[-3:]))
+            raise AIError("Эта модель сейчас недоступна." if not auto else
+                          f"Claude недоступен, а для бесплатного шлюза нет ключа ~/.config/jarvis/{FREE_KEY}.")
+        raise AIError(errors[0] if len(errors) == 1 else "Не ответила ни одна модель. " + " · ".join(errors[-3:]))
 
     m, provider, model = used
     with ai_lock:
