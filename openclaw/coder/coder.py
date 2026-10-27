@@ -29,12 +29,8 @@ import time
 import urllib.error
 import urllib.request
 from contextlib import contextmanager
-<<<<<<< Updated upstream
 from datetime import datetime, timedelta
-=======
-from datetime import datetime
 from zoneinfo import ZoneInfo
->>>>>>> Stashed changes
 from pathlib import Path
 
 HOME = Path.home()
