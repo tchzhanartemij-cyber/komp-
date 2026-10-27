@@ -193,6 +193,27 @@ bash ~/openclaw/dashboard/install.sh
 LIFE_DIR=<твоя рабочая папка>/life bash ~/openclaw/dashboard/install.sh
 ```
 
+### Вкладка «ИИ»: чат с разными моделями
+
+Claude отвечает по подписке Claude Code, ключ ему не нужен. В режиме «Авто» чат берёт Claude, а когда лимит подписки (5 часов или неделя) кончился, отвечает первая доступная бесплатная модель. Какая модель ответила, подписано под каждым ответом. Данные о лимитах пишет служба `jarvis-limits` в `~/.openclaw/workspace/coder/usage.json`, поэтому она должна работать. Диалоги лежат в `life/ai/`.
+
+Остальным моделям нужны ключи. Каждый ключ кладётся отдельным файлом в `~/.config/jarvis` и больше никуда. Модель без ключа видна в списке серой, с подписью, какого ключа не хватает. После добавления ключа перезапускать ничего не надо.
+
+| Файл | Что даёт | Где взять (бесплатно) |
+|---|---|---|
+| `gemini-key` | Gemini | aistudio.google.com → Get API key → Create API key |
+| `groq-key` | ChatGPT (открытая модель OpenAI gpt-oss-120b), Llama | console.groq.com → API Keys → Create API Key |
+| `openrouter-key` | Nemotron, Gemma, любая бесплатная; DeepSeek, Qwen, Kimi и gpt-oss, когда у них есть бесплатная версия | openrouter.ai → Sign in → Keys → Create Key |
+| `openai-key` | настоящий ChatGPT (gpt-5-mini) | platform.openai.com, платно |
+| `moonshot-key` | Kimi напрямую | platform.moonshot.ai, платно |
+
+Как положить ключ (вместо `КЛЮЧ` вставь свой):
+
+```bash
+mkdir -p ~/.config/jarvis && chmod 700 ~/.config/jarvis
+printf '%s' 'КЛЮЧ' > ~/.config/jarvis/groq-key && chmod 600 ~/.config/jarvis/groq-key
+```
+
 ## Шаг 9. Проверь
 
 Напиши боту или скажи голосом:
