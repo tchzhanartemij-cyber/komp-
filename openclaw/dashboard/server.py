@@ -18,12 +18,16 @@ from any browser. Only the Python standard library is used.
 """
 
 import csv
+import hashlib
+import hmac
 import io
 import json
 import os
 import re
 import tempfile
 import threading
+import time
+from urllib.parse import parse_qs, urlsplit
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -32,6 +36,13 @@ LIFE_DIR = Path(os.environ.get("LIFE_DIR", Path.home() / ".openclaw/workspace/li
 HOST = os.environ.get("DASHBOARD_HOST", "127.0.0.1")
 PORT = int(os.environ.get("DASHBOARD_PORT", "8787"))
 STATIC = Path(__file__).resolve().parent / "index.html"
+ICON = Path(__file__).resolve().parent / "icon.png"
+
+# Personal access link. If the token file exists, every request needs the link
+# (https://host/?k=TOKEN) once; the server then sets a year-long cookie. With no token
+# file the server stays open (the reverse proxy is expected to protect it).
+TOKEN_FILE = Path(os.environ.get("DASHBOARD_TOKEN_FILE", Path.home() / ".config/jarvis/dashboard-token")).expanduser()
+COOKIE = "svodka"
 
 EXPENSE_FIELDS = ["date", "amount", "currency", "category", "note"]
 FOOD_FIELDS = ["date", "time", "item", "grams", "kcal", "protein", "fat", "carbs", "source"]
@@ -246,6 +257,26 @@ def append_line(name, line):
     write_text(name, text + line + "\n")
 
 
+
+def load_token():
+    try:
+        t = TOKEN_FILE.read_text().strip()
+    except OSError:
+        return None
+    return t if len(t) >= 24 else None
+
+
+def cookie_value(token):
+    return hmac.new(token.encode(), b"svodka-session", hashlib.sha256).hexdigest()
+
+
+LOGIN_PAGE = """<!doctype html><html lang="ru"><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Сводка</title>
+<body style="font-family:-apple-system,system-ui,sans-serif;background:#eef0f5;color:#1c1c22;display:flex;min-height:100vh;align-items:center;justify-content:center;margin:0">
+<div style="max-width:320px;text-align:center;padding:24px"><h2>Сводка</h2>
+<p>Нужна личная ссылка доступа. Открой «Сводку» по ссылке, которую прислал помощник в Telegram.</p></div>"""
+
 class Handler(BaseHTTPRequestHandler):
     server_version = "Svodka/1"
 
@@ -261,6 +292,41 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+
+    def authorize(self):
+        """Returns (allowed, set_cookie_value). Open when there is no token file."""
+        token = load_token()
+        if token is None:
+            return True, None
+        query = parse_qs(urlsplit(self.path).query)
+        given = (query.get("k") or [""])[0]
+        if given:
+            if hmac.compare_digest(given.encode(), token.encode()):
+                return True, cookie_value(token)
+            time.sleep(1)
+            return False, None
+        for part in (self.headers.get("Cookie") or "").split(";"):
+            name, _, value = part.strip().partition("=")
+            if name == COOKIE and hmac.compare_digest(value.encode(), cookie_value(token).encode()):
+                return True, None
+        return False, None
+
+    def deny(self):
+        if urlsplit(self.path).path in ("/", "/index.html"):
+            data = LOGIN_PAGE.encode()
+            self.send_response(401)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+        else:
+            self.send_json(401, {"error": "нужна ссылка доступа"})
+
+    def end_headers_cookie(self, cookie):
+        if cookie:
+            self.send_header("Set-Cookie", f"{COOKIE}={cookie}; Path=/; Max-Age=31536000; HttpOnly; Secure; SameSite=Lax")
+
     def body(self):
         length = int(self.headers.get("Content-Length") or 0)
         if length > 64 * 1024:
@@ -268,15 +334,47 @@ class Handler(BaseHTTPRequestHandler):
         return json.loads(self.rfile.read(length) or b"{}")
 
     def do_GET(self):
-        if self.path in ("/", "/index.html"):
+        route = urlsplit(self.path).path
+        if route == "/apple-touch-icon.png" or route == "/icon.png":
+            try:
+                data = ICON.read_bytes()
+            except OSError:
+                self.send_json(404, {"error": "not found"})
+                return
+            self.send_response(200)
+            self.send_header("Content-Type", "image/png")
+            self.send_header("Cache-Control", "public, max-age=86400")
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+            return
+        allowed, cookie = self.authorize()
+        if not allowed:
+            self.deny()
+            return
+        if route == "/manifest.webmanifest":
+            token = load_token()
+            start = "/?k=" + token if token else "/"
+            manifest = {"name": "Сводка", "short_name": "Сводка", "start_url": start, "scope": "/",
+                        "display": "standalone", "background_color": "#eef0f5", "theme_color": "#eef0f5",
+                        "icons": [{"src": "/icon.png", "sizes": "512x512", "type": "image/png"}]}
+            body = json.dumps(manifest, ensure_ascii=False).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/manifest+json; charset=utf-8")
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+        elif route in ("/", "/index.html"):
             data = STATIC.read_bytes()
             self.send_response(200)
             self.send_header("Content-Type", "text/html; charset=utf-8")
             self.send_header("Cache-Control", "no-store")
             self.send_header("Content-Length", str(len(data)))
+            self.end_headers_cookie(cookie)
             self.end_headers()
             self.wfile.write(data)
-        elif self.path == "/api/data":
+        elif route == "/api/data":
             with lock:
                 payload = {
                     "expenses": read_expenses(),
@@ -292,6 +390,10 @@ class Handler(BaseHTTPRequestHandler):
             self.send_json(404, {"error": "not found"})
 
     def do_POST(self):
+        allowed, _ = self.authorize()
+        if not allowed:
+            self.deny()
+            return
         try:
             b = self.body()
             with lock:
