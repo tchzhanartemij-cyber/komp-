@@ -306,11 +306,16 @@ a.tile span { font-size: 12px; color: color-mix(in srgb, var(--ink) 55%, transpa
 body[data-page="ai"] .banner { min-height: 0; padding-block: 22px; }
 body[data-page="ai"] .flower { width: 170px; height: 170px; right: 10px; }
 body[data-page="ai"] .foot-hint { display: none; }
-.ai-card { padding: 18px; gap: 12px; }
-.ai-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
-.ai-tools select { border-radius: 999px; background: var(--field); border-color: transparent; padding: 8px 14px; font: 600 13px var(--font); max-width: 100%; }
+.ai-card { padding: 18px; gap: 12px; grid-template-columns: minmax(0, 1fr); }
+.ai-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; min-width: 0; }
+.ai-tools .head { flex: 1 1 auto; }
+.ai-tools h2 small { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ai-tools select { border-radius: 999px; background: var(--field); border-color: transparent; padding: 8px 14px; font: 600 13px var(--font); flex: 0 1 auto; width: auto; min-width: 0; max-width: 260px; text-overflow: ellipsis; }
 .ai-status { display: flex; flex-wrap: wrap; gap: 6px; }
-.ai-layout { display: grid; grid-template-columns: 270px minmax(0, 1fr); gap: 14px; }
+.ai-status .badge { white-space: normal; }
+.ai-layout { display: grid; grid-template-columns: 270px minmax(0, 1fr); gap: 14px; min-width: 0; }
+.ai-layout.nochats { grid-template-columns: minmax(0, 1fr); }
+.ai-layout.nochats .ai-list { display: none; }
 .ai-list { background: var(--field); border-radius: 20px; padding: 8px; overflow: auto; height: min(720px, calc(100dvh - 300px)); min-height: 420px; }
 .ai-list li { display: flex; align-items: center; gap: 4px; border-radius: 14px; transition: background .2s; }
 .ai-list li:hover { background: color-mix(in srgb, var(--card) 60%, transparent); }
@@ -343,15 +348,27 @@ body[data-page="ai"] .foot-hint { display: none; }
 .ai-err { font-size: 13px; color: var(--bad); margin: 0; }
 .ai-err.warn { color: var(--warn); }
 #ai-chats-btn { display: none; }
+@media (max-width: 1100px) {
+  /* планшет: список узкий и высотой по содержимому, а не пустой столб */
+  .ai-layout { grid-template-columns: 220px minmax(0, 1fr); align-items: start; }
+  .ai-list { height: auto; min-height: 0; max-height: min(720px, calc(100dvh - 300px)); }
+}
 @media (max-width: 760px) {
   body[data-page="ai"] .banner { display: none; }
-  .ai-card { padding: 14px; }
-  .ai-layout { grid-template-columns: 1fr; }
+  body[data-page="ai"] .main { padding-bottom: calc(100px + env(safe-area-inset-bottom, 0px)); }
+  /* карточка ровно до нижнего меню: поле ввода всегда над ним */
+  .ai-card { padding: 14px; height: calc(100dvh - max(14px, env(safe-area-inset-top, 0px)) - 100px - env(safe-area-inset-bottom, 0px));
+    min-height: 420px; grid-template-rows: auto auto minmax(0, 1fr); }
+  .ai-tools { gap: 8px; }
+  .ai-tools .head { flex-basis: 100%; }
+  .ai-tools .sp { display: none; }
+  .ai-tools select { flex: 1 1 0; max-width: none; }
+  .ai-layout, .ai-layout.nochats { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); min-height: 0; align-items: stretch; }
   #ai-chats-btn { display: inline-flex; }
-  .ai-list { display: none; height: auto; min-height: 0; max-height: 50dvh; }
+  .ai-list { display: none; max-height: none; }
   .ai-layout.lists .ai-list { display: block; }
   .ai-layout.lists .ai-chat { display: none; }
-  .ai-chat { height: calc(100dvh - 250px - env(safe-area-inset-bottom, 0px)); min-height: 320px; }
+  .ai-chat { height: auto; min-height: 0; }
   .msg { max-width: 92%; }
 }
 
@@ -1557,7 +1574,7 @@ async function aiLoadModels() {
   const parts = [w.five_hour && `5 часов ${w.five_hour.pct}%`, w.seven_day && `неделя ${w.seven_day.pct}%`].filter(Boolean);
   if (c.exhausted) badge('ai-claude', `Лимит Claude исчерпан до ${aiWhen(c.until)}`, 'warn');
   else badge('ai-claude', parts.length ? 'Claude: ' + parts.join(' · ') : '', 'lav');
-  summary.ai = !who ? 'Нет доступных моделей: нужны ключи в ~/.config/jarvis.'
+  summary.ai = !who ? 'Нет доступных моделей: Claude недоступен, а бесплатный шлюз freellmapi не отвечает.'
     : c.exhausted && aiModel === 'auto' ? `Лимит Claude кончился, пока отвечает ${who.title} (${who.detail}).`
     : `Сейчас отвечает ${who.title} (${who.detail}).`;
   renderBanner();
@@ -1566,6 +1583,7 @@ async function aiLoadModels() {
 async function aiLoadChats() {
   try { AI.chats = (await aiGet('/api/ai/chats')).chats; } catch { return; }
   const list = $('ai-list');
+  $('ai-layout').classList.toggle('nochats', !AI.chats.length);
   if (!AI.chats.length) { list.replaceChildren(el('span', { class: 'empty', text: 'Диалогов пока нет.' })); return; }
   list.replaceChildren(el('ul', {}, ...AI.chats.map(c => el('li', { class: c.id === aiChatId ? 'sel' : '' },
     el('button', { type: 'button', class: 'grow1', onclick: () => aiOpen(c.id) },
@@ -1585,7 +1603,7 @@ function aiRender(pending) {
     el('div', { class: 'msg bot' }, el('div', { class: 'bubble typing', 'aria-label': 'Печатает' }, el('i'), el('i'), el('i')),
       el('div', { class: 'meta', text: `Отвечает ${pending.who}…` })));
   if (!kids.length) kids.push(el('div', { class: 'ai-empty' }, el('b', { text: 'О чём поговорим?' }),
-    el('span', { class: 'meta', text: 'Модель выбирается сверху. В режиме «Авто» отвечает Claude, а когда лимит подписки кончится, бесплатная модель. Диалоги сохраняются.' })));
+    el('span', { class: 'meta', text: 'Модель выбирается сверху. В режиме «Авто» отвечает Claude, а когда лимит подписки кончится, бесплатная модель через шлюз. Диалоги сохраняются.' })));
   $('ai-msgs').replaceChildren(...kids);
   $('ai-msgs').scrollTop = $('ai-msgs').scrollHeight;
 }
