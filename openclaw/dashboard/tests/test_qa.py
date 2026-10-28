@@ -24,16 +24,18 @@ class QA(unittest.TestCase):
         if not shutil.which('node'):
             self.skipTest('node unavailable')
         subprocess.run(['node', str(ROOT/'tests/qa_frontend.cjs')], check=True)
+        subprocess.run(['node', str(ROOT/'tests/voice_logic.cjs')], check=True)
 
     def test_javascript_syntax(self):
         if not shutil.which('node'):
             self.skipTest('node unavailable')
         html = (ROOT/'index.html').read_text()
-        script = html.split('<script>')[1].split('</script>')[0]
+        scripts = [part.split('</script>')[0] for part in html.split('<script>')[1:]]
         with tempfile.TemporaryDirectory() as tmp:
-            path = Path(tmp)/'dashboard.js'
-            path.write_text(script)
-            subprocess.run(['node', '--check', str(path)], check=True)
+            for i, script in enumerate(scripts):
+                path = Path(tmp)/f'dashboard-{i}.js'
+                path.write_text(script)
+                subprocess.run(['node', '--check', str(path)], check=True)
 
     def test_trusted_loader_registration_and_symlink(self):
         source = (ROOT/'server.py').read_text()

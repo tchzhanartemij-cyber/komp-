@@ -1,0 +1,493 @@
+{
+  "engine": "chromium",
+  "environment": "EMULATION, not physical devices",
+  "tts": "MOCKED TTS",
+  "latencyLabel": "mock pipeline latency; synthetic microphone, fake STT/Gateway, MOCKED TTS",
+  "checks": [
+    {
+      "name": "boot",
+      "status": "pass",
+      "details": {},
+      "ms": 311
+    },
+    {
+      "name": "boot-hang",
+      "status": "pass",
+      "details": {
+        "visibleMs": 12109,
+        "clientLog": {
+          "stage": "data-requested",
+          "message": "нет первого отображения данных за 12 с",
+          "ua": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36",
+          "t": 1793208469091
+        }
+      },
+      "ms": 12353
+    },
+    {
+      "name": "continuous",
+      "status": "pass",
+      "details": {
+        "completed": 3,
+        "states": [
+          "idle",
+          "starting",
+          "listening",
+          "hearing",
+          "transcribing",
+          "thinking",
+          "speaking",
+          "hearing",
+          "listening",
+          "hearing",
+          "transcribing",
+          "thinking",
+          "speaking",
+          "hearing",
+          "listening",
+          "hearing",
+          "transcribing",
+          "thinking",
+          "speaking",
+          "hearing"
+        ]
+      },
+      "ms": 17944
+    },
+    {
+      "name": "latency",
+      "status": "pass",
+      "details": {
+        "label": "mock pipeline latency; synthetic microphone, fake STT/Gateway, MOCKED TTS",
+        "count": 3,
+        "stages": {
+          "t_speech_end": {
+            "n": 3,
+            "p50": 0,
+            "p95": 0
+          },
+          "t_transcript": {
+            "n": 3,
+            "p50": 1288,
+            "p95": 1289
+          },
+          "t_run_accepted": {
+            "n": 3,
+            "p50": 2020,
+            "p95": 2021
+          },
+          "t_first_text": {
+            "n": 3,
+            "p50": 2729,
+            "p95": 2732
+          },
+          "t_first_audio": {
+            "n": 3,
+            "p50": 2729,
+            "p95": 2732
+          },
+          "t_done": {
+            "n": 3,
+            "p50": 3435,
+            "p95": 3440
+          }
+        }
+      },
+      "ms": 4
+    },
+    {
+      "name": "barge-in",
+      "status": "pass",
+      "details": {
+        "cancelled": 5,
+        "injectedEchoRejected": true
+      },
+      "ms": 15969
+    },
+    {
+      "name": "stop",
+      "status": "pass",
+      "details": {
+        "requestsStableForMs": 5000,
+        "tracksEnded": true
+      },
+      "ms": 5073
+    },
+    {
+      "name": "tabs",
+      "status": "pass",
+      "details": {
+        "tabs": [
+          "Личное",
+          "Работа",
+          "Память",
+          "ИИ",
+          "Агенты / Офис"
+        ],
+        "note": "Офис is the Агенты page; it displays up to six recent completed runs.",
+        "run": 6,
+        "officeRuns": [
+          6,
+          5,
+          4,
+          3,
+          2,
+          1
+        ]
+      },
+      "ms": 8381
+    },
+    {
+      "name": "dedupe",
+      "status": "pass",
+      "details": {
+        "attempts": 2,
+        "gatewayRequests": 1,
+        "historyRows": 1,
+        "sameRequestId": true
+      },
+      "ms": 5583
+    },
+    {
+      "name": "offline",
+      "status": "pass",
+      "details": {},
+      "ms": 1958
+    },
+    {
+      "name": "STT rate limit",
+      "status": "pass",
+      "details": {},
+      "ms": 8517
+    },
+    {
+      "name": "permission denied",
+      "status": "pass",
+      "details": {
+        "permission": "getUserMedia rejects NotAllowedError; no context microphone grant"
+      },
+      "ms": 2274
+    },
+    {
+      "name": "text turn + forms",
+      "status": "pass",
+      "details": {
+        "task": "Синтетическая задача из формы",
+        "modalAbovePanel": true
+      },
+      "ms": 4769
+    },
+    {
+      "name": "memory write/read — data diff reporting",
+      "status": "pass",
+      "details": {
+        "label": "Test POST writes task during run; proves persisted read-back and panel diff reporting, NOT agent memory-writing ability."
+      },
+      "ms": 4923
+    },
+    {
+      "name": "devices: desktop",
+      "status": "pass",
+      "details": {
+        "label": "EMULATION, not physical devices",
+        "boot": true,
+        "textTurn": true,
+        "x": 844,
+        "y": 104,
+        "right": 1264,
+        "bottom": 784,
+        "width": 1280,
+        "height": 800,
+        "overflow": false
+      },
+      "ms": 2104
+    },
+    {
+      "name": "devices: ipad",
+      "status": "pass",
+      "details": {
+        "label": "EMULATION, not physical devices",
+        "boot": true,
+        "textTurn": true,
+        "x": 398,
+        "y": 163.109375,
+        "right": 818,
+        "bottom": 1178,
+        "width": 834,
+        "height": 1194,
+        "overflow": false
+      },
+      "ms": 2359
+    },
+    {
+      "name": "devices: iphone",
+      "status": "pass",
+      "details": {
+        "label": "EMULATION, not physical devices",
+        "boot": true,
+        "textTurn": true,
+        "x": 8,
+        "y": 119.703125,
+        "right": 385,
+        "bottom": 581,
+        "width": 393,
+        "height": 659,
+        "overflow": false
+      },
+      "ms": 2200
+    },
+    {
+      "name": "reduced motion",
+      "status": "pass",
+      "details": {
+        "activeAnimations": 0
+      },
+      "ms": 617
+    },
+    {
+      "name": "no page errors",
+      "status": "pass",
+      "details": {
+        "consoleErrorsRecorded": 2,
+        "note": "Fault injection intentionally produces console network errors."
+      },
+      "ms": 0
+    },
+    {
+      "name": "cleanup",
+      "status": "pass",
+      "details": {},
+      "ms": 78
+    }
+  ],
+  "consoleErrors": [
+    "Failed to load resource: net::ERR_FAILED",
+    "Failed to load resource: the server responded with a status of 502 (Bad Gateway)"
+  ],
+  "pageErrors": [],
+  "screenshots": [
+    "browser-chromium-boot-hang.png",
+    "browser-chromium-continuous.png",
+    "browser-chromium-desktop.png",
+    "browser-chromium-ipad.png",
+    "browser-chromium-iphone.png"
+  ],
+  "browserVersion": "156.0.8078.47",
+  "latency": {
+    "count": 3,
+    "stages": {
+      "t_speech_end": {
+        "n": 3,
+        "p50": 0,
+        "p95": 0
+      },
+      "t_transcript": {
+        "n": 3,
+        "p50": 1288,
+        "p95": 1289
+      },
+      "t_run_accepted": {
+        "n": 3,
+        "p50": 2020,
+        "p95": 2021
+      },
+      "t_first_text": {
+        "n": 3,
+        "p50": 2729,
+        "p95": 2732
+      },
+      "t_first_audio": {
+        "n": 3,
+        "p50": 2729,
+        "p95": 2732
+      },
+      "t_done": {
+        "n": 3,
+        "p50": 3435,
+        "p95": 3440
+      }
+    }
+  },
+  "gateway": {
+    "count": 15,
+    "requests": [
+      {
+        "body": {
+          "model": "openclaw/svodka-test",
+          "user": "svodka-qa",
+          "input": "[Голосовой запрос из Сводки. Контекст: вкладка Личное]\nСинтетическая реплика номер 1",
+          "stream": true
+        },
+        "long": false,
+        "answer": "Ответ готов. Проверка пройдена. Можно продолжать. "
+      },
+      {
+        "body": {
+          "model": "openclaw/svodka-test",
+          "user": "svodka-qa",
+          "input": "[Голосовой запрос из Сводки. Контекст: вкладка Личное]\nСинтетическая реплика номер 2",
+          "stream": true
+        },
+        "long": false,
+        "answer": "Ответ готов. Проверка пройдена. Можно продолжать. "
+      },
+      {
+        "body": {
+          "model": "openclaw/svodka-test",
+          "user": "svodka-qa",
+          "input": "[Голосовой запрос из Сводки. Контекст: вкладка Личное]\nСинтетическая реплика номер 3",
+          "stream": true
+        },
+        "long": false,
+        "answer": "Ответ готов. Проверка пройдена. Можно продолжать. "
+      },
+      {
+        "body": {
+          "model": "openclaw/svodka-test",
+          "user": "svodka-qa",
+          "input": "[Голосовой запрос из Сводки. Контекст: вкладка Личное]\nСинтетическое начало длинного ответа",
+          "stream": true
+        },
+        "long": true,
+        "answer": "Это длинное синтетическое предложение для проверки прерывания озвучки настоящим входящим аудиосигналом. Продолжение длинного ответа номер 1. Продолжение длинного ответа номер 2. Продолжение длинного ответа номер 3. Продолжение длинного ответа номер 4. Продолжение длинного ответа номер 5. Продолжение длинного ответа номер 6. Продолжение длинного ответа номер 7. "
+      },
+      {
+        "body": {
+          "model": "openclaw/svodka-test",
+          "user": "svodka-qa",
+          "input": "[Голосовой запрос из Сводки. Контекст: вкладка Личное]\nСинтетическая новая реплика после перебивания",
+          "stream": true
+        },
+        "long": false,
+        "answer": "Ответ готов. Проверка пройдена. Можно продолжать. "
+      },
+      {
+        "body": {
+          "model": "openclaw/svodka-test",
+          "user": "svodka-qa",
+          "input": "[Голосовой запрос из Сводки. Контекст: вкладка Личное]\nСинтетическая проверка вкладок",
+          "stream": true
+        },
+        "long": false,
+        "answer": "Ответ готов. Проверка пройдена. Можно продолжать. "
+      },
+      {
+        "body": {
+          "model": "openclaw/svodka-test",
+          "user": "svodka-qa",
+          "input": "[Голосовой запрос из Сводки. Контекст: вкладка Личное]\nСинтетическая проверка дедупликации",
+          "stream": true
+        },
+        "long": false,
+        "answer": "Ответ готов. Проверка пройдена. Можно продолжать. "
+      },
+      {
+        "body": {
+          "model": "openclaw/svodka-test",
+          "user": "svodka-qa",
+          "input": "[Голосовой запрос из Сводки. Контекст: вкладка Личное]\nСинтетическая реплика после сети",
+          "stream": true
+        },
+        "long": false,
+        "answer": "Ответ готов. Проверка пройдена. Можно продолжать. "
+      },
+      {
+        "body": {
+          "model": "openclaw/svodka-test",
+          "user": "svodka-qa",
+          "input": "[Голосовой запрос из Сводки. Контекст: вкладка Личное]\nСинтетическое восстановление распознавания",
+          "stream": true
+        },
+        "long": false,
+        "answer": "Ответ готов. Проверка пройдена. Можно продолжать. "
+      },
+      {
+        "body": {
+          "model": "openclaw/svodka-test",
+          "user": "svodka-qa",
+          "input": "[Голосовой запрос из Сводки. Контекст: вкладка Личное]\nСинтетический текст без микрофона",
+          "stream": true
+        },
+        "long": false,
+        "answer": "Ответ готов. Проверка пройдена. Можно продолжать. "
+      },
+      {
+        "body": {
+          "model": "openclaw/svodka-test",
+          "user": "svodka-qa",
+          "input": "[Голосовой запрос из Сводки. Контекст: вкладка Личное]\nСинтетическая проверка формы",
+          "stream": true
+        },
+        "long": false,
+        "answer": "Ответ готов. Проверка пройдена. Можно продолжать. "
+      },
+      {
+        "body": {
+          "model": "openclaw/svodka-test",
+          "user": "svodka-qa",
+          "input": "[Голосовой запрос из Сводки. Контекст: вкладка Личное]\nзапиши задачу: синтетическая проверка изменений",
+          "stream": true
+        },
+        "long": false,
+        "answer": "Ответ готов. Проверка пройдена. Можно продолжать. "
+      },
+      {
+        "body": {
+          "model": "openclaw/svodka-test",
+          "user": "svodka-qa",
+          "input": "[Голосовой запрос из Сводки. Контекст: вкладка Личное]\nСинтетическая проверка устройства chromium desktop",
+          "stream": true
+        },
+        "long": false,
+        "answer": "Ответ готов. Проверка пройдена. Можно продолжать. "
+      },
+      {
+        "body": {
+          "model": "openclaw/svodka-test",
+          "user": "svodka-qa",
+          "input": "[Голосовой запрос из Сводки. Контекст: вкладка Личное]\nСинтетическая проверка устройства chromium ipad",
+          "stream": true
+        },
+        "long": false,
+        "answer": "Ответ готов. Проверка пройдена. Можно продолжать. "
+      },
+      {
+        "body": {
+          "model": "openclaw/svodka-test",
+          "user": "svodka-qa",
+          "input": "[Голосовой запрос из Сводки. Контекст: вкладка Личное]\nСинтетическая проверка устройства chromium iphone",
+          "stream": true
+        },
+        "long": false,
+        "answer": "Ответ готов. Проверка пройдена. Можно продолжать. "
+      }
+    ]
+  },
+  "stt": [
+    {
+      "text": "Синтетическая реплика номер 1"
+    },
+    {
+      "text": "Синтетическая реплика номер 2"
+    },
+    {
+      "text": "Синтетическая реплика номер 3"
+    },
+    {
+      "text": "Синтетическое начало длинного ответа"
+    },
+    {
+      "text": "Это длинное синтетическое предложение для проверки прерывания озвучки настоящим входящим аудиосигналом."
+    },
+    {
+      "text": "Синтетическая новая реплика после перебивания"
+    },
+    {
+      "error": "rate-limit"
+    },
+    {
+      "text": "Синтетическое восстановление распознавания"
+    }
+  ],
+  "ok": true
+}
