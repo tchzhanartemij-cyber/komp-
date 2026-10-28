@@ -1,0 +1,66 @@
+{
+ "office_without_auth": 401,
+ "agent_send_without_auth": 401,
+ "agent_send_cross_origin": 403,
+ "office_with_auth": 200,
+ "office_snapshot_contains_token": false,
+ "office_sessions": [
+  {
+   "key": "coder:101",
+   "status": "running",
+   "activity": "command",
+   "model": null,
+   "tool_pending": true
+  },
+  {
+   "key": "coder:101:codex",
+   "status": "running",
+   "activity": "code",
+   "model": "gpt-6-astra",
+   "tool_pending": true
+  },
+  {
+   "key": "coder:102",
+   "status": "running",
+   "activity": "search_code",
+   "model": null,
+   "tool_pending": false
+  },
+  {
+   "key": "coder:103",
+   "status": "running",
+   "activity": "web",
+   "model": null,
+   "tool_pending": false
+  },
+  {
+   "key": "coder:104",
+   "status": "running",
+   "activity": "code",
+   "model": null,
+   "tool_pending": false
+  },
+  {
+   "key": "coder:105",
+   "status": "question",
+   "activity": null,
+   "model": null,
+   "tool_pending": false
+  },
+  {
+   "key": "coder:106",
+   "status": "queued",
+   "activity": null,
+   "model": null,
+   "tool_pending": false
+  },
+  {
+   "key": "coder:107",
+   "status": "failed",
+   "activity": null,
+   "model": null,
+   "tool_pending": false
+  }
+ ],
+ "html_contains_token": false
+}

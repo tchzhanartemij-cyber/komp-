@@ -19,6 +19,21 @@ Jarvis writes them from Telegram; this server shows them and lets you edit them
 from any browser. Only the Python standard library is used.
 """
 
+# -I deliberately excludes the script directory. Load only the resolved sibling,
+# never a module selected through cwd, environment, or an expanded sys.path.
+import importlib.util
+import sys
+from pathlib import Path
+_dashboard_dir = Path(__file__).resolve().parent
+_agent_path = (_dashboard_dir / "agent.py").resolve(strict=True)
+if _agent_path.parent != _dashboard_dir:
+    raise ImportError("agent.py must resolve to a trusted dashboard sibling")
+_agent_spec = importlib.util.spec_from_file_location("agent", _agent_path)
+_agent_module = importlib.util.module_from_spec(_agent_spec)
+sys.modules[_agent_spec.name] = _agent_module  # decorators may inspect their module
+_agent_spec.loader.exec_module(_agent_module)
+Agent, Unavailable, queue_snapshot = _agent_module.Agent, _agent_module.Unavailable, _agent_module.queue_snapshot
+
 import csv
 import hashlib
 import hmac
@@ -37,9 +52,19 @@ import urllib.request
 from urllib.parse import parse_qs, urlsplit
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from pathlib import Path
+
+_office_path = (_dashboard_dir / 'office.py').resolve(strict=True)
+if _office_path.parent != _dashboard_dir:
+    raise ImportError('office.py must resolve to a trusted dashboard sibling')
+_office_spec = importlib.util.spec_from_file_location('office', _office_path)
+_office_module = importlib.util.module_from_spec(_office_spec)
+sys.modules[_office_spec.name] = _office_module
+_office_spec.loader.exec_module(_office_module)
+office_sessions, coder_metadata = _office_module.office_sessions, _office_module.coder_metadata
 
 LIFE_DIR = Path(os.environ.get("LIFE_DIR", Path.home() / ".openclaw/workspace/life")).expanduser()
+agent_service = Agent(LIFE_DIR / "dashboard-agent")
+
 HOST = os.environ.get("DASHBOARD_HOST", "127.0.0.1")
 PORT = int(os.environ.get("DASHBOARD_PORT", "8787"))
 STATIC = Path(__file__).resolve().parent / "index.html"
@@ -320,19 +345,27 @@ def claude_state():
     """Подписка Claude: сколько потрачено за 5 часов и неделю и не кончилась ли она."""
     now = time.time()
     until, windows = 0.0, {}
-    usage = read_json(CODER_DATA / "usage.json") or {}
+    def mapping(value):
+        return value if isinstance(value, dict) else {}
+    def numeric(value):
+        try:
+            value = float(value)
+            return value if value >= 0 and value < float('inf') else 0.0
+        except (TypeError, ValueError, OverflowError):
+            return 0.0
+    usage = mapping(read_json(CODER_DATA / "usage.json"))
     for key in ("five_hour", "seven_day"):
-        w = usage.get(key)
-        if isinstance(w, dict) and w.get("reset", 0) > now:
-            windows[key] = {"pct": round(float(w.get("pct", 0))), "reset": w["reset"]}
-            if float(w.get("pct", 0)) >= 99.5:
-                until = max(until, w["reset"])
-    info = (read_json(CODER_DATA / "limits.json") or {}).get("info") or {}
+        w = mapping(usage.get(key))
+        reset, pct = numeric(w.get("reset")), numeric(w.get("pct"))
+        if reset > now:
+            windows[key] = {"pct": round(pct), "reset": reset}
+            if pct >= 99.5:
+                until = max(until, reset)
+    info = mapping(mapping(read_json(CODER_DATA / "limits.json")).get("info"))
     if info.get("status") == "rejected":
-        resets = [w.get("resetsAt", 0) for w in (info.get("unifiedWindows") or {}).values() if isinstance(w, dict)]
-        resets.append(info.get("resetsAt") or 0)
-        if max(resets) > now:
-            until = max(until, max(resets))
+        resets = [numeric(mapping(w).get("resetsAt")) for w in mapping(info.get("unifiedWindows")).values()]
+        resets.append(numeric(info.get("resetsAt")))
+        until = max(until, max(resets))
     if claude_pause["until"] > now:
         until = max(until, claude_pause["until"])
     return {"exhausted": until > now, "until": until if until > now else 0, "windows": windows}
@@ -380,21 +413,46 @@ def gateway_models():
                     continue
                 mid = str(m["id"])
                 models.append({"id": mid, "name": one_line(m.get("name"), 120), "provider": free_group(mid, m)})
-        except (OSError, ValueError, KeyError, TypeError):
+        except (OSError, ValueError, KeyError, TypeError, AttributeError):
             pass
         free_models_cache.update(at=time.time(), models=models)
     return free_models_cache["models"]
 
 
+def listed_models():
+    out = []
+    cache = read_json(Path(os.environ.get("SVODKA_CODEX_MODELS_FILE", Path.home() / ".codex/models_cache.json")))
+    rows = cache.get("models", []) if isinstance(cache, dict) else []
+    for m in rows if isinstance(rows, list) else []:
+        if not isinstance(m, dict):
+            continue
+        mid = m.get("slug", "")
+        if isinstance(mid, str) and re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9._-]{0,99}", mid) and m.get("visibility") == "list":
+            out.append({"id": "chatgpt:"+mid, "title": one_line(m.get("display_name") or mid, 100), "available": bool(codex_bin()) and chatgpt_pause["until"] <= time.time(), "why": "Codex CLI недоступен или действует пауза", "detail": "Кеш Codex · модель перечислена; выполнение не проверено", "provenance": "Codex models_cache.json", "verified_runnable": False})
+    source = "переменная окружения оператора"
+    if "SVODKA_CLAUDE_MODELS" in os.environ:
+        ids = os.environ["SVODKA_CLAUDE_MODELS"].split(",")
+    else:
+        config = read_json(Path.home() / ".openclaw/openclaw.json")
+        node = config
+        for key in ("agents", "defaults", "models"):
+            node = node.get(key) if isinstance(node, dict) else None
+        ids = [key[len("anthropic/"):] for key in node if isinstance(key, str) and key.startswith("anthropic/")] if isinstance(node, dict) else []
+        source = "настройки OpenClaw"
+    for mid in dict.fromkeys(ids):
+        mid = mid.strip()
+        if re.fullmatch(r"claude-[a-zA-Z0-9._-]{1,93}", mid):
+            out.append({"id":"claude:"+mid, "title":"Claude · "+mid, "available":bool(claude_bin()) and not claude_state()["exhausted"], "why":"Claude недоступен или исчерпана подписка", "detail":source+" · настроена; выполнение не проверено", "provenance":source, "verified_runnable":False})
+    return out
+
+
 def models_payload():
     c = claude_state()
-    specs = [("claude", "Claude", bool(claude_bin()) and not c["exhausted"], "лимит подписки исчерпан" if c["exhausted"] else "не найден Claude Code"),
-             ("chatgpt", "ChatGPT", bool(codex_bin()) and chatgpt_pause["until"] <= time.time(),
-              "лимит исчерпан до " + datetime.fromtimestamp(chatgpt_pause["until"]).strftime("%H:%M") if chatgpt_pause["until"] > time.time() else "не найден Codex CLI"),
-             ("free", "Бесплатная", bool(free_key()) and gate_up(), "шлюз не отвечает" if free_key() else "нет ключа")]
-    models = [{"id": i, "title": t, "available": ok, "why": "" if ok else why, "detail": route_name(i, "auto")} for i, t, ok, why in specs]
-    auto = next(({"id": m["id"], "title": m["title"]} for m in models if m["available"]), None)
-    return {"models": models, "auto": auto, "claude": c, "free_models": gateway_models()}
+    models = [{"id":"claude", "title":"Claude · по умолчанию CLI", "available":bool(claude_bin()) and not c["exhausted"], "why":"CLI недоступен или исчерпана подписка", "detail":"Модель по умолчанию CLI · модель и выполнение не проверены"},
+              {"id":"chatgpt", "title":"ChatGPT · по умолчанию CLI", "available":bool(codex_bin()) and chatgpt_pause["until"] <= time.time(), "why":"CLI недоступен или действует пауза", "detail":"Модель по умолчанию Codex · выполнение не проверено"},
+              {"id":"free", "title":"Бесплатная", "available":bool(free_key()) and gate_up(), "why":"Шлюз недоступен", "detail":"Автовыбор шлюза · выполнение не проверено"}]
+    auto = next(({"id":m["id"], "title":m["title"]} for m in models if m["available"]), None)
+    return {"models":models + listed_models(), "auto":auto, "claude":c, "free_models":gateway_models()}
 
 
 def route_name(provider, model):
@@ -454,13 +512,19 @@ def transcript(messages):
     return "Ответь на последнее сообщение владельца, только сам ответ.\n\n" + "\n\n".join(("Владелец" if m["role"] == "user" else "Ты") + ": " + m["content"] for m in messages)
 
 
-def call_process(provider, messages, system, run, delta):
+def call_process(provider, messages, system, run, delta, model="auto"):
+    if model != "auto" and not re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9._-]{0,99}", model):
+        raise AIError("Недопустимая модель")
     binary = claude_bin() if provider == "claude" else codex_bin()
     if not binary:
         raise AIError("Не найден " + ("Claude Code" if provider == "claude" else "Codex CLI"))
     with tempfile.TemporaryDirectory() as folder:
         output = Path(folder) / "answer"
-        cmd = [binary, "-p", "--model", "sonnet", "--tools", "", "--system-prompt", system, "--output-format", "stream-json", "--verbose", "--include-partial-messages", "--no-session-persistence"] if provider == "claude" else [binary, "exec", "--skip-git-repo-check", "--ephemeral", "-s", "read-only", "--color", "never", "-o", str(output), "-"]
+        cmd = [binary, "-p", "--tools", "", "--system-prompt", system, "--output-format", "stream-json", "--verbose", "--include-partial-messages", "--no-session-persistence"] if provider == "claude" else [binary, "exec", "--skip-git-repo-check", "--ephemeral", "-s", "read-only", "--color", "never", "-o", str(output), "-"]
+        if model != "auto":
+            cmd[1:1] = ["--model=" + model] if provider == "claude" else []
+            if provider == "chatgpt":
+                cmd[2:2] = ["--model=" + model]
         answer, final, failed = "", "", False
         diagnostic = ""
         with tempfile.TemporaryFile(mode="w+") as stderr:
@@ -568,7 +632,7 @@ def call_gateway(model, messages, run, delta):
 
 def ai_send(chat_id, model_id, text, project, emit):
     stamp = datetime.now().strftime("%Y-%m-%d %H:%M")
-    if model_id not in ("auto", "claude", "chatgpt", "free") and not model_id.startswith("free:"):
+    if model_id not in ("auto", "claude", "chatgpt", "free") and model_id not in {m["id"] for m in listed_models()} and model_id not in {"free:"+m["id"] for m in gateway_models()}:
         raise ValueError()
     # Новый чат пишем на диск только вместе с ответом, чтобы ошибка не оставляла пустых диалогов.
     new = not chat_id
@@ -591,13 +655,16 @@ def ai_send(chat_id, model_id, text, project, emit):
         messages.insert(0, {"role": m["role"], "content": m["text"]})
     messages.append({"role": "user", "content": text})
     available = models_payload()["models"]
-    pool = [m["id"] for m in available if m["available"]] if model_id == "auto" else [model_id]
+    pool = [m["id"] for m in available if m["available"] and ":" not in m["id"]] if model_id == "auto" else [model_id]
     if not pool:
-        pool = ["free"]
-    if any(i not in ("claude", "chatgpt", "free") and not i.startswith("free:") for i in pool):
-        raise ValueError()
+        raise AIError("Нет настроенных маршрутов для авто")
+    if model_id != "auto" and not model_id.startswith("free:") and not any(m["id"] == model_id and m["available"] for m in available):
+        raise AIError("Выбранный маршрут недоступен; автоматическая замена отключена")
     run_id = secrets.token_hex(12)
-    run = {"proc": None, "stop": threading.Event()}
+    now = time.time()
+    provider_title = {"claude": "Claude", "chatgpt": "ChatGPT", "free": "Бесплатная"}[pool[0].split(':', 1)[0]]
+    run = {"proc": None, "stop": threading.Event(), "started": now, "updated": now,
+           "provider": provider_title, "phase": "waiting"}
     with runs_lock:
         ai_runs[run_id] = run
     errors, answer, title, detail = [], "", "", ""
@@ -609,13 +676,18 @@ def ai_send(chat_id, model_id, text, project, emit):
     def delta(chunk):
         nonlocal answer
         answer += chunk
+        if chunk:
+            with runs_lock:
+                run.update(phase='streaming', updated=time.time())
         send({"type": "delta", "text": chunk})
     try:
         for n, mid in enumerate(pool):
             provider = mid.split(":", 1)[0]
             model = mid.split(":", 1)[1] if ":" in mid else "auto"
             title = {"claude": "Claude", "chatgpt": "ChatGPT", "free": "Бесплатная"}[provider]
-            detail = route_name(provider, model)
+            with runs_lock:
+                run.update(provider=title, phase='waiting', updated=time.time())
+            detail = route_name(provider, model) + (" · " + model if model != "auto" else " · по умолчанию CLI")
             send({"type": "switch" if n else "start", "chat": chat_id, "run": run_id, "model": title, "detail": detail, "reason": errors[-1] if errors else ""})
             answer = ""
             try:
@@ -623,7 +695,7 @@ def ai_send(chat_id, model_id, text, project, emit):
                     _, actual = call_gateway(model, [{"role": "system", "content": system}] + messages, run, delta)
                     detail = route_name(provider, actual)
                 else:
-                    call_process(provider, messages, system, run, delta)
+                    call_process(provider, messages, system, run, delta, model)
                 break
             except AIError as e:
                 errors.append(str(e))
@@ -710,6 +782,15 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
 
+    def agent_protected(self):
+        return bool(load_token()) or os.environ.get("SVODKA_AGENT_TRUSTED_PROXY") == "1"
+
+    def agent_snapshot(self):
+        state = agent_service.snapshot()
+        if not self.agent_protected():
+            state.update(available=False, reason="Запуск запрещён: требуется защита панели токеном или явное доверие защищённому прокси")
+        return state
+
     def authorize(self):
         """Returns (allowed, set_cookie_value). Open when there is no token file."""
         token = load_token()
@@ -746,9 +827,19 @@ class Handler(BaseHTTPRequestHandler):
 
     def body(self):
         length = int(self.headers.get("Content-Length") or 0)
-        if length > 64 * 1024:
+        if not 0 <= length <= 64 * 1024:
             raise ValueError("too large")
-        return json.loads(self.rfile.read(length) or b"{}")
+        def unique_object(pairs):
+            result = {}
+            for key, value in pairs:
+                if key in result:
+                    raise ValueError("duplicate key")
+                result[key] = value
+            return result
+        def invalid_constant(value):
+            raise ValueError("invalid JSON constant")
+        return json.loads(self.rfile.read(length) or b"{}", object_pairs_hook=unique_object,
+                          parse_constant=invalid_constant)
 
     def do_GET(self):
         route = urlsplit(self.path).path
@@ -803,6 +894,19 @@ class Handler(BaseHTTPRequestHandler):
                     "today": datetime.now().strftime("%Y-%m-%d"),
                 }
             self.send_json(200, payload)
+        elif route == "/api/agent":
+            self.send_json(200, self.agent_snapshot())
+        elif route == "/api/office":
+            state = self.agent_snapshot()
+            filename = os.environ.get('SVODKA_CODER_QUEUE_FILE')
+            logs_dir = os.environ.get('SVODKA_CODER_LOGS_DIR') or (str(Path(filename).parent / 'logs') if filename else '')
+            queue = queue_snapshot(filename, lambda row: coder_metadata(row, logs_dir))
+            with runs_lock:
+                chats = {key: {k: row.get(k) for k in ('started', 'updated', 'provider', 'phase')} for key, row in ai_runs.items()}
+            self.send_json(200, {"server_time": time.time(), "sessions": office_sessions(state, queue, chats),
+                                 "agent": {k: state[k] for k in ('available', 'reason')},
+                                 "runs": [{k:r[k] for k in ("id", "status", "started", "updated")} for r in state["runs"]],
+                                 "events": state["events"], "queue": queue})
         elif route == "/api/ai/models":
             self.send_json(200, models_payload())
         elif route == "/api/ai/projects":
@@ -826,8 +930,38 @@ class Handler(BaseHTTPRequestHandler):
         if not allowed:
             self.deny()
             return
+        if urlsplit(self.path).path == "/api/agent/send":
+            if self.headers.get("Content-Type", "").split(";", 1)[0].strip().lower() != "application/json":
+                self.send_json(415, {"error": "Требуется application/json"})
+                return
+            origin = self.headers.get("Origin")
+            if origin is not None:
+                try:
+                    u = urlsplit(origin)
+                    host = self.headers.get("Host", "")
+                    expected = urlsplit(u.scheme + "://" + host)
+                    valid = (u.scheme in ("http", "https") and u.hostname and not u.username and not u.password
+                             and not u.path and not u.query and not u.fragment
+                             and u.hostname == expected.hostname
+                             and (u.port or (443 if u.scheme == "https" else 80)) == (expected.port or (443 if u.scheme == "https" else 80)))
+                except ValueError:
+                    valid = False
+                if not valid:
+                    self.send_json(403, {"error": "Источник запроса не совпадает с панелью"})
+                    return
         try:
             b = self.body()
+            if urlsplit(self.path).path == "/api/agent/send":
+                if set(b) != {"text"} or not isinstance(b["text"], str) or not 0 < len(b["text"].strip()) <= 20000:
+                    raise ValueError()
+                try:
+                    if not self.agent_protected():
+                        raise Unavailable("Запуск запрещён: панель не защищена токеном; требуется отдельное доверие защищённому прокси")
+                    rid = agent_service.submit(b["text"].strip())
+                    self.send_json(202, {"id": rid})
+                except Unavailable as e:
+                    self.send_json(503, {"error": str(e)})
+                return
             if self.path.startswith("/api/ai/"):
                 self.ai_route(b)
                 return
