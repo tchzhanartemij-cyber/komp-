@@ -9,6 +9,7 @@ from datetime import datetime
 from pathlib import Path
 
 LOG_LIMIT = 256 * 1024
+PARSED = {}
 TOOLS = {**dict.fromkeys(('Edit', 'Write', 'MultiEdit', 'NotebookEdit'), 'code'),
          **dict.fromkeys(('Read', 'Grep', 'Glob'), 'search_code'),
          **dict.fromkeys(('WebSearch', 'WebFetch'), 'web'),
@@ -43,7 +44,7 @@ def timestamp(value):
     return None
 
 
-def codex_command(command):
+def codex_command(command, exec_only=False):
     if not isinstance(command, str):
         return None
     try:
@@ -64,6 +65,8 @@ def codex_command(command):
         args = args[1:]
     if args[:1] != ['codex']:
         return None
+    if exec_only and 'exec' not in args[1:next((i for i, a in enumerate(args) if a in (';', '&&', '||', '|')), len(args))]:
+        return None
     model = None
     for i, arg in enumerate(args[1:], 1):
         if arg in (';', '&&', '||', '|'):
@@ -77,11 +80,15 @@ def codex_command(command):
 
 def parse_coder_log(data, at):
     activity, pending, open_tools = None, {}, set()
+    model, codex_runs, codex_models = None, 0, set()
     for line in data.splitlines():
         try:
             obj = json.loads(line)
         except (ValueError, UnicodeError, RecursionError):
             continue
+        if isinstance(obj, dict):
+            candidate = obj.get('model') if obj.get('type') == 'system' and obj.get('subtype') == 'init' else (obj.get('message', {}).get('model') if obj.get('type') == 'assistant' and isinstance(obj.get('message'), dict) else None)
+            model = model_name(candidate) or model
         if not isinstance(obj, dict) or obj.get('type') not in ('assistant', 'user'):
             continue
         message = obj.get('message')
@@ -99,6 +106,10 @@ def parse_coder_log(data, at):
                 if isinstance(tid, str):
                     open_tools.add(tid)
                 child = codex_command(inp.get('command')) if name == 'Bash' and isinstance(inp, dict) else None
+                if child is not None and codex_command(inp.get('command'), exec_only=True) is not None:
+                    codex_runs += 1
+                    if child['model']:
+                        codex_models.add(child['model'])
                 if child is not None and isinstance(tid, str):
                     pending[tid] = child
             elif obj['type'] == 'assistant' and kind in ('text', 'thinking'):
@@ -110,14 +121,14 @@ def parse_coder_log(data, at):
                     pending.pop(tid, None)
                     open_tools.discard(tid)
     # An unanswered tool call (e.g. a long codex exec) is confirmed ongoing work.
-    return {'activity': activity, 'activity_at': timestamp(at), 'tool_pending': bool(open_tools),
+    return {'model': model, 'codex_runs': codex_runs, 'codex_models': sorted(codex_models)[:5], 'activity': activity, 'activity_at': timestamp(at), 'tool_pending': bool(open_tools),
             'codex': next(reversed(pending.values())) if pending else None}
 
 
 def coder_metadata(row, logs_dir):
-    result = {'title': task_title(row.get('text')), 'activity': None, 'activity_at': None, 'tool_pending': False, 'codex': None}
+    result = {'title': task_title(row.get('text')), 'activity': None, 'activity_at': None, 'tool_pending': False, 'codex': None, 'model': None, 'codex_runs': 0, 'codex_models': []}
     rid = str(row.get('id', ''))
-    if row.get('status') != 'running' or not re.fullmatch(r'[A-Za-z0-9_-]{1,64}', rid):
+    if not re.fullmatch(r'[A-Za-z0-9_-]{1,64}', rid):
         return result
     try:
         files = [p for p in Path(logs_dir).glob(rid + '-*.json') if not p.is_symlink() and p.is_file()]
@@ -126,12 +137,33 @@ def coder_metadata(row, logs_dir):
         newest = max(files, key=lambda p: p.stat().st_mtime)
         with newest.open('rb') as f:
             stat = os.fstat(f.fileno())
+            # Finished logs do not change: reuse the parse instead of re-reading ~320 KiB per poll.
+            key = (str(newest), stat.st_mtime_ns, stat.st_size)
+            if key in PARSED:
+                parsed = dict(PARSED[key])
+                if row.get('status') != 'running':
+                    parsed = {k: parsed[k] for k in ('model', 'codex_runs', 'codex_models')}
+                result.update(parsed)
+                return result
             offset = max(0, stat.st_size - LOG_LIMIT)
+            head = f.read(min(64 * 1024, offset)) if offset else b''
+            if head and not head.endswith(b'\n'):
+                head = head.rpartition(b'\n')[0] + b'\n'
             f.seek(offset)
             data = f.read(LOG_LIMIT)
         if offset:
             data = data.partition(b'\n')[2]
-        result.update(parse_coder_log(data, stat.st_mtime))
+        parsed = parse_coder_log(data, stat.st_mtime)
+        first = parse_coder_log(head, stat.st_mtime)
+        parsed['model'] = parsed['model'] or first['model']
+        parsed['codex_runs'] += first['codex_runs']
+        parsed['codex_models'] = sorted(set(parsed['codex_models'] + first['codex_models']))[:5]
+        if len(PARSED) >= 256:
+            PARSED.clear()
+        PARSED[key] = dict(parsed)
+        if row.get('status') != 'running':
+            parsed = {k: parsed[k] for k in ('model', 'codex_runs', 'codex_models')}
+        result.update(parsed)
     except (OSError, ValueError):
         pass
     return result
@@ -159,7 +191,7 @@ def office_sessions(agent, queue, chats):
         activity = row.get('activity') if running else None
         at = row.get('activity_at') if running else None
         # Keep status updates even if the last observed action predates them.
-        observed = {**row, 'model': None}
+        observed = dict(row)
         if running and timestamp(at) is not None:
             observed['updated'] = max(timestamp(at), timestamp(row.get('updated')) or 0)
         sessions.append(session(key, 'coder', 'Кодер #' + rid, task_title(row.get('title', row.get('text'))),

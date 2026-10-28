@@ -1,0 +1,170 @@
+{
+ "kind": "preview (isolated LIFE_DIR/token/queue, synthetic coder data)",
+ "live_model_calls": false,
+ "team_without_token": 401,
+ "team_wrong_token": 401,
+ "team_status": 200,
+ "team": {
+  "server_time": 1793192834.3555107,
+  "available": true,
+  "reason": "Только чтение; ссылки и похожие на секреты строки в названиях скрыты",
+  "runs": [
+   {
+    "id": 4,
+    "title": "Синтетика: странный статус",
+    "status": "unknown",
+    "created": "2026-10-28 13:05",
+    "updated": "2026-10-28 13:05",
+    "outcome": "неизвестно",
+    "roles": [
+     {
+      "role": "Руководитель",
+      "runtime": "Claude Code (кодер)",
+      "requested": "по умолчанию CLI (раннер модель не задаёт)",
+      "actual": null
+     },
+     {
+      "role": "Исполнитель",
+      "runtime": "Codex",
+      "seen": 0,
+      "models": [],
+      "note": "делегирование не наблюдалось"
+     },
+     {
+      "role": "Проверка",
+      "runtime": "владелец через Telegram (принять/переделать)",
+      "opus_review": "не настроен: отдельный рецензент Opus раннером не запускается"
+     }
+    ]
+   },
+   {
+    "id": 3,
+    "title": "Синтетика: выполняется",
+    "status": "running",
+    "created": "2026-10-28 13:00",
+    "updated": "2026-10-28 13:01",
+    "outcome": "выполняется",
+    "roles": [
+     {
+      "role": "Руководитель",
+      "runtime": "Claude Code (кодер)",
+      "requested": "по умолчанию CLI (раннер модель не задаёт)",
+      "actual": "claude-sonnet-synthetic"
+     },
+     {
+      "role": "Исполнитель",
+      "runtime": "Codex",
+      "seen": 0,
+      "models": [],
+      "note": "делегирование не наблюдалось"
+     },
+     {
+      "role": "Проверка",
+      "runtime": "владелец через Telegram (принять/переделать)",
+      "opus_review": "не настроен: отдельный рецензент Opus раннером не запускается"
+     }
+    ]
+   },
+   {
+    "id": 2,
+    "title": "Синтетика: ждёт принятия [ссылка]",
+    "status": "done",
+    "created": "2026-10-28 12:00",
+    "updated": "2026-10-28 12:30",
+    "outcome": "ждёт принятия владельцем",
+    "roles": [
+     {
+      "role": "Руководитель",
+      "runtime": "Claude Code (кодер)",
+      "requested": "по умолчанию CLI (раннер модель не задаёт)",
+      "actual": null
+     },
+     {
+      "role": "Исполнитель",
+      "runtime": "Codex",
+      "seen": 0,
+      "models": [],
+      "note": "делегирование не наблюдалось"
+     },
+     {
+      "role": "Проверка",
+      "runtime": "владелец через Telegram (принять/переделать)",
+      "opus_review": "не настроен: отдельный рецензент Opus раннером не запускается"
+     }
+    ]
+   },
+   {
+    "id": 1,
+    "title": "Синтетика: принятая задача [скрыто]",
+    "status": "merged",
+    "created": "2026-10-28 10:00",
+    "updated": "2026-10-28 11:00",
+    "outcome": "принято",
+    "roles": [
+     {
+      "role": "Руководитель",
+      "runtime": "Claude Code (кодер)",
+      "requested": "по умолчанию CLI (раннер модель не задаёт)",
+      "actual": "claude-opus-synthetic"
+     },
+     {
+      "role": "Исполнитель",
+      "runtime": "Codex",
+      "seen": 1,
+      "models": [
+       "gpt-synthetic-a"
+      ],
+      "note": ""
+     },
+     {
+      "role": "Проверка",
+      "runtime": "владелец через Telegram (принять/переделать)",
+      "opus_review": "не настроен: отдельный рецензент Opus раннером не запускается"
+     }
+    ]
+   }
+  ]
+ },
+ "team_leaks": [],
+ "office_status": 200,
+ "office_leaks": [],
+ "office_coder_models": {
+  "coder:1": "claude-opus-synthetic",
+  "coder:2": null,
+  "coder:3": "claude-sonnet-synthetic",
+  "coder:4": null
+ },
+ "models_before": [
+  {
+   "id": "claude",
+   "available": true,
+   "detail": "Модель по умолчанию CLI · модель и выполнение не проверены",
+   "proof": null
+  },
+  {
+   "id": "claude:opus",
+   "available": true,
+   "detail": "Псевдоним CLI «opus» · чат без инструментов, не агент",
+   "proof": null
+  },
+  {
+   "id": "claude:sonnet",
+   "available": true,
+   "detail": "Псевдоним CLI «sonnet» · чат без инструментов, не агент",
+   "proof": null
+  },
+  {
+   "id": "claude:haiku",
+   "available": true,
+   "detail": "Псевдоним CLI «haiku» · чат без инструментов, не агент",
+   "proof": null
+  },
+  {
+   "id": "claude:claude-opus-5-5",
+   "available": true,
+   "detail": "настройки OpenClaw · настроена; выполнение не проверено",
+   "proof": null
+  }
+ ],
+ "server_stderr_tail": ""
+}

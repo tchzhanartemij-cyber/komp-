@@ -115,7 +115,7 @@ async function integration(){
  await run('refreshAgent()');assert.equal(run('officeState.online'),false);
  ctx.fetch=async(url,opts)=>{requests.push({url,opts});return {ok:true,json:async()=>url==='/api/office'?ctx.snapshot:{reason:'test',available:true,runs:[]}}};
  await run('refreshAgent()');assert.equal(run('officeState.online'),true);assert.equal(run('Object.keys(officeState.chars).length'),1);assert.equal(run("officeState.chars['coder:8'].desk"),0);
- assert(requests.every(({url,opts})=>(url==='/api/office'||url==='/api/agent')&&!opts.method),'opening the office only uses GET');
+ assert(requests.every(({url,opts})=>(url==='/api/office'||url==='/api/agent'||url==='/api/team')&&!opts.method),'opening the office only uses GET');
  document.hidden=true;const n=requests.length;await run('refreshAgent()');assert.equal(requests.length,n);
  ctx.current='life';document.hidden=false;await run('refreshAgent()');assert.equal(requests.length,n);
  console.log('Office reducer, paths, reduced motion, UI lifecycle and polling regressions passed');

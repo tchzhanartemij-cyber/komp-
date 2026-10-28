@@ -657,6 +657,9 @@ dialog[open] { animation: pop .4s var(--spring); }
       <div class="office-tasks"><h3 id="office-list-title">Работают: 0</h3><ul id="office-list" aria-labelledby="office-list-title"></ul><p id="office-empty" class="meta"></p></div>
     </div>
     <p id="office-sources" class="meta"></p>
+    <section id="team"><h3>Команда: руководитель → исполнитель → проверка</h3>
+     <p id="team-status" role="status" aria-live="polite">Ожидаем данные сервера</p><ul id="team-list"></ul>
+     <p class="meta">Роли Контент/Продажи/Аналитика и др. не подключены: источники не настроены.</p></section>
     <aside id="office-drawer" role="dialog" aria-modal="false" aria-labelledby="office-detail-label" tabindex="-1" hidden>
       <button type="button" id="office-close" aria-label="Закрыть сведения">×</button><h3 id="office-detail-label"></h3><div id="office-details"></div>
     </aside>
@@ -753,6 +756,7 @@ dialog[open] { animation: pop .4s var(--spring); }
 .office-task-meta {grid-column:2;font-size:11px;color:var(--muted);overflow-wrap:anywhere}
 .office-task-action {grid-column:2;font-size:12px;overflow-wrap:anywhere}
 #office-empty {padding:14px;font-size:13px}
+#team {min-width:0;overflow-wrap:anywhere} #team-list {padding-left:20px} #team-list li {margin-bottom:12px} .meta.warn {color:#a43d15;font-weight:600}
 #office-sources {font-size:11px;overflow-wrap:anywhere}
 #office-drawer {position:absolute;z-index:12;right:16px;top:76px;width:min(360px,calc(100% - 32px));max-height:calc(100% - 96px);overflow:auto;padding:20px;border:1px solid var(--rule);border-radius:20px;background:var(--card);box-shadow:var(--shadow-up);overflow-wrap:anywhere}
 #office-drawer h3 {margin:0 42px 16px 0}#office-close {position:absolute;right:10px;top:10px;font-size:22px}
@@ -1811,7 +1815,7 @@ async function aiLoadModels() {
 function aiPicker() {
  const box=$('ai-picker'), M=AI.models; if (!M) return;
  function choice(id,title,hint,available=true) { return el('button',{type:'button',role:'option','aria-selected':String(aiModel===id),...(!available?{disabled:''}:{}),onclick:()=>{aiModel=id;aiSave();$('ai-model').textContent=aiChoiceTitle();box.hidden=true;$('ai-model').setAttribute('aria-expanded','false');}},el('b',{text:title}),hint ? el('div',{class:'meta',text:hint}) : null); }
- box.replaceChildren(choice('auto','Авто',M.auto ? 'Первый маршрут: '+M.auto.title+' · затем резервный маршрут' : 'Нет доступных моделей'),...M.models.map(m=>choice(m.id,m.id==='free'?'Бесплатная (авто)':m.title,m.available?m.detail:m.why+' · '+m.detail,m.available)));
+ box.replaceChildren(choice('auto','Авто',M.auto ? 'Первый маршрут: '+M.auto.title+' · затем резервный маршрут' : 'Нет доступных моделей'),...M.models.map(m=>choice(m.id,m.id==='free'?'Бесплатная (авто)':m.title,(m.available?m.detail:m.why+' · '+m.detail)+(m.id.split(':')[0]==='claude'?' · '+(m.proof?(m.proof.ok?'проверено ответом: '+(m.proof.actual || 'модель не сообщена')+(m.id.includes(':')&&['opus','sonnet','haiku'].includes(m.id.split(':')[1])&&m.proof.actual&&!m.proof.actual.toLowerCase().includes(m.id.split(':')[1])?' · ⚠ ответила другая модель':'')+' · '+new Date(m.proof.at*1000).toLocaleString('ru-RU'):'последняя ошибка: '+(m.proof.error || 'запуск остановлен')):'не проверено запуском'):''),m.available)));
  if (!(M.free_models || []).length) return;
  const search=el('input',{placeholder:'Поиск моделей','aria-label':'Поиск моделей'}), group=el('div');
  const rank=p=>p==='Подбор шлюзом'?0:p==='Другие'?2:1;
@@ -1873,7 +1877,7 @@ function aiMarkdown(text) {
 function aiBubble(m) {
  if(m.role==='user')return el('div',{class:'msg me'},el('div',{class:'bubble',text:m.text}));
  const copy=el('button',{class:'pill soft small',type:'button',text:'Копировать ответ',onclick:()=>aiCopy(m.text,copy)});
- return el('div',{class:'msg bot'},m.text?aiMarkdown(m.text):el('div',{class:'typing'},'печатает',el('i'),el('i'),el('i')),el('div',{class:'meta',text:[m.model,m.detail,m.auto?'авто':'',aiTime(m.time),m.stopped?'остановлено':''].filter(Boolean).join(' · ')}),m.text?copy:null);
+ return el('div',{class:'msg bot'},m.text?aiMarkdown(m.text):el('div',{class:'typing'},'печатает',el('i'),el('i'),el('i')),el('div',{class:'meta'+(m.mismatch?' warn':''),text:[m.model,m.detail,m.auto?'авто':'',aiTime(m.time),m.stopped?'остановлено':''].filter(Boolean).join(' · ')}),m.text?copy:null);
 }
 function aiHeader(){ $('h-ai').textContent=AI.chat?.title || 'Новый чат';$('ai-project-name').textContent=AI.projects.find(p=>p.id===AI.project)?.name || ''; }
 function aiRender(){aiHeader();const kids=(AI.chat?.messages || []).map(aiBubble);if(AI.pending)kids.push(aiBubble({role:'user',text:AI.pending.user}),aiBubble(AI.pending));if(!kids.length)kids.push(el('div',{class:'ai-empty'},el('b',{text:'О чём поговорим?'}),el('span',{class:'meta',text:AI.projects.find(p=>p.id===AI.project)?.name || ''})));const msgs=$('ai-msgs'),oldTop=msgs.scrollTop,near=msgs.scrollHeight-msgs.scrollTop-msgs.clientHeight<100;msgs.replaceChildren(...kids);msgs.scrollTop=near?msgs.scrollHeight:oldTop;}
@@ -2265,6 +2269,15 @@ function officeRender(){
  if(officeSelected&&!officeState.chars[officeSelected]){officeClose();return;}
  if(officeSelected)officeDetails();officeWake();
 }
+function teamAccept(data){
+ if(!data){$('team-status').textContent='нет данных'+($('team-list').children.length?' · данные устарели':'');return;}
+ $('team-status').textContent=data.available?data.reason:'нет данных · '+data.reason;
+ $('team-list').replaceChildren(...data.runs.map(r=>{
+  const rows=r.roles.map(role=>el('div',{class:'meta',text:role.role+' · '+role.runtime+' · '+(role.actual || role.models?.join(', ') || 'модель не сообщена')+(role.requested?' · '+role.requested:'')+(role.seen!==undefined?' · запусков: '+role.seen:'')+(role.note?' · '+role.note:'')+(role.opus_review?' · '+role.opus_review:'')}));
+  const item=el('li',{},el('b',{text:'#'+r.id+' '+r.title}),el('div',{text:r.outcome}),...rows);
+  if(officeState.chars['coder:'+r.id])item.append(el('button',{type:'button',text:'Показать в офисе',onclick:()=>officeSelect('coder:'+r.id)}));return item;
+ }));
+}
 function officeAccept(snapshot){
  if(snapshot.type!=='offline'&&(!Number.isFinite(snapshot.server_time)||!Array.isArray(snapshot.sessions)))throw new Error('Некорректный снимок офиса');
  officeState=officeReduce(officeState,snapshot);
@@ -2322,7 +2335,7 @@ async function refreshAgent(){
     agentSend.disabled=!a.available || a.runs.some(r=>r.status==='running');
     renderAgentRuns(a.runs);
    }catch(e){agentReason.textContent='Нет связи с сервером';}})(),
-   (async()=>{try{officeAccept(await aiGet('/api/office'));}catch(e){officeAccept({type:'offline',at:Date.now()/1000});}})()
+   (async()=>{const [office,team]=await Promise.allSettled([aiGet('/api/office'),aiGet('/api/team')]);try{if(office.status!=='fulfilled')throw office.reason;officeAccept(office.value);}catch(e){officeAccept({type:'offline',at:Date.now()/1000});}teamAccept(team.status==='fulfilled'?team.value:null);})()
   ]);
  }finally{agentRefreshing=false;}
 }

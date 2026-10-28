@@ -446,13 +446,45 @@ def listed_models():
     return out
 
 
+def model_proofs():
+    data = read_json(path("ai/model-proof.json"))
+    out = {}
+    for key, row in data.items() if isinstance(data, dict) else []:
+        if not isinstance(key, str) or not isinstance(row, dict):
+            continue
+        actual, at, ok, error = (row.get(k) for k in ('actual', 'at', 'ok', 'error'))
+        if (actual is None or _office_module.model_name(actual)) and _office_module.timestamp(at) is not None and isinstance(at, (int, float)) and isinstance(ok, bool) and isinstance(error, str):
+            out[key] = dict(actual=actual, at=at, ok=ok, error=one_line(error, 160))
+    return out
+
+
+def team_payload(queue):
+    outcomes = dict(queued='в очереди', running='выполняется', waiting_limit='ждёт лимит', question='ждёт ответа владельца', done='ждёт принятия владельцем', nochange='завершено без изменений', failed='ошибка', timeout='превышено время', cancelled='отменено', merged='принято')
+    runs = []
+    for row in sorted(reversed(queue.get('jobs', [])), key=lambda r: _office_module.timestamp(r.get('created')) or 0, reverse=True)[:20]:
+        runs.append({**{k: row.get(k) for k in ('id', 'title', 'status', 'created', 'updated')}, 'outcome': outcomes.get(row.get('status'), 'неизвестно'), 'roles': [
+            dict(role='Руководитель', runtime='Claude Code (кодер)', requested='по умолчанию CLI (раннер модель не задаёт)', actual=row.get('model')),
+            dict(role='Исполнитель', runtime='Codex', seen=row.get('codex_runs', 0), models=row.get('codex_models', []), note='' if row.get('codex_runs') else 'делегирование не наблюдалось'),
+            dict(role='Проверка', runtime='владелец через Telegram (принять/переделать)', opus_review='не настроен: отдельный рецензент Opus раннером не запускается')]})
+    return dict(server_time=time.time(), available=queue['available'], reason=queue['reason'], runs=runs)
+
+
 def models_payload():
     c = claude_state()
     models = [{"id":"claude", "title":"Claude · по умолчанию CLI", "available":bool(claude_bin()) and not c["exhausted"], "why":"CLI недоступен или исчерпана подписка", "detail":"Модель по умолчанию CLI · модель и выполнение не проверены"},
               {"id":"chatgpt", "title":"ChatGPT · по умолчанию CLI", "available":bool(codex_bin()) and chatgpt_pause["until"] <= time.time(), "why":"CLI недоступен или действует пауза", "detail":"Модель по умолчанию Codex · выполнение не проверено"},
               {"id":"free", "title":"Бесплатная", "available":bool(free_key()) and gate_up(), "why":"Шлюз недоступен", "detail":"Автовыбор шлюза · выполнение не проверено"}]
     auto = next(({"id":m["id"], "title":m["title"]} for m in models if m["available"]), None)
-    return {"models":models + listed_models(), "auto":auto, "claude":c, "free_models":gateway_models()}
+    aliases = [{**models[0], "id":"claude:"+name, "title":"Claude "+name.title(), "detail":"Псевдоним CLI «"+name+"» · чат без инструментов, не агент"} for name in ('opus', 'sonnet', 'haiku')]
+    models[1:1] = aliases
+    seen = {m['id'] for m in models}
+    models += [m for m in listed_models() if m['id'] not in seen]
+    with ai_lock:
+        proofs = model_proofs()
+    for m in models:
+        if m['id'].split(':')[0] == 'claude':
+            m['proof'] = proofs.get(m['id'])
+    return {"models":models, "auto":auto, "claude":c, "free_models":gateway_models()}
 
 
 def route_name(provider, model):
@@ -550,6 +582,9 @@ def call_process(provider, messages, system, run, delta, model="auto"):
                     if provider == "claude":
                         try:
                             obj = json.loads(line)
+                            candidate = obj.get("model") if obj.get("type") == "system" and obj.get("subtype") == "init" else (obj.get("message", {}).get("model") if obj.get("type") == "assistant" and isinstance(obj.get("message"), dict) else None)
+                            if _office_module.model_name(candidate):
+                                run["actual_model"] = candidate
                             event = obj.get("event", {})
                             d = event.get("delta", {})
                             if obj.get("type") == "stream_event" and event.get("type") == "content_block_delta" and d.get("type") == "text_delta":
@@ -632,7 +667,7 @@ def call_gateway(model, messages, run, delta):
 
 def ai_send(chat_id, model_id, text, project, emit):
     stamp = datetime.now().strftime("%Y-%m-%d %H:%M")
-    if model_id not in ("auto", "claude", "chatgpt", "free") and model_id not in {m["id"] for m in listed_models()} and model_id not in {"free:"+m["id"] for m in gateway_models()}:
+    if model_id not in ("auto", "claude", "claude:opus", "claude:sonnet", "claude:haiku", "chatgpt", "free") and model_id not in {m["id"] for m in listed_models()} and model_id not in {"free:"+m["id"] for m in gateway_models()}:
         raise ValueError()
     # Новый чат пишем на диск только вместе с ответом, чтобы ошибка не оставляла пустых диалогов.
     new = not chat_id
@@ -690,6 +725,8 @@ def ai_send(chat_id, model_id, text, project, emit):
             detail = route_name(provider, model) + (" · " + model if model != "auto" else " · по умолчанию CLI")
             send({"type": "switch" if n else "start", "chat": chat_id, "run": run_id, "model": title, "detail": detail, "reason": errors[-1] if errors else ""})
             answer = ""
+            run.pop("actual_model", None)
+            attempt_error = ""
             try:
                 if provider == "free":
                     _, actual = call_gateway(model, [{"role": "system", "content": system}] + messages, run, delta)
@@ -698,10 +735,24 @@ def ai_send(chat_id, model_id, text, project, emit):
                     call_process(provider, messages, system, run, delta, model)
                 break
             except AIError as e:
+                attempt_error = str(e)
                 errors.append(str(e))
                 if run["stop"].is_set():
                     break
                 answer = ""
+            finally:
+                if provider == 'claude':
+                    with ai_lock:
+                        proofs = model_proofs()
+                        proofs[mid] = dict(actual=run.get('actual_model'), at=time.time(), ok=not attempt_error and not run['stop'].is_set(), error=one_line(attempt_error, 160))
+                        write_text('ai/model-proof.json', json.dumps(proofs, ensure_ascii=False))
+        requested = model if model != 'auto' else 'по умолчанию CLI'
+        actual = run.get('actual_model') if provider == 'claude' else None
+        mismatch = provider == 'claude' and model in ('opus', 'sonnet', 'haiku') and actual is not None and model not in actual.lower()
+        if provider == 'claude':
+            detail += ' · запрошено ' + requested + (' · фактически ' + actual if actual else ' · фактически не сообщено')
+            if mismatch:
+                detail += ' · ⚠ ответила другая модель: ' + actual
         stopped = run["stop"].is_set()
         if not answer and not stopped:
             send({"type": "error", "error": " · ".join(errors) or "Ответа нет"})
@@ -711,7 +762,7 @@ def ai_send(chat_id, model_id, text, project, emit):
                 chat = read_chat(chat_id)
             chat["messages"].append({"role": "user", "text": text, "time": stamp, "model": "", "detail": "", "auto": False})
             if answer:
-                chat["messages"].append({"role": "assistant", "text": answer, "time": datetime.now().strftime("%Y-%m-%d %H:%M"), "model": title, "detail": detail, "auto": model_id == "auto", "stopped": stopped})
+                chat["messages"].append({"role": "assistant", "text": answer, "time": datetime.now().strftime("%Y-%m-%d %H:%M"), "model": title, "detail": detail, "requested": requested, "actual": actual, "mismatch": bool(mismatch), "auto": model_id == "auto", "stopped": stopped})
             chat["updated"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             save_chat(chat_id, chat)
         send({"type": "done", "chat": {"id": chat_id, **chat}, "errors": errors})
@@ -909,6 +960,10 @@ class Handler(BaseHTTPRequestHandler):
                                  "events": state["events"], "queue": queue})
         elif route == "/api/ai/models":
             self.send_json(200, models_payload())
+        elif route == "/api/team":
+            filename = os.environ.get('SVODKA_CODER_QUEUE_FILE')
+            logs_dir = os.environ.get('SVODKA_CODER_LOGS_DIR') or (str(Path(filename).parent / 'logs') if filename else '')
+            self.send_json(200, team_payload(queue_snapshot(filename, lambda row: coder_metadata(row, logs_dir))))
         elif route == "/api/ai/projects":
             with ai_lock:
                 self.send_json(200, {"projects": projects()})
