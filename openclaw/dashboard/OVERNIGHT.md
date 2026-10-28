@@ -177,3 +177,75 @@ Screenshot evidence (outside repo, test credentials only):
 The live Gateway endpoint remains disabled and was NOT changed. Actual server-agent
 execution is therefore prepared and mock-tested, not live-proven. Approval of the
 UI must not be confused with approval to enable full-operator agent access.
+
+## Authorized live verification, 2026-10-28 09:50 UTC+8
+
+This section supersedes the earlier disabled-endpoint blocker. The owner separately
+approved protected Gateway integration; the parent enabled responses through the
+supported config tool before this verification. No Gateway config, tool policy,
+public listener, systemd unit or production dashboard was modified here.
+
+Effective settings: responses enabled; token auth; bind loopback. Actual listeners
+were 127.0.0.1:18789 and [::1]:18789 only. POST /v1/responses without a token and
+with an invalid token each returned 401. The actual authenticated SSE request below
+completed successfully, proving the hot-reloaded endpoint is active.
+
+A backend-only copy of the existing local Gateway token was saved without printing
+its contents to /home/jarvis/.config/jarvis/svodka-agent/gateway-token (0600), under
+a 0700 directory outside the repository/static root. The copied credential is the
+existing full-operator token, not a newly restricted credential. No auth or policy
+was weakened. Keep this file current if the Gateway token is rotated.
+
+One isolated dashboard instance ran on 127.0.0.1:18798 with a fresh empty LIFE_DIR,
+its own random dashboard access token, no coder queue and unique fixed user
+svodka-liveproof-4a5600ebc5762d49. One harmless message asked for SVODKA_LIVE_OK
+and prohibited tools, files, memory and external actions. POST /api/agent/send
+returned 202; run 1 persisted running/delta/completed events and the exact answer
+SVODKA_LIVE_OK in approximately 7.6 seconds. Office metadata also showed completed.
+Unauthenticated dashboard API access returned 401, and a cross-origin submission
+returned 403 before creating a run. Public agent/office/model JSON and HTML were
+checked against both credentials: no credential contents were present.
+
+Important model-selection distinction: production agent.py deliberately routes to
+openclaw/main and has no explicit backend-model environment variable. To avoid
+using Claude during this isolated proof, the test harness added the documented
+x-openclaw-model: openai/gpt-6.1-sol header to its one upstream request only.
+The repository implementation was not changed. Gateway transcript evidence confirms
+provider=openai, model=responseModel=gpt-6.1-sol, final SVODKA_LIVE_OK and zero tool
+calls. Session-list default model metadata still says Claude; it is not execution
+provenance and must not be used instead of the actual assistant transcript.
+
+Private evidence and isolated environment:
+/home/jarvis/.config/jarvis/svodka-agent/live-test-20261028-095042/proof.json
+/home/jarvis/.config/jarvis/svodka-agent/live-test-20261028-095042/isolated.env
+Test harness (contains no credentials): /tmp/svodka-live-proof-20261028.py
+The test server was shut down and port 18798 verified closed after completion.
+Gateway conversation bookkeeping and isolated test SQLite were the only live-run
+writes; no production life data was read/written by this verification.
+
+### Exact production connection, prepared but not activated
+
+A 0600 file /home/jarvis/.config/jarvis/svodka-agent/production.env.prepared
+contains the following non-secret wiring (the secret remains in its token file):
+
+```
+SVODKA_AGENT_ENABLED=1
+SVODKA_AGENT_URL=http://127.0.0.1:18789/v1/responses
+SVODKA_AGENT_TOKEN_FILE=/home/jarvis/.config/jarvis/svodka-agent/gateway-token
+SVODKA_AGENT_ID=main
+SVODKA_AGENT_USER=svodka-owner-dashboard
+```
+
+After explicit deployment approval, inspect the current dashboard service and merge
+these variables into its existing environment without replacing other settings.
+Keep the existing production LIFE_DIR, loopback bind and dashboard access token;
+verify the owner-only authenticated proxy route. Do not set TRUSTED_PROXY merely
+to bypass missing dashboard protection. Review the approved worktree/commit and
+restart only the dashboard after its separate deployment/service-change approval.
+No production merge, deployment, service change or restart has happened.
+
+The prepared production env uses main's configured model (currently Claude Opus,
+with GPT Sol fallback), NOT the test-only GPT header. If production must be pinned
+to GPT Sol, that requires a separately reviewed backend-only model selector or an
+approved existing Gateway agent/session-model setting; it is not silently solved
+by the UI model picker or by this env file. No such configuration change was made.
