@@ -45,6 +45,8 @@ class Agent:
         columns = {r[1] for r in c.execute('PRAGMA table_info(events)')}
         if 'output_chars' not in columns:
             c.execute('ALTER TABLE events ADD COLUMN output_chars INTEGER DEFAULT 0')
+        if 'model' not in {r[1] for r in c.execute('PRAGMA table_info(runs)')}:
+            c.execute('ALTER TABLE runs ADD COLUMN model TEXT')
         if not self.started:
             c.execute("UPDATE runs SET status='interrupted', error='Сервер панели перезапущен; автоматический повтор не выполнялся' WHERE status='running'")
             c.commit()
@@ -76,7 +78,7 @@ class Agent:
     def snapshot(self):
         with self.lock, self.db() as c:
             self.recover(c)
-            runs = [dict(r) for r in c.execute('SELECT id,status,substr(input,1,20000) AS input,substr(output,1,16384) AS output,length(output)>16384 AS truncated,substr(error,1,1000) AS error,started,updated FROM runs ORDER BY id DESC LIMIT 20')][::-1]
+            runs = [dict(r) for r in c.execute('SELECT id,status,substr(input,1,20000) AS input,substr(output,1,16384) AS output,length(output)>16384 AS truncated,substr(error,1,1000) AS error,started,updated,model FROM runs ORDER BY id DESC LIMIT 20')][::-1]
         try:
             self.config()
             available, reason = True, 'Настроен; точка подключения и выполнение модели пока не проверены'
@@ -190,6 +192,12 @@ class Agent:
                         if payload == '[DONE]':
                             break
                         obj = json.loads(payload)
+                        response_obj = obj.get('response')
+                        model = response_obj.get('model') if isinstance(response_obj, dict) else None
+                        # "openclaw/<agent>" echoes the routing target, not the backend model.
+                        if isinstance(model, str) and re.fullmatch(r'[A-Za-z0-9._:/-]{1,100}', model) and not model.startswith('openclaw'):
+                            with self.lock, self.db() as c:
+                                c.execute('UPDATE runs SET model=? WHERE id=? AND model IS NOT ?', (model, rid, model))
                         kind = obj.get('type', event)
                         event = ''
                         if kind == 'response.output_text.delta':
@@ -229,19 +237,21 @@ class Agent:
                 self.active.pop(rid, None)
 
 
-def queue_snapshot(filename):
+def queue_snapshot(filename, details=None):
     if not filename:
         return dict(available=False, jobs=[], reason='Очередь кодера для чтения не настроена')
     try:
         d = json.loads(Path(filename).read_text())
         jobs = []
-        allowed = {'queued','running','waiting_limit','question','done','nochange','failed','cancelled','merged'}
+        allowed = {'queued','running','waiting_limit','question','done','nochange','failed','cancelled','merged','timeout'}
         for row in d['tasks'][-100:]:
             if not isinstance(row, dict):
                 continue
             job = {k: row[k] for k in ('id','created','updated') if isinstance(row.get(k), (str,int,float))}
             job['status'] = row.get('status') if row.get('status') in allowed else 'unknown'
+            if details:
+                job.update(details(row))
             jobs.append(job)
-        return dict(available=True, jobs=jobs, reason='Только чтение; названия, запросы, результаты, пути и сессии скрыты')
+        return dict(available=True, jobs=jobs, reason='Только чтение; ссылки и похожие на секреты строки в названиях скрыты' if details else 'Только чтение; названия, запросы, результаты, пути и сессии скрыты')
     except (OSError, ValueError, KeyError, TypeError):
         return dict(available=False, jobs=[], reason='Очередь кодера недоступна')

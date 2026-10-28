@@ -53,6 +53,15 @@ from urllib.parse import parse_qs, urlsplit
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
+_office_path = (_dashboard_dir / 'office.py').resolve(strict=True)
+if _office_path.parent != _dashboard_dir:
+    raise ImportError('office.py must resolve to a trusted dashboard sibling')
+_office_spec = importlib.util.spec_from_file_location('office', _office_path)
+_office_module = importlib.util.module_from_spec(_office_spec)
+sys.modules[_office_spec.name] = _office_module
+_office_spec.loader.exec_module(_office_module)
+office_sessions, coder_metadata = _office_module.office_sessions, _office_module.coder_metadata
+
 LIFE_DIR = Path(os.environ.get("LIFE_DIR", Path.home() / ".openclaw/workspace/life")).expanduser()
 agent_service = Agent(LIFE_DIR / "dashboard-agent")
 
@@ -652,7 +661,10 @@ def ai_send(chat_id, model_id, text, project, emit):
     if model_id != "auto" and not model_id.startswith("free:") and not any(m["id"] == model_id and m["available"] for m in available):
         raise AIError("Выбранный маршрут недоступен; автоматическая замена отключена")
     run_id = secrets.token_hex(12)
-    run = {"proc": None, "stop": threading.Event()}
+    now = time.time()
+    provider_title = {"claude": "Claude", "chatgpt": "ChatGPT", "free": "Бесплатная"}[pool[0].split(':', 1)[0]]
+    run = {"proc": None, "stop": threading.Event(), "started": now, "updated": now,
+           "provider": provider_title, "phase": "waiting"}
     with runs_lock:
         ai_runs[run_id] = run
     errors, answer, title, detail = [], "", "", ""
@@ -664,12 +676,17 @@ def ai_send(chat_id, model_id, text, project, emit):
     def delta(chunk):
         nonlocal answer
         answer += chunk
+        if chunk:
+            with runs_lock:
+                run.update(phase='streaming', updated=time.time())
         send({"type": "delta", "text": chunk})
     try:
         for n, mid in enumerate(pool):
             provider = mid.split(":", 1)[0]
             model = mid.split(":", 1)[1] if ":" in mid else "auto"
             title = {"claude": "Claude", "chatgpt": "ChatGPT", "free": "Бесплатная"}[provider]
+            with runs_lock:
+                run.update(provider=title, phase='waiting', updated=time.time())
             detail = route_name(provider, model) + (" · " + model if model != "auto" else " · по умолчанию CLI")
             send({"type": "switch" if n else "start", "chat": chat_id, "run": run_id, "model": title, "detail": detail, "reason": errors[-1] if errors else ""})
             answer = ""
@@ -881,7 +898,15 @@ class Handler(BaseHTTPRequestHandler):
             self.send_json(200, self.agent_snapshot())
         elif route == "/api/office":
             state = self.agent_snapshot()
-            self.send_json(200, {"agent": {k:v for k,v in state.items() if k not in ("runs", "events")}, "runs": [{k:r[k] for k in ("id", "status", "started", "updated")} for r in state["runs"]], "events": state["events"], "queue": queue_snapshot(os.environ.get("SVODKA_CODER_QUEUE_FILE"))})
+            filename = os.environ.get('SVODKA_CODER_QUEUE_FILE')
+            logs_dir = os.environ.get('SVODKA_CODER_LOGS_DIR') or (str(Path(filename).parent / 'logs') if filename else '')
+            queue = queue_snapshot(filename, lambda row: coder_metadata(row, logs_dir))
+            with runs_lock:
+                chats = {key: {k: row.get(k) for k in ('started', 'updated', 'provider', 'phase')} for key, row in ai_runs.items()}
+            self.send_json(200, {"server_time": time.time(), "sessions": office_sessions(state, queue, chats),
+                                 "agent": {k: state[k] for k in ('available', 'reason')},
+                                 "runs": [{k:r[k] for k in ("id", "status", "started", "updated")} for r in state["runs"]],
+                                 "events": state["events"], "queue": queue})
         elif route == "/api/ai/models":
             self.send_json(200, models_payload())
         elif route == "/api/ai/projects":

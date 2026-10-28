@@ -42,7 +42,7 @@ sudo timedatectl set-timezone "$TZONE"
 
 echo "==> Копирую дашборд в $APP_DIR, данные в $LIFE_DIR"
 mkdir -p "$APP_DIR" "$LIFE_DIR"
-cp "$SRC_DIR/server.py" "$SRC_DIR/agent.py" "$SRC_DIR/index.html" "$APP_DIR/"
+cp "$SRC_DIR/server.py" "$SRC_DIR/agent.py" "$SRC_DIR/office.py" "$SRC_DIR/index.html" "$APP_DIR/"
 
 echo "==> Служба life-dashboard"
 sudo tee /etc/systemd/system/life-dashboard.service >/dev/null <<EOF

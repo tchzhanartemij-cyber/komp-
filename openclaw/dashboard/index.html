@@ -640,7 +640,28 @@ dialog[open] { animation: pop .4s var(--spring); }
     </section>
   </div>
 
-<section class="page" id="page-agents" hidden><div class="card"><h2>Офис агентов</h2><p class="meta">Только реальные запуски Сводки и очередь кодера · только чтение</p><p id="office-state" role="status"></p><div id="office" class="office"></div></div></section>
+<section class="page" id="page-agents" hidden>
+  <div class="card office-card">
+    <div class="office-heading"><h2>Офис агентов</h2><span class="meta">Прямой эфир · только чтение</span></div>
+    <p id="office-state" role="status" aria-live="polite">Ожидаем данные сервера</p>
+    <div class="office-layout">
+      <div class="office-scene">
+        <div class="office-controls" role="group" aria-label="Масштаб офиса">
+          <button type="button" id="office-minus" aria-label="Уменьшить">−</button>
+          <button type="button" id="office-plus" aria-label="Увеличить">+</button>
+          <button type="button" id="office-fit">Вписать</button>
+        </div>
+        <div id="office-viewport"><canvas id="office-canvas" aria-hidden="true"></canvas><p id="office-notice">Ожидаем данные сервера</p></div>
+        <p class="meta office-hint">Перетащите сцену, чтобы осмотреть офис. Выберите персонажа или задачу.</p>
+      </div>
+      <div class="office-tasks"><h3 id="office-list-title">Работают: 0</h3><ul id="office-list" aria-labelledby="office-list-title"></ul><p id="office-empty" class="meta"></p></div>
+    </div>
+    <p id="office-sources" class="meta"></p>
+    <aside id="office-drawer" role="dialog" aria-modal="false" aria-labelledby="office-detail-label" tabindex="-1" hidden>
+      <button type="button" id="office-close" aria-label="Закрыть сведения">×</button><h3 id="office-detail-label"></h3><div id="office-details"></div>
+    </aside>
+  </div>
+</section>
 <section class="page" id="page-agent" hidden><div id="agent-separate"></div></section>
 
   <p class="hint foot-hint">Пиши Джарвису в Telegram: «потратил 500 на такси», «надо оплатить интернет до пятницы», «по работе: позвонить поставщику плёнки», «запомни: …», а ещё фото еды, этикетки или чека. Всё появится здесь само в течение 10 секунд.</p>
@@ -707,24 +728,42 @@ dialog[open] { animation: pop .4s var(--spring); }
 .agent-panel {padding:22px;max-width:900px;margin:auto}
 .agent-history {max-height:55dvh;overflow:auto;display:grid;gap:16px;white-space:pre-wrap;overflow-wrap:anywhere}
 .agent-panel textarea {width:100%;min-height:90px;margin:14px 0}
-.office {display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:16px}
-.desk {padding:20px;border:1px solid var(--field);border-radius:22px;background:linear-gradient(145deg,var(--card),var(--field));overflow:hidden}
-.workstation {position:relative;height:148px;margin:0 0 18px;border-radius:14px;background:radial-gradient(ellipse at 50% 90%,#9891d72b,transparent 70%);isolation:isolate}
-.monitor {position:absolute;width:80px;height:54px;left:calc(50% - 40px);top:12px;border:5px solid #343348;border-radius:7px;background:#747786;box-shadow:0 4px 14px #24213322}
-.monitor::before {content:'';position:absolute;inset:9px;background:repeating-linear-gradient(0deg,#dad7f055 0 2px,transparent 2px 8px);transform:scaleX(.75);transform-origin:left}
-.monitor::after {content:'';position:absolute;width:6px;height:15px;top:49px;left:32px;background:#343348}
-.desktop {position:absolute;left:12%;right:12%;top:80px;height:9px;border-radius:4px;background:#b5a28f;box-shadow:0 5px 0 #746556}
-.desktop::before,.desktop::after {content:'';position:absolute;top:9px;width:5px;height:45px;background:#746556}.desktop::before{left:9px}.desktop::after{right:9px}
-.avatar {position:absolute;width:39px;height:40px;border-radius:18px 18px 7px 7px;left:calc(50% - 19px);top:68px;background:#696381;z-index:2;transform-origin:50% 100%}
-.avatar::before {content:'';position:absolute;width:24px;height:25px;border-radius:50%;left:7px;top:-22px;background:#a59bb8;box-shadow:inset 0 6px 0 #494259}
-.chair {position:absolute;left:calc(50% - 25px);top:94px;width:50px;height:34px;border-radius:10px;background:#393747;z-index:3;box-shadow:0 3px 0 #242331}
-.chair::after {content:'';position:absolute;width:4px;height:15px;background:#393747;left:23px;top:34px;box-shadow:-16px 13px 0 1px #393747,16px 13px 0 1px #393747}
-.desk.running .monitor {background:#a5c7bd;box-shadow:0 0 22px #a5c7bd66}
-.desk.running .monitor::before {animation:office-screen 1.8s steps(3) infinite}
-.desk.running .avatar {animation:office-work 2s ease-in-out infinite}
-@keyframes office-work {50% {transform:rotate(4deg) translateY(1px)}}
-@keyframes office-screen {50% {transform:scaleX(1)}}
-@media(prefers-reduced-motion:reduce){.desk.running .avatar,.desk.running .monitor::before{animation:none}}
+.office-card {position:relative}
+.office-heading {display:flex;align-items:baseline;justify-content:space-between;gap:8px;flex-wrap:wrap}
+.office-heading h2,.office-card p {margin:0}
+.office-layout {display:grid;grid-template-columns:minmax(0,1fr) minmax(240px,300px);gap:18px;min-width:0}
+.office-scene,.office-tasks {min-width:0}
+.office-controls {display:flex;gap:6px;margin-bottom:8px}
+.office-controls button,#office-close {border:1px solid var(--rule);border-radius:12px;background:var(--field);min-width:44px;min-height:44px;cursor:pointer}
+.office-controls button:last-child {padding:0 16px}
+#office-viewport {position:relative;overflow:hidden;isolation:isolate;border:1px solid #d8d1bf;border-radius:16px;background:#e5decc;aspect-ratio:4/3;max-height:60dvh}
+#office-canvas {display:block;width:100%;height:100%;touch-action:none;cursor:grab;image-rendering:pixelated}
+#office-canvas:active {cursor:grabbing}
+#office-notice {position:absolute;left:10px;right:10px;top:10px;padding:9px 12px;border-radius:12px;background:#252831ed;color:#f5f4ef;font-size:12px;text-align:center;pointer-events:none}
+.office-hint {font-size:12px;padding-top:8px}
+.office-tasks {border:1px solid var(--rule);border-radius:16px;overflow:hidden;background:var(--field);align-self:start}
+.office-tasks h3 {font-size:14px;margin:0;padding:14px;border-bottom:1px solid var(--rule)}
+#office-list {list-style:none;margin:0;padding:0;max-height:470px;overflow:auto}
+#office-list button {display:grid;grid-template-columns:8px minmax(0,1fr);gap:3px 9px;border:0;border-bottom:1px solid var(--rule);width:100%;padding:12px 14px;text-align:left;background:transparent;cursor:pointer}
+#office-list button[aria-pressed="true"] {background:var(--accent-soft)}
+#office-list button:hover {background:var(--card)}
+.office-dot {width:7px;height:7px;margin-top:7px;border-radius:50%;background:var(--muted)}
+.office-dot.good {background:var(--good)}.office-dot.warn {background:var(--warn)}.office-dot.bad {background:var(--bad)}
+.office-task-title {font-size:13px;font-weight:600;overflow-wrap:anywhere}
+.office-task-meta {grid-column:2;font-size:11px;color:var(--muted);overflow-wrap:anywhere}
+.office-task-action {grid-column:2;font-size:12px;overflow-wrap:anywhere}
+#office-empty {padding:14px;font-size:13px}
+#office-sources {font-size:11px;overflow-wrap:anywhere}
+#office-drawer {position:absolute;z-index:12;right:16px;top:76px;width:min(360px,calc(100% - 32px));max-height:calc(100% - 96px);overflow:auto;padding:20px;border:1px solid var(--rule);border-radius:20px;background:var(--card);box-shadow:var(--shadow-up);overflow-wrap:anywhere}
+#office-drawer h3 {margin:0 42px 16px 0}#office-close {position:absolute;right:10px;top:10px;font-size:22px}
+#office-details dl {display:grid;gap:10px;margin:0 0 16px}#office-details dt {font-size:11px;color:var(--muted)}#office-details dd {margin:0;font-size:13px}
+#office-details a {color:var(--accent-ink)}#office-details button {border:0;background:var(--field);padding:8px;border-radius:10px;cursor:pointer}
+.office-card button:focus-visible,#office-drawer:focus-visible {outline:2px solid var(--accent);outline-offset:-2px}
+@media(max-width:850px) and (orientation:portrait), (max-width:650px) {
+ .office-layout {grid-template-columns:minmax(0,1fr)}
+ #office-list {max-height:340px}
+ #office-drawer {position:fixed;top:auto;bottom:calc(88px + env(safe-area-inset-bottom,0px));left:10px;right:10px;width:auto;max-height:55dvh;border-radius:22px}
+}
 
 </style>
 <script>
@@ -912,6 +951,7 @@ function showPage() {
   if (page === current) { if (page === 'graph') graphShown(); return; }
   const prev = current && $('page-' + current);
   current = page;
+  if(typeof officeVisibility==='function')officeVisibility();
   for (const name of PAGES) {
     const tab = $('tab-' + name);
     if (name === page) tab.setAttribute('aria-current', 'page'); else tab.removeAttribute('aria-current');
@@ -926,6 +966,7 @@ function showPage() {
     next.classList.add('enter');
     if (current === 'graph') requestAnimationFrame(graphShown);
     if (current === 'ai') aiShown();
+    if(typeof officeVisibility==='function')officeVisibility();
     if (current === 'agents' || current === 'agent') refreshAgent();
   };
   if (prev && !RM.matches) { prev.classList.add('leave'); leaveTimer = setTimeout(swap, 160); } else swap();
@@ -1924,7 +1965,341 @@ agentForm.onsubmit=async e=>{e.preventDefault();const text=agentInput.value.trim
 const statusLabels={running:'Выполняется',completed:'Завершён',incomplete:'Ответ неполный',failed:'Ошибка',interrupted:'Прерван',queued:'В очереди',waiting_limit:'Ожидание лимита',question:'Требуется ответ',done:'Готово',nochange:'Без изменений',cancelled:'Отменён',merged:'Объединён',unknown:'Неизвестно'};
 const statusLabel=s=>statusLabels[s] || 'Неизвестно';
 const officeTime=t=>typeof t==='number'?new Date(t*1000).toLocaleString('ru-RU'):t || 'неизвестно';
-let agentRefreshing=false,officeSignature='';
+// OFFICE_CORE_BEGIN — pure state, map and movement; also executed by Node tests.
+const OFFICE_ACTIONS={answering:'пишет ответ',waiting_model:'ждёт модель',code:'пишет код',search_code:'ищет в коде',web:'ищет в интернете',command:'запускает команду',subagent:'вызвал подагента',tool:'использует инструмент',thinking:'думает'};
+const OFFICE_DONE=new Set(['completed','done','nochange','merged']);
+const OFFICE_TERMINAL=new Set([...OFFICE_DONE,'failed','incomplete','interrupted','cancelled','timeout']);
+function officeMap(){
+ const w=26,h=16,blocked=Array.from({length:h},(_,y)=>Array.from({length:w},(_,x)=>x===0||x===25||y<2||y===15)),desks=[];
+ const block=(x,y,w,h)=>{for(let j=y;j<y+h;j++)for(let i=x;i<x+w;i++)blocked[j][i]=true;};
+ for(const y of [2,6,10])for(const x of [2,7,12]){block(x,y,3,3);desks.push({x,y,seat:{x:x+1,y:y+3}});}
+ block(17,2,3,1);block(22,2,3,1);block(1,2,1,1);block(24,4,1,1);
+ block(20,5,4,2);block(18,9,2,2);block(23,11,2,2);block(21,9,2,2);block(24,8,1,1);
+ for(let x=11;x<=13;x++)blocked[15][x]=false;
+ return {w,h,blocked,desks,lounge:[{x:20,y:7},{x:21,y:7},{x:22,y:7},{x:23,y:7},{x:19,y:11},{x:24,y:13}]};
+}
+const OFFICE_MAP=officeMap();
+function officePath(map,from,to){
+ const valid=p=>p&&Number.isInteger(p.x)&&Number.isInteger(p.y)&&p.x>=0&&p.x<map.w&&p.y>=0&&p.y<map.h&&!map.blocked[p.y][p.x];
+ if(!valid(from)||!valid(to))return [];
+ const key=p=>p.y*map.w+p.x,queue=[from],seen=new Map([[key(from),null]]);
+ for(let i=0;i<queue.length;i++){
+  const p=queue[i];
+  if(p.x===to.x&&p.y===to.y){const path=[];for(let v=p;v;v=seen.get(key(v)))path.unshift(v);return path;}
+  for(const [dx,dy] of [[0,1],[1,0],[0,-1],[-1,0]]){const n={x:p.x+dx,y:p.y+dy};if(valid(n)&&!seen.has(key(n))){seen.set(key(n),p);queue.push(n);}}
+ }
+ return [];
+}
+function officeStep(actor,target,dt,reduced,online=true){
+ if(!online)return actor;
+ if(!actor||reduced)return {x:target.x,y:target.y,target:{...target},path:[]};
+ let path=actor.path.slice(),x=actor.x,y=actor.y;
+ if(actor.target.x!==target.x||actor.target.y!==target.y){
+  const from=path[0] || {x:Math.round(x),y:Math.round(y)},route=officePath(OFFICE_MAP,from,target);
+  path=route;
+ }
+ let distance=Math.max(0,Math.min(dt,.05))*3.4;
+ while(path.length){
+  const next=path[0],d=Math.hypot(next.x-x,next.y-y);
+  if(d>distance){x+=(next.x-x)*distance/d;y+=(next.y-y)*distance/d;break;}
+  x=next.x;y=next.y;distance-=d;path.shift();
+ }
+ return {x,y,path,target:{...target}};
+}
+function officeInitial(){return {server_time:null,online:true,chars:{},latest:{},slots:{},signature:'',agent:null,queue:null};}
+function officeView(s,now,missing){
+ let place='entrance',text='неизвестно',badge='',tone='muted',working=false,stale=false;
+ if(!missing){
+  if(s.status==='running'){
+   const coder=s.kind==='coder'||s.kind==='codex';
+   // A coder waiting on an unanswered tool call stays fresh up to the coder's 2 h hard limit.
+   const limit=coder?(s.tool_pending===true?7200:120):90;
+   place='desk';stale=!Number.isFinite(s.updated)||now-s.updated>limit||(coder&&Number.isFinite(s.activity_at)&&now-s.activity_at>limit);
+   text=stale?'нет свежих данных':(OFFICE_ACTIONS[s.activity] || 'нет данных о действии')+(coder&&s.tool_pending===true&&now-s.activity_at>120?' · ждёт результата':'');
+   working=!stale&&!!OFFICE_ACTIONS[s.activity];tone=working?'good':'muted';
+  }else if(s.status==='question'&&s.kind==='coder'){place='desk';text='ждёт решения';badge='?';tone='warn';}
+  else if(s.status==='waiting_limit'){place='desk';text='ждёт лимит';}
+  else if(s.status==='queued'){place='queue';text='в очереди';}
+  else if(OFFICE_DONE.has(s.status)){place='lounge';text='отдыхает';badge='✓';tone='good';}
+  else if(['failed','incomplete','interrupted','timeout'].includes(s.status)){
+   place='desk';badge='✗';tone='bad';text={failed:'ошибка',incomplete:'ответ неполный',interrupted:'прерван',timeout:'время вышло'}[s.status];
+  }else if(s.status==='cancelled'){text='отменён';}
+ }
+ return {place,text,badge,tone,working,stale};
+}
+function officeReduce(state,snapshot){
+ state=state || officeInitial();
+ if(snapshot.type==='offline'){
+  if(!state.online)return state;
+  return {...state,online:false,offline_at:snapshot.at,chars:Object.fromEntries(Object.entries(state.chars).map(([k,c])=>[k,{...c,text:'неизвестно',badge:'',tone:'muted',working:false}]))};
+ }
+ const now=snapshot.server_time;
+ if(!Number.isFinite(now)||!Array.isArray(snapshot.sessions)||(state.server_time!==null&&now<state.server_time))return state;
+ const signature=JSON.stringify(snapshot),duplicate=signature===state.signature;
+ if(duplicate&&state.online)return state;
+ const sources=new Map(),latest={...state.latest};
+ for(const s of snapshot.sessions){
+  if(!s||typeof s.key!=='string'||!['agent','coder','codex','chat'].includes(s.kind))continue;
+  // Snapshots are full server state ordered by server_time; per-session `updated` may be coarser
+  // (coder stamps are minute-precision) than the log mtime used while running, so never prefer it.
+  const source={...s};
+  latest[s.key]=source;sources.set(s.key,{source,missing:0});
+ }
+ for(const [key,c] of Object.entries(state.chars))if(!sources.has(key)){
+  if(OFFICE_TERMINAL.has(c.source.status))sources.set(key,{source:c.source,missing:0});
+  else if(!c.missing||duplicate)sources.set(key,{source:c.source,missing:1});
+ }
+ const terminal=[...sources].filter(([,c])=>OFFICE_TERMINAL.has(c.source.status)&&Number.isFinite(c.source.updated)&&now-c.source.updated<=86400).sort((a,b)=>b[1].source.updated-a[1].source.updated||a[0].localeCompare(b[0])).slice(0,6);
+ const keep=new Set(terminal.map(([key])=>key)),chars={},slots={...state.slots},used=new Set();
+ for(const [key,c] of sources){
+  if(OFFICE_TERMINAL.has(c.source.status)&&!keep.has(key))continue;
+  const old=state.chars[key],view=officeView(c.source,now,c.missing),desk=view.place==='desk'?(old?.desk ?? null):null;
+  if(desk!==null)used.add(desk);
+  chars[key]={...c,...view,desk};
+ }
+ for(const key of Object.keys(chars).sort()){
+  const c=chars[key];
+  if(c.place==='desk'&&c.desk===null){
+   const remembered=slots[key],desk=remembered===undefined?OFFICE_MAP.desks.findIndex((_,i)=>!used.has(i)):used.has(remembered)?-1:remembered;
+   if(desk>=0){c.desk=desk;slots[key]=desk;used.add(desk);}
+  }
+  if(c.place==='desk'&&c.desk===null)c.place='aisle';
+ }
+ return {server_time:now,online:true,chars,latest,slots,signature,agent:snapshot.agent || null,queue:snapshot.queue || null};
+}
+function officeTargets(chars){
+ const targets={},used=new Set(),keys=Object.keys(chars).sort(),point=p=>p.x+','+p.y;
+ for(const key of keys){const c=chars[key];if(c.place==='desk'){targets[key]={...OFFICE_MAP.desks[c.desk].seat};used.add(point(targets[key]));}}
+ let seat=0;
+ for(const key of keys)if(chars[key].place==='lounge'){targets[key]={...OFFICE_MAP.lounge[seat++]};used.add(point(targets[key]));}
+ const reserved=new Set([...OFFICE_MAP.desks.map(d=>d.seat),...OFFICE_MAP.lounge].map(point));
+ for(const key of keys)if(!targets[key]){
+  const c=chars[key],spots=[];
+  for(let y=2;y<15;y++)for(let x=1;x<25;x++)if(!OFFICE_MAP.blocked[y][x]&&!reserved.has(x+','+y)&&!used.has(x+','+y))spots.push({x,y});
+  const anchor=c.place==='aisle'?{x:16,y:9}:c.place==='queue'?{x:8,y:14}:{x:12,y:14};
+  spots.sort((a,b)=>(Math.abs(a.x-anchor.x)+Math.abs(a.y-anchor.y))-(Math.abs(b.x-anchor.x)+Math.abs(b.y-anchor.y)));
+  targets[key]=spots[0] || {x:12,y:15};used.add(point(targets[key]));
+ }
+ return targets;
+}
+// OFFICE_CORE_END
+// OFFICE_UI_BEGIN
+let officeState=officeInitial(),officeSelected='',officeReturn=null,officeFrame=0,officeLast=0,officeFollow=false;
+const officeCanvas=$('office-canvas'),officeCtx=officeCanvas.getContext('2d'),officeActors=new Map(),officeRows=new Map();
+const officeCamera={w:0,h:0,s:1,fit:1,x:0,y:0};
+let officeHits=[],officeGoals={};
+const officeColors={agent:'#c7a3ef',coder:'#e9a47f',codex:'#71d5b2',chat:'#8dbbf1'};
+function officeActive(){return !document.hidden&&current==='agents'&&!$('page-agents').hidden;}
+function officeClamp(){
+ const c=officeCamera,w=416*c.s,h=256*c.s;
+ c.x=w<=c.w?(c.w-w)/2:Math.min(0,Math.max(c.w-w,c.x));
+ c.y=h<=c.h?(c.h-h)/2:Math.min(0,Math.max(c.h-h,c.y));
+}
+function officeFit(){const c=officeCamera;c.s=c.fit;c.x=(c.w-416*c.s)/2;c.y=(c.h-256*c.s)/2;officeFollow=false;officeWake();}
+function officeResize(){
+ if(!officeActive())return;
+ const box=officeCanvas.getBoundingClientRect(),dpr=window.devicePixelRatio || 1,c=officeCamera;
+ c.w=box.width;c.h=box.height;if(!c.w||!c.h)return;
+ officeCanvas.width=Math.round(c.w*dpr);officeCanvas.height=Math.round(c.h*dpr);
+ c.fit=Math.max(.25,Math.floor(Math.min(c.w/416,c.h/256)*dpr*4)/(dpr*4));officeFit();
+}
+function officeZoom(factor,x=officeCamera.w/2,y=officeCamera.h/2){
+ const c=officeCamera,old=c.s;c.s=Math.max(c.fit,Math.min(c.fit*5,c.s*factor));
+ c.x=x-(x-c.x)*c.s/old;c.y=y-(y-c.y)*c.s/old;officeFollow=false;officeClamp();officeWake();
+}
+function officeVisibility(){
+ if(!officeActive()){
+  if(officeFrame)cancelAnimationFrame(officeFrame);officeFrame=0;officeLast=0;
+ }else {officeResize();officeWake();}
+}
+function officeWake(){if(officeActive()&&!officeFrame)officeFrame=requestAnimationFrame(officeDraw);}
+const officeArt=document.createElement('canvas');officeArt.width=416;officeArt.height=256;
+function officeRoom(){
+ const g=officeArt.getContext('2d'),rect=(x,y,w,h,color)=>{g.fillStyle=color;g.fillRect(x,y,w,h);};
+ const plant=(x,y)=>{rect(x+3,y+10,10,5,'#795943');rect(x+4,y+15,8,4,'#b68158');rect(x+7,y+1,2,11,'#536b40');rect(x,y+3,7,6,'#6c8d50');rect(x+9,y,6,7,'#66834c');rect(x+5,y-2,6,6,'#89a767');};
+ rect(0,0,416,256,'#bcae94');
+ for(let y=2;y<16;y++)for(let x=0;x<26;x++){rect(x*16,y*16,16,16,(x+y)%3?'#ece5d4':'#e8e0ce');rect(x*16,y*16,16,1,'#ded6c5');rect(x*16,y*16,1,16,'#dfd8c8');}
+ rect(0,0,416,27,'#f3eedf');rect(0,27,416,3,'#c6b69a');rect(0,30,416,2,'#d9ccb4');
+ for(const x of [40,120,200]){
+  rect(x-2,2,61,24,'#d5c9af');rect(x,2,57,20,'#b5d5d7');rect(x+2,4,25,16,'#cee8e7');rect(x+30,4,25,16,'#c2dedd');rect(x+27,2,3,20,'#faf8ec');rect(x-3,22,63,4,'#fffbee');
+  rect(x+4,5,2,12,'#e9f4ee');rect(x+35,5,2,12,'#e9f4ee');
+ }
+ // Shelves and filing cabinets occupy the blocked tiles under the top wall.
+ rect(272,18,48,29,'#7a5d46');rect(275,20,42,23,'#b58a5c');
+ for(let i=0;i<10;i++){rect(277+i*4,21,3,9,['#a7544c','#6e8e80','#d6bc83','#7d7d9a'][i%4]);rect(277+i*4,34,3,8,['#d5c69a','#839a78','#b57c5b'][i%3]);}rect(274,31,44,3,'#79583f');
+ for(const x of [352,376]){rect(x,22,23,25,'#a4a8a2');rect(x+2,23,19,10,'#d1d3c8');rect(x+2,35,19,10,'#c4c7bd');rect(x+8,27,6,2,'#717973');rect(x+8,39,6,2,'#717973');}
+ plant(16,30);plant(384,64);
+ // Lounge: rug, sofa, two chairs, low round table and lamp.
+ rect(285,76,114,143,'#92a17b');rect(289,80,106,135,'#acb993');
+ for(let x=292;x<395;x+=8){rect(x,80,1,135,'#a4b18c');}for(let y=82;y<214;y+=8)rect(289,y,106,1,'#a8b590');
+ rect(319,79,67,33,'#333e3d');rect(322,80,61,10,'#475352');rect(323,92,57,18,'#59645d');
+ for(const x of [324,343,362]){rect(x,93,17,14,'#667267');rect(x,93,17,2,'#778273');}
+ rect(319,87,5,25,'#414d46');rect(380,87,6,25,'#414d46');rect(323,112,4,3,'#3c3931');rect(378,112,4,3,'#3c3931');
+ for(const [x,y] of [[288,144],[368,176]]){rect(x,y,32,31,'#444f48');rect(x+3,y+3,26,10,'#536052');rect(x+5,y+14,22,14,'#74806b');rect(x,y+9,5,22,'#4b584a');rect(x+27,y+9,5,22,'#4b584a');}
+ rect(342,171,4,5,'#8c8573');rect(358,171,4,5,'#8c8573');
+ rect(340,145,24,28,'#d6d4bd');rect(336,150,32,18,'#fdfbf0');rect(340,146,24,26,'#fdfbf0');rect(343,144,18,30,'#fdfbf0');rect(343,147,18,2,'#fff');rect(346,155,6,5,'#92765e');rect(354,158,7,3,'#b6c4b1');
+ rect(390,126,3,16,'#565e4f');rect(385,141,13,3,'#69705c');rect(384,122,15,8,'#f9efd1');rect(387,119,9,3,'#fff6dd');
+ for(const d of OFFICE_MAP.desks){
+  const x=d.x*16,y=d.y*16;
+  rect(x+1,y+4,47,30,'#cdbb97');rect(x+2,y+25,3,12,'#806047');rect(x+42,y+25,3,12,'#806047');
+  rect(x,y,48,27,'#ad7c50');rect(x,y,48,23,'#c59a69');rect(x+2,y+2,44,1,'#e0b783');rect(x+5,y+17,7,1,'#b88a5b');rect(x+34,y+8,10,1,'#b88a5b');
+  rect(x+14,y+3,23,14,'#f9f7e9');rect(x+16,y+5,19,10,'#9fbdba');rect(x+24,y+17,3,3,'#e8e6d9');rect(x+20,y+20,11,2,'#f9f8ed');
+  rect(x+13,y+23,22,3,'#eeeadd');for(let i=0;i<6;i++)rect(x+15+i*3,y+24,1,1,'#acada4');
+  rect(x+40,y+17,5,6,'#f4e9d0');rect(x+41,y+17,3,2,'#825e44');rect(x+45,y+19,2,3,'#ece0c4');
+  const cx=x+24,cy=y+40;rect(cx-5,cy-8,10,11,'#343a3e');rect(cx-7,cy-5,14,4,'#495155');rect(cx-7,cy+3,14,7,'#2c3236');rect(cx-1,cy+10,2,3,'#525959');rect(cx-7,cy+12,14,2,'#464c50');
+ }
+ rect(177,240,46,16,'#c8bfa8');for(let y=243;y<255;y+=3)rect(179,y,42,1,'#b6ac95');rect(174,239,3,17,'#8c775e');rect(223,239,3,17,'#8c775e');
+}
+officeRoom();
+function officeHash(key){let n=0;for(const char of key)n=(Math.imul(n,31)+char.charCodeAt(0))>>>0;return n;}
+function officePose(c,a){return {x:(a.x+.5)*16,y:(a.y+.5)*16-(!a.path.length&&['desk','lounge'].includes(c.place)?9:0)};}
+function officeDraw(stamp){
+ officeFrame=0;if(!officeActive())return;
+ const dt=officeLast?Math.min((stamp-officeLast)/1000,.05):0;officeLast=stamp;
+ const g=officeCtx,v=officeCamera,dpr=window.devicePixelRatio || 1;
+ if(!v.w||!v.h)return;
+ let moving=false;
+ if(officeState.online)for(const [key,c] of Object.entries(officeState.chars)){
+  const actor=officeStep(officeActors.get(key),officeGoals[key],dt,RM.matches,true);officeActors.set(key,actor);moving ||= actor.path.length>0;
+ }
+ if(officeFollow&&officeActors.has(officeSelected)){
+  const p=officePose(officeState.chars[officeSelected],officeActors.get(officeSelected)),oldX=v.x,oldY=v.y;
+  const k=RM.matches?1:Math.min(1,dt*9);v.x+=(v.w/2-p.x*v.s-v.x)*k;v.y+=(v.h*.55-p.y*v.s-v.y)*k;officeClamp();
+  moving ||= Math.abs(v.x-oldX)+Math.abs(v.y-oldY)>.02;
+ }
+ g.setTransform(dpr,0,0,dpr,0,0);g.imageSmoothingEnabled=false;g.clearRect(0,0,v.w,v.h);
+ g.save();g.translate(Math.round(v.x*dpr)/dpr,Math.round(v.y*dpr)/dpr);g.scale(v.s,v.s);g.drawImage(officeArt,0,0);
+ const rect=(x,y,w,h,color)=>{g.fillStyle=color;g.fillRect(Math.round(x),Math.round(y),w,h);};
+ const phase=!RM.matches&&officeState.online?Math.floor(stamp/240)%2:0;
+ for(const c of Object.values(officeState.chars))if(c.place==='desk'){
+  const d=OFFICE_MAP.desks[c.desk],x=d.x*16+16,y=d.y*16+5;
+  rect(x,y,19,10,c.working?'#9bc9c1':'#657875');
+  if(c.working){for(let j=0;j<3;j++)rect(x+2,y+2+j*3,6+((j+phase)%3)*3,1,'#e4f0d2');}
+ }
+ const people=Object.entries(officeState.chars).filter(([key])=>officeActors.has(key)).sort((a,b)=>officeActors.get(a[0]).y-officeActors.get(b[0]).y);
+ for(const [key,c] of people){
+  const a=officeActors.get(key),p=officePose(c,a),n=officeHash(key),x=p.x,y=p.y,walk=a.path.length&&!RM.matches&&officeState.online,leg=walk?phase*2:0;
+  const muted=!officeState.online||c.tone==='muted',shirt=muted?'#959c94':['#678caa','#bd7963','#78865b','#9b7ca1','#c09a55'][n%5],hair=['#453b35','#7a573d','#c0a17a','#343a42'][n%4];
+  rect(x-5,y+3,11,2,'#b2aa94');rect(x-4,y-2,3,6-leg,'#45505a');rect(x+2,y-2,3,5+leg,'#45505a');
+  rect(x-5,y-9,11,9,shirt);rect(x-7,y-7-(c.working?phase:0),3,5,'#d7b18d');rect(x+6,y-7,3,5-(c.working?phase:0),'#d7b18d');
+  rect(x-4,y-17,9,9,'#e4bc95');rect(x-5,y-18,10,4,hair);rect(x-5,y-15,2,5,hair);
+  if(c.place==='desk'&&!a.path.length){rect(x-5,y-17,10,6,hair);rect(x-6,y-1,13,5,'#353e40');}
+  else {rect(x+2,y-13,1,1,'#433a31');rect(x-2,y-13,1,1,'#433a31');}
+  if(key===officeSelected){g.strokeStyle='#6f5d9e';g.lineWidth=1;g.strokeRect(Math.round(x-9),Math.round(y-21),19,28);}
+ }
+ g.restore();officeHits=[];
+ // Labels stay in CSS pixels, independently of camera zoom.
+ const boxes=[];
+ for(const [key,c] of people.sort((a,b)=>(a[0]===officeSelected?1:0)-(b[0]===officeSelected?1:0))){
+  const p=officePose(c,officeActors.get(key)),px=p.x*v.s+v.x,py=(p.y-23)*v.s+v.y;
+  if(px<0||px>v.w||py<-40||py>v.h+40)continue;
+  // Narrow screens: compact "#id ✓" chips; the selected one and the list keep the full status.
+  const compact=v.w<480&&key!==officeSelected,full=c.source.label || key;
+  const name=compact?(full.match(/#\S+/)?.[0] || full):full,action=compact?c.badge:(c.badge?c.badge+' ':'')+(officeState.online&&c.place==='lounge'&&officeActors.get(key).path.length?'готово':c.text);
+  g.font='600 11px system-ui';const nw=g.measureText(name).width;g.font='11px system-ui';const aw=action?g.measureText(action).width:0;
+  const wrap=!compact&&(v.w<480||nw+aw+29>v.w-8),w=Math.min(v.w-8,(wrap?Math.max(nw,aw):nw+aw)+29),h=wrap?38:23;
+  let x=Math.max(4,Math.min(v.w-w-4,px-w/2)),y=Math.max(4,Math.min(v.h-h-4,py-h)),attempt=0;
+  const overlaps=()=>boxes.some(b=>x<b.x+b.w&&x+w>b.x&&y<b.y+b.h&&y+h>b.y);
+  for(;attempt<8&&overlaps();attempt++)y=y>=h+6?y-h-3:Math.min(v.h-h-4,y+h+4);
+  if(overlaps()&&key!==officeSelected){officeHits.push({key,x:px-12,y:(p.y-20)*v.s+v.y,w:24,h:28*v.s});continue;}
+  boxes.push({x,y,w,h});g.fillStyle=key===officeSelected?'#3d354f':'#272c31ed';g.beginPath();g.roundRect(x,y,w,h,11);g.fill();
+  g.save();g.beginPath();g.rect(x+6,y,w-12,h);g.clip();g.fillStyle=officeColors[c.source.kind];g.beginPath();g.arc(x+10,y+11.5,3,0,Math.PI*2);g.fill();
+  g.font='600 11px system-ui';g.fillStyle='#f4f1e9';g.fillText(name,x+18,y+15);
+  g.font='11px system-ui';g.fillStyle=c.tone==='bad'?'#ffb1a6':c.tone==='warn'?'#f6d48d':'#c4cbc9';g.fillText(action,wrap?x+12:x+23+nw,y+(wrap?30:15));g.restore();
+  officeHits.push({key,x,y,w,h},{key,x:px-12,y:(p.y-20)*v.s+v.y,w:24,h:28*v.s});
+ }
+ if(!RM.matches&&officeState.online&&(moving||Object.values(officeState.chars).some(c=>c.working)))officeWake();
+}
+function officeElapsed(c){
+ const s=c.source;if(!Number.isFinite(s.started))return 'время не сообщено';
+ const end=OFFICE_TERMINAL.has(s.status)?s.updated:officeState.server_time;
+ if(!Number.isFinite(end))return 'время не сообщено';
+ const secs=Math.max(0,Math.floor(end-s.started)),mins=Math.floor(secs/60);
+ return mins>=60?Math.floor(mins/60)+' ч '+mins%60+' мин':mins?mins+' мин':secs+' с';
+}
+let officeDetailSignature='';
+function officeDetails(){
+ const c=officeState.chars[officeSelected];if(!c)return;
+ const signature=JSON.stringify([officeSelected,c,officeState.online,officeState.chars[c.source.parent]?.source.label]);
+ if(signature===officeDetailSignature)return;officeDetailSignature=signature;
+ const s=c.source,details=$('office-details');$('office-detail-label').textContent=s.label;
+ const fields=[['Задача',s.title || 'Название не сообщено'],['Провайдер',s.provider],['Модель',s.model || 'модель не сообщена'],['Статус',c.text],['Действие',!officeState.online||c.missing?'неизвестно':OFFICE_ACTIONS[s.activity] || 'нет данных о действии'],['Начало',officeTime(s.started)],['Обновлено',officeTime(s.updated)]];
+ details.replaceChildren(el('dl',{},...fields.map(([label,value])=>el('div',{},el('dt',{text:label}),el('dd',{text:value})))));
+ if(c.stale)details.append(el('p',{class:'meta',text:'данные устарели'}));
+ if(c.place==='aisle')details.append(el('p',{class:'meta',text:'В проходе: нет свободного стола'}));
+ if(s.parent){const parent=officeState.chars[s.parent];details.append(parent?el('button',{type:'button',text:'Родитель: '+parent.source.label,onclick:()=>officeSelect(s.parent)}):el('p',{class:'meta',text:'Родительский кодер не присутствует в снимке'}));}
+ const kind=s.kind==='codex'?'coder':s.kind;
+ details.append(el('p',{class:'meta',text:kind==='coder'?'Отмена/ответ — через существующие команды кодера в Telegram':kind==='chat'?'Остановить можно в окне диалога ИИ':'Новый запуск — через форму серверного агента'}));
+ if(kind!=='coder')details.append(el('a',{href:kind==='chat'?'#ai':'#agent',text:kind==='chat'?'Открыть диалог ИИ':'Открыть форму агента',onclick:()=>{if(kind==='chat')$('mode-chat').click();officeClose();}}));
+}
+function officeSelect(key){
+ if(!officeState.chars[key])return;
+ if($('office-drawer').hidden)officeReturn=document.activeElement;
+ officeSelected=key;officeFollow=true;$('office-drawer').hidden=false;officeDetails();$('office-close').focus();officeRender();officeWake();
+}
+function officeClose(){
+ $('office-drawer').hidden=true;const key=officeSelected;officeSelected='';officeFollow=false;officeRender();
+ const target=officeReturn?.isConnected?officeReturn:officeRows.get(key)?.button || $('office-fit');target.focus();officeReturn=null;
+}
+function officeRender(){
+ const chars=Object.values(officeState.chars),work=chars.filter(c=>c.working).length,questions=chars.filter(c=>c.text==='ждёт решения').length,rest=officeState.online?chars.filter(c=>c.place==='lounge').length:0;
+ $('office-state').textContent=officeState.online?'Работают: '+work+' · Ждут решения: '+questions+' · Отдыхают: '+rest:'Нет связи с сервером · состояние неизвестно';
+ $('office-list-title').textContent='Работают: '+work;
+ const empty=officeState.server_time===null?'Ожидаем данные сервера':'Сейчас нет наблюдаемых запусков.';
+ const at=officeState.server_time===null?'неизвестного времени':new Date(officeState.server_time*1000).toLocaleTimeString('ru-RU',{hour:'2-digit',minute:'2-digit'});
+ $('office-notice').hidden=officeState.online&&chars.length>0;
+ $('office-notice').textContent=officeState.online?empty:'Нет связи с сервером · данные от '+at;
+ $('office-empty').hidden=chars.length>0;$('office-empty').textContent=officeState.online?empty:'Нет связи с сервером';
+ $('office-sources').textContent=[officeState.agent?.reason,officeState.queue?.reason].filter(Boolean).join(' · ');
+ for(const [key,row] of officeRows)if(!officeState.chars[key]){row.li.remove();officeRows.delete(key);officeActors.delete(key);}
+ for(const [key,c] of Object.entries(officeState.chars)){
+  let row=officeRows.get(key);
+  if(!row){
+   const dot=el('span',{'aria-hidden':'true'}),title=el('span',{class:'office-task-title'}),meta=el('span',{class:'office-task-meta'}),action=el('span',{class:'office-task-action'});
+   const button=el('button',{type:'button',onclick:()=>officeSelect(key)},dot,title,meta,action),li=el('li',{},button);row={li,button,dot,title,meta,action};officeRows.set(key,row);$('office-list').append(li);
+  }
+  row.dot.className='office-dot '+c.tone;row.title.textContent=c.source.title || c.source.label;
+  row.meta.textContent=c.source.label+' · '+c.source.provider+' · '+officeElapsed(c);
+  row.action.textContent=(c.badge?c.badge+' ':'')+c.text+(c.place==='aisle'?' · в проходе':'');row.button.setAttribute('aria-pressed',String(key===officeSelected));
+ }
+ if(officeSelected&&!officeState.chars[officeSelected]){officeClose();return;}
+ if(officeSelected)officeDetails();officeWake();
+}
+function officeAccept(snapshot){
+ if(snapshot.type!=='offline'&&(!Number.isFinite(snapshot.server_time)||!Array.isArray(snapshot.sessions)))throw new Error('Некорректный снимок офиса');
+ officeState=officeReduce(officeState,snapshot);
+ if(officeState.online){officeGoals=officeTargets(officeState.chars);for(const [key,target] of Object.entries(officeGoals))if(!officeActors.has(key))officeActors.set(key,officeStep(null,target,0,RM.matches));}
+ officeRender();
+}
+$('office-fit').onclick=officeFit;$('office-plus').onclick=()=>officeZoom(1.25);$('office-minus').onclick=()=>officeZoom(.8);$('office-close').onclick=officeClose;
+const officePointers=new Map();let officeGesture=null,officeDragged=false;
+function officePointer(e){const r=officeCanvas.getBoundingClientRect();return {x:e.clientX-r.left,y:e.clientY-r.top};}
+function officeGestureNow(){const p=[...officePointers.values()];return p.length>1?{x:(p[0].x+p[1].x)/2,y:(p[0].y+p[1].y)/2,d:Math.hypot(p[1].x-p[0].x,p[1].y-p[0].y)}:p.length?{...p[0],d:0}:null;}
+officeCanvas.addEventListener('pointerdown',e=>{
+ if(e.pointerType==='mouse'&&e.button!==0)return;
+ officeCanvas.setPointerCapture(e.pointerId);officePointers.set(e.pointerId,officePointer(e));officeDragged=officePointers.size>1;officeGesture=officeGestureNow();officeFollow=false;
+});
+officeCanvas.addEventListener('pointermove',e=>{
+ if(!officePointers.has(e.pointerId))return;
+ officePointers.set(e.pointerId,officePointer(e));const next=officeGestureNow(),old=officeGesture;
+ if(old&&next){const dx=next.x-old.x,dy=next.y-old.y;officeDragged ||= Math.abs(dx)+Math.abs(dy)>2||next.d>0;
+  if(old.d&&next.d)officeZoom(next.d/old.d,old.x,old.y);
+  officeCamera.x+=dx;officeCamera.y+=dy;officeClamp();officeWake();}
+ officeGesture=next;
+});
+function officePointerEnd(e){
+ if(!officePointers.has(e.pointerId))return;
+ if(e.type==='pointerup'&&!officeDragged&&officePointers.size===1){const p=officePointer(e),hit=[...officeHits].reverse().find(h=>p.x>=h.x&&p.x<=h.x+h.w&&p.y>=h.y&&p.y<=h.y+h.h);if(hit)officeSelect(hit.key);}
+ officePointers.delete(e.pointerId);officeGesture=officeGestureNow();if(officePointers.size)officeDragged=true;
+}
+officeCanvas.addEventListener('pointerup',officePointerEnd);officeCanvas.addEventListener('pointercancel',officePointerEnd);officeCanvas.addEventListener('lostpointercapture',officePointerEnd);
+officeCanvas.addEventListener('wheel',e=>{e.preventDefault();const p=officePointer(e);officeZoom(Math.exp(-Math.max(-150,Math.min(150,e.deltaY))*.005),p.x,p.y);},{passive:false});
+document.addEventListener('keydown',e=>{if(e.key==='Escape'&&current==='agents'&&!$('office-drawer').hidden){e.preventDefault();officeClose();}});
+addEventListener('resize',officeResize);addEventListener('orientationchange',officeResize);
+new ResizeObserver(()=>{if(officeActive())officeResize();}).observe($('office-viewport'));
+RM.addEventListener('change',()=>{officeLast=0;officeWake();});
+// OFFICE_UI_END
+let agentRefreshing=false;
 const runNodes=new Map();
 function renderAgentRuns(runs){
  const ids=new Set(runs.map(r=>r.id));
@@ -1937,27 +2312,22 @@ function renderAgentRuns(runs){
  }
 }
 async function refreshAgent(){
- if(document.hidden || agentRefreshing)return;
+ if(document.hidden || agentRefreshing || !['ai','agent','agents'].includes(current))return;
  agentRefreshing=true;
  try {
- const [a,o]=await Promise.all([aiGet('/api/agent'),aiGet('/api/office')]);
- agentReason.textContent=a.reason+' · История хранится на сервере. Закрытие браузера не останавливает работу.';
- agentSend.disabled=!a.available || a.runs.some(r=>r.status==='running');
- renderAgentRuns(a.runs);
- $('office-state').textContent=o.agent.reason+' · '+o.queue.reason;
- const signature=JSON.stringify(o);
- if(signature!==officeSignature){
- const rows=[...o.runs.map(r=>({label:'Сводка #'+r.id,...r})),...o.queue.jobs.map(r=>({label:'Кодер #'+r.id,...r}))];
- $('office').replaceChildren(...rows.map(r=>el('article',{class:'desk '+r.status,'aria-label':r.label+' · '+statusLabel(r.status)},el('div',{class:'workstation','aria-hidden':'true'},el('div',{class:'monitor'}),el('div',{class:'desktop'}),el('div',{class:'avatar'}),el('div',{class:'chair'})),el('b',{text:r.label}),el('p',{text:statusLabel(r.status)}),el('div',{class:'meta',text:'Начало: '+officeTime(r.started || r.created)}),el('div',{class:'meta',text:'Обновлено: '+officeTime(r.updated)}))));
- for(const event of (o.events || [])) $('office').append(el('div',{class:'meta',text:'Сводка #'+event.run+' · '+statusLabel(event.status)+' · '+officeTime(event.time)+(event.output_chars?' · Получено символов: '+event.output_chars:'')}));
- if(!rows.length)$('office').append(el('p',{class:'meta',text:'Запусков пока нет. Рабочие места появятся при реальных запусках.'}));
- officeSignature=signature;
- }
- }catch(e){agentReason.textContent='Нет связи с сервером';$('office-state').textContent='Офис недоступен';$('office').replaceChildren();officeSignature='';}
- finally{agentRefreshing=false;}
+  await Promise.all([
+   (async()=>{try{
+    const a=await aiGet('/api/agent');
+    agentReason.textContent=a.reason+' · История хранится на сервере. Закрытие браузера не останавливает работу.';
+    agentSend.disabled=!a.available || a.runs.some(r=>r.status==='running');
+    renderAgentRuns(a.runs);
+   }catch(e){agentReason.textContent='Нет связи с сервером';}})(),
+   (async()=>{try{officeAccept(await aiGet('/api/office'));}catch(e){officeAccept({type:'offline',at:Date.now()/1000});}})()
+  ]);
+ }finally{agentRefreshing=false;}
 }
 showPage();refreshAgent();setInterval(()=>{if(!document.hidden && ['ai','agent','agents'].includes(current))refreshAgent();},2500);
-document.addEventListener('visibilitychange',()=>{if(!document.hidden && ['ai','agent','agents'].includes(current))refreshAgent();});
+document.addEventListener('visibilitychange',()=>{officeVisibility();if(!document.hidden && ['ai','agent','agents'].includes(current))refreshAgent();});
 </script>
 </body>
 </html>

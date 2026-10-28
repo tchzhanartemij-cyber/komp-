@@ -249,3 +249,60 @@ with GPT Sol fallback), NOT the test-only GPT header. If production must be pinn
 to GPT Sol, that requires a separately reviewed backend-only model selector or an
 approved existing Gateway agent/session-model setting; it is not silently solved
 by the UI model picker or by this env file. No such configuration change was made.
+
+## Pixel office (task 8)
+
+The Agents tab draws our own procedural pixel art on canvas: nine desks, furniture,
+plants and a lounge, with no third-party assets or libraries. Accessible task buttons
+and a details drawer accompany zoom/pan/pinch controls. BFS follows walkable aisles;
+reduced motion places characters immediately. Hidden/offline scenes stop animating.
+
+GET `/api/office` uses SQLite agent runs/events, the read-only coder queue and active
+in-memory AI chats. `office.py` assembles sessions without side effects. Coder actions
+come from at most the last 256 KiB of the newest matching stream-json log; only
+categories and timestamps are exposed. An unmatched Codex Bash call creates a child
+session. Agent models come from SSE `response.model`; unknown models remain null.
+Task titles redact URLs/secret-like strings before truncation; chats expose no content.
+Legacy API fields remain, and installation includes the new `office.py` sibling.
+
+The pure reducer preserves keys/desk preferences and ignores duplicate or older data.
+Fresh known activity works at a desk; stale activity (coder: 120 s, agent/chat: 90 s)
+and missing actions are explicit. Only coder `question` waits for a decision;
+waiting_limit dims the monitor, queued/unknown sessions stand near the entrance,
+failures stay at desks, cancelled sessions leave, and successful sessions walk to the
+lounge. Timeout requires an explicit source status. Only six terminal sessions from
+24 hours remain. Missing active sessions become unknown for one snapshot, then go.
+Fetch errors/non-OK HTTP freeze the last scene with unknown labels and a timestamp;
+reconnects preserve identities. GET polling stays at 2.5 s on visible AI/Agent/Agents
+pages, with no simulated activity, percentages or new execution controls.
+
+Why own art: pixel-agents (MIT code) would bring a separate standalone/hooks model
+and per-pack art licences to audit; Star-Office-UI art is non-commercial only. A small
+procedural scene fits the single-file dashboard, adds no service/port/dependency.
+
+Review corrections after the Codex pass (Claude): coder stamps are naive local time,
+not UTC; an unanswered tool call (e.g. a long `codex exec`) keeps a coder fresh up to
+the coder's 2 h hard limit ("· ждёт результата") instead of turning stale after 120 s;
+the reducer trusts the latest full snapshot (ordered by `server_time`) because the
+minute-precision coder `updated` made running->done transitions disappear; phone
+labels are compact `#id ✓` chips (full text for the selected character and the list);
+SSE `response.model` equal to `openclaw/<agent>` is the routing target and is dropped.
+
+Verification 2026-10-28: 37 Python tests (incl. both loopback HTTP tests) and both
+Node suites pass outside the sandbox; py_compile, `git diff --check` pass.
+Isolated preview (empty LIFE_DIR, disposable dashboard token, synthetic coder queue
+and stream-json logs labelled "Тест:", loopback 18823): /api/office without auth 401,
+agent send without auth 401, cross-origin send 403, no token in HTML/JSON. Headless
+Chrome via CDP: desktop 1440x900, iPad 1180x820 / 820x1180, phone 390x844 touch;
+zoom +/wheel/fit, drawer, bottom sheet, reduced motion (no frames), offline after the
+server stopped, zero page errors, no horizontal overflow. Two tasks switched to
+done/merged walked from their desks to the lounge sofa. Evidence:
+`docs/evidence/office-task8/` (screenshots, browser-report.json, auth-checks.json).
+
+One real run through the existing `/api/agent/send` adapter (isolated instance, own
+`svodka-office-preview-*` user, existing 0600 backend token file, nothing printed):
+202 -> running ("ждёт модель") -> completed in ~11 s with exactly OFFICE_PREVIEW_OK
+(`live-run.json`). Agent runs have no queued phase (inserted as running). The stream
+reported only `openclaw/main`, so the actual backend provider/model is NOT verified
+by this run; the UI shows "модель не сообщена". Codex worker startup evidence:
+`codex-startup.txt` (gpt-6-astra, reasoning effort max, multi_agent disabled).
