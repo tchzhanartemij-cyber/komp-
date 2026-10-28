@@ -591,7 +591,7 @@ dialog[open] { animation: pop .4s var(--spring); }
       <div class="g-tools">
         <div class="head"><h2 id="h-graph">Граф памяти <small id="g-count"></small></h2></div>
         <span class="sp" style="flex:1"></span>
-        <button type="button" onclick="selectNode('', false)">Новая страница</button>
+        <button class="pill soft small" type="button" onclick="selectNode('', false)">Новая страница</button>
         <label class="search"><svg class="i" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4 4"/></svg><input id="g-search" type="search" placeholder="Найти страницу" aria-label="Поиск по памяти"></label>
       </div>
       <div class="kinds" id="g-kinds" role="group" aria-label="Фильтр по типам"></div>
