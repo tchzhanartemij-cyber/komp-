@@ -428,7 +428,7 @@ dialog[open] { animation: pop .4s var(--spring); }
       <p id="b-sum">Загружаю сводку дня…</p>
       <div class="b-actions">
         <button class="pill dark" type="button" id="qa-open"><svg class="i" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>Быстро добавить</button>
-        <span class="badge dot" id="status">Загружаю…</span>
+        <span class="badge dot" id="status" role="status">Загружаю…</span><span id="mutation-status"></span>
       </div>
     </div>
     <svg class="flower" viewBox="0 0 200 200" aria-hidden="true">
@@ -591,6 +591,7 @@ dialog[open] { animation: pop .4s var(--spring); }
       <div class="g-tools">
         <div class="head"><h2 id="h-graph">Граф памяти <small id="g-count"></small></h2></div>
         <span class="sp" style="flex:1"></span>
+        <button type="button" onclick="selectNode('', false)">Новая страница</button>
         <label class="search"><svg class="i" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4 4"/></svg><input id="g-search" type="search" placeholder="Найти страницу" aria-label="Поиск по памяти"></label>
       </div>
       <div class="kinds" id="g-kinds" role="group" aria-label="Фильтр по типам"></div>
@@ -801,62 +802,77 @@ function countTo(node, value, show) {
 function badge(id, text, tone) { const b = $(id); b.textContent = text; b.className = 'badge' + (tone ? ' ' + tone : ''); b.hidden = !text; }
 
 let mutationError = '', mutationRetry = null, failedMutationKey = '';
-function mutationStatus(error = '', retry = null) {
-  mutationError = error; mutationRetry = retry;
-  const status = $('status');
-  if (error) {
-    setStatus(error, true);
-    status.append(el('button', {type: 'button', text: 'Повторить', onclick: async () => {
-      if (!mutationRetry) return;
-      const action = mutationRetry; mutationRetry = null;
-      await action();
-    }}));
+const mutationFailures = new Map();
+function mutationStatus(error = '', retry = null, key = failedMutationKey) {
+  if (error) mutationFailures.set(key, {error, retry});
+  else mutationFailures.delete(key);
+  const latest = [...mutationFailures.entries()].at(-1);
+  failedMutationKey = latest ? latest[0] : '';
+  mutationError = latest ? latest[1].error : '';
+  mutationRetry = latest ? latest[1].retry : null;
+  const status = $('mutation-status');
+  status.replaceChildren();
+  for (const [id, failure] of mutationFailures) {
+    const row = el('span', {role:'status', text:failure.error});
+    if (failure.retry) row.append(el('button', {type:'button', text:'Повторить', onclick:failure.retry}));
+    row.append(el('button', {type:'button', text:'Скрыть ошибку', 'aria-label':'Скрыть ошибку сохранения', onclick:() => mutationStatus('', null, id)}));
+    status.append(row);
   }
 }
-let dataFlight = null, dataAgain = false, dataRevision = 0, dataFailures = 0, dataNext = 0;
+let dataFlight = null, dataAgain = false, dataRevision = 0, dataAppliedRevision = -1, dataFailures = 0, dataNext = 0;
 function load(fresh = false) {
+  // Invalidation happens before returning, even when a request is already running.
   if (fresh) { dataRevision++; dataAgain = true; }
   if (dataFlight) return dataFlight;
   if (!fresh && Date.now() < dataNext) return Promise.resolve(false);
+  // Own cleanup in the same async job as the loop: no promise-finalizer gap.
   dataFlight = (async () => {
     let ok = false;
-    do {
-      dataAgain = false;
-      const revision = dataRevision, controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), 20000);
-      try {
-        const r = await fetch('/api/data', {cache: 'no-store', signal: controller.signal});
-        if (!r.ok) throw new Error();
-        const text = await r.text(), parsed = JSON.parse(text);
-        if (revision === dataRevision) {
-          if (text !== lastJson) { lastJson = text; data = parsed; render(); }
-          if (!mutationError) setStatus('Обновлено в ' + new Date().toLocaleTimeString('ru-RU', {hour:'2-digit', minute:'2-digit'}));
-        }
-        dataFailures = 0; dataNext = 0; ok = true;
-      } catch {
-        dataNext = Date.now() + Math.min(60000, 1000 * 2 ** Math.min(++dataFailures, 6));
-        if (!mutationError) setStatus('Нет связи с сервером', true);
-      } finally { clearTimeout(timer); }
-    } while (dataAgain);
-    return ok;
-  })().finally(() => { dataFlight = null; });
+    try {
+      do {
+        dataAgain = false; ok = false;
+        const revision = dataRevision, controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 20000);
+        try {
+          const r = await fetch('/api/data', {cache:'no-store', signal:controller.signal});
+          if (!r.ok) throw new Error();
+          const text = await r.text(), parsed = JSON.parse(text);
+          if (revision === dataRevision) {
+            if (text !== lastJson) { lastJson = text; data = parsed; render(); }
+            dataAppliedRevision = revision; applyPendingMemory();
+            setStatus('Обновлено в ' + new Date().toLocaleTimeString('ru-RU', {hour:'2-digit', minute:'2-digit'}));
+          }
+          dataFailures = 0; dataNext = 0; ok = true;
+        } catch {
+          dataNext = Date.now() + Math.min(60000, 1000 * 2 ** Math.min(++dataFailures, 6));
+          setStatus('Нет связи с сервером', true);
+        } finally { clearTimeout(timer); }
+      } while (dataAgain);
+      return ok;
+    } finally { dataFlight = null; }
+  })();
   return dataFlight;
 }
+function scheduleRefresh() { load(true).catch(() => setStatus('Не удалось обновить данные', true)); }
 async function post(path, body) {
-  const key = path;
+  const payload = JSON.stringify(body), key = path + '\n' + payload;
+  let r;
   try {
-    const r = await fetch(path, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)});
-    const j = await r.json().catch(() => ({}));
-    if (!r.ok) throw new Error(j.error || 'Не сохранилось');
-    if (!mutationError || failedMutationKey === key) { mutationStatus(); failedMutationKey = ''; }
-    await load(true);
-    return {ok:true};
-  } catch (err) {
-    const error = err.message || 'Нет связи с сервером';
-    failedMutationKey = key;
-    mutationStatus(error, () => post(path, body));
-    return {ok:false, error};
+    r = await fetch(path, {method:'POST', headers:{'Content-Type':'application/json'}, body:payload});
+  } catch {
+    const error = 'Результат сохранения неизвестен. Обнови данные и проверь результат; повтори вручную только после проверки.';
+    mutationStatus(error, null, key);
+    return {ok:false, error, ambiguous:true, key};
   }
+  if (!r.ok) {
+    const j = await r.json().catch(() => ({}));
+    const error = j.error || 'Не сохранилось (HTTP ' + r.status + ')';
+    mutationStatus(error, () => post(path, body), key);
+    return {ok:false, error, key};
+  }
+  mutationStatus('', null, key);
+  scheduleRefresh();
+  return {ok:true};
 }
 
 // ----- pages: fade out the old one, cascade the new one in -----
@@ -918,7 +934,7 @@ function rich(text) {
   return frag;
 }
 function openEntity(key) {
-  panelOpen = true;
+  panelOpen = true; persistMemoryPanel();
   if (location.hash !== '#graph') { selected = key; G.history = []; location.hash = '#graph'; } else selectNode(key, true);
 }
 
@@ -1302,7 +1318,7 @@ function graphShown() {
   readColors();
   if (!resizeCanvas()) return;
   if (!G.fitted) fit(false);
-  if (selected) selectNode(selected, true, true);
+  renderPanel();
   redraw();
 }
 // Zoom/pan so every visible node fits; animated unless reduced motion.
@@ -1458,28 +1474,37 @@ function hit(x, y) {
   });
 })();
 
-let panelOpen = true, panelReturnFocus = null;
+let panelOpen = true, panelReturnFocus = null, pendingMemory = '', pendingMemoryRevision = 0;
+function applyPendingMemory() {
+  if (pendingMemory && dataAppliedRevision >= pendingMemoryRevision && G.ents.has(pendingMemory)) {
+    const key = pendingMemory; pendingMemory = ''; selectNode(key, true);
+  }
+}
+try { panelOpen = localStorage.getItem('svodka-memory-closed') !== 'true'; } catch {}
+function persistMemoryPanel() { try { localStorage.setItem('svodka-memory-closed', String(!panelOpen)); } catch {} }
 const factDrafts = new Map(), savingDrafts = new Set();
 function captureFactDraft() {
   const f = $('f-fact');
   if (f) factDrafts.set(f.dataset.draftKey, [...f.elements].filter(x => x.name).map(x => [x.name, x.value]));
 }
 function closeMemoryPanel() {
-  captureFactDraft(); panelOpen = false;
+  captureFactDraft(); panelOpen = false; pendingMemory = ''; persistMemoryPanel();
   renderPanel(); resizeCanvas(); redraw();
   const target = panelReturnFocus && panelReturnFocus.isConnected && panelReturnFocus.matches('button,input,select,textarea,a[href],[tabindex]') ? panelReturnFocus : $('g-search');
   target.focus({preventScroll:true});
   if (matchMedia('(max-width: 1100px)').matches) $('g-box').scrollIntoView({block:'start'});
 }
 document.addEventListener('keydown', ev => {
-  if (ev.key === 'Escape' && current === 'graph' && panelOpen && !document.querySelector('dialog[open]')) {
+  if (ev.key === 'Escape' && current === 'graph' && panelOpen && !document.querySelector('dialog[open]') &&
+      !$('g-search').contains(document.activeElement) && !['INPUT','SELECT','TEXTAREA'].includes(document.activeElement?.tagName) &&
+      ($('g-box').contains(document.activeElement) || $('g-panel').contains(document.activeElement))) {
     ev.preventDefault(); closeMemoryPanel();
   }
 });
 function selectNode(key, center, keepHistory) {
   captureFactDraft();
   if (!panelOpen || !$('g-panel').contains(document.activeElement)) panelReturnFocus = document.activeElement;
-  panelOpen = true;
+  panelOpen = true; persistMemoryPanel();
   if (key && !G.ents.has(key)) key = '';
   if (!keepHistory && selected && selected !== key) G.history.push(selected);
   selected = key;
@@ -1535,7 +1560,7 @@ function renderPanel() {
   if (!e) {
     const pages = [...G.ents.values()].filter(x => x.page).sort((a, b) => b.weight - a.weight).slice(0, 12);
     box.append(
-      el('button', {type:'button', 'aria-label':'Закрыть', text:'×', onclick:closeMemoryPanel}),
+      el('button', {class:'icon-btn', type:'button', 'aria-label':'Закрыть', text:'×', onclick:closeMemoryPanel}),
       el('div', {}, el('h3', { text: 'Выбери страницу' }), el('p', { class: 'hint', text: 'Страницы про людей, места, компании, проекты и темы, связанные [[ссылками]], как в Obsidian. Джарвис сам дописывает сюда то, что узнаёт из разговоров.' })),
       pages.length ? el('h4', { text: 'Самые связанные' }) : null,
       pages.length ? el('ul', {}, ...pages.map(p => el('li', { class: 'row' }, el('div', { class: 'grow1' }, el('button', { class: 'ent', type: 'button', text: p.name, onclick: () => selectNode(p.key, true) })), kindBadge(p)))) : null,
@@ -1628,12 +1653,15 @@ document.addEventListener('submit', async ev => {
   try {
     const result = await post(...req);
     if (!result.ok) {
-      mutationStatus(result.error, () => {
+      if (!result.ambiguous) mutationStatus(result.error, () => {
         const target = draftKey ? $('f-fact') : f;
         if (target && (!draftKey || target.dataset.draftKey === draftKey)) target.requestSubmit();
-        else mutationStatus(result.error + ' · Открой страницу и повтори сохранение');
-      });
+        else mutationStatus(result.error + ' · Открой страницу и повтори сохранение', null, result.key);
+      }, result.key);
       return;
+    }
+    if (type === 'memory' && (!draftKey || draftKey === '__new__')) {
+      pendingMemory = entKey(req[1].name); pendingMemoryRevision = dataRevision;
     }
     // A poll may have rebuilt the memory form while this request was pending.
     const live = draftKey ? $('f-fact') : f;
@@ -1643,13 +1671,14 @@ document.addEventListener('submit', async ev => {
       if (draftKey) factDrafts.delete(draftKey);
       if (live && (!draftKey || live.dataset.draftKey === draftKey)) {
         live.reset();
-        for (const [name, value] of snapshot) { const x = live.elements.namedItem(name); if (x.type === 'hidden') x.value = value; }
+        for (const [name, value] of snapshot) { const x = live.elements.namedItem(name); if (x && x.type === 'hidden') x.value = value; }
       }
       if (f.closest('dialog')) f.closest('dialog').close();
     }
   } finally {
     f._saving = false; buttons.forEach(x => x.disabled = false);
     if (draftKey) { savingDrafts.delete(draftKey); renderPanel(); }
+    applyPendingMemory();
   }
 
 });
@@ -1836,7 +1865,7 @@ applyTheme(theme);
 $('banner').classList.add('enter');
 load();
 setInterval(() => { if (!document.hidden) { load(); renderBanner(); } }, 10000);
-document.addEventListener('visibilitychange', () => { if (!document.hidden) load(); });
+document.addEventListener('visibilitychange', () => { if (!document.hidden) scheduleRefresh(); });
 
 // Persistent server agent: polling only observes work; closing this page never cancels it.
 const agentPanel=el('div',{class:'card agent-panel'},el('h2',{text:'Серверный агент'}));
