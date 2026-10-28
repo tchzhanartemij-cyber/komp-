@@ -1,0 +1,12 @@
+[Unit]
+Description=Jarvis: live Claude limits message in Telegram
+After=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 %h/komp/openclaw/coder/coder.py limits-watch
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=default.target
