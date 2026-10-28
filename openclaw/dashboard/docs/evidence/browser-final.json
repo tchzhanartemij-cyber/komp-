@@ -1,0 +1,517 @@
+{
+  "ok": true,
+  "targetId": "629147591509AEF7DCD9E8C82757DEDE",
+  "url": "http://127.0.0.1:8793/#agents",
+  "result": {
+    "start": 1793157646820,
+    "checks": [
+      {
+        "test": "final-inline-fault-matrix",
+        "total": 48,
+        "failed": [],
+        "results": [
+          {
+            "type": "expense",
+            "code": 400,
+            "kept": true,
+            "open": true,
+            "inlineAlertVisible": true,
+            "ambiguousNoRetry": true
+          },
+          {
+            "type": "tasks",
+            "code": 400,
+            "kept": true,
+            "open": true,
+            "inlineAlertVisible": true,
+            "ambiguousNoRetry": true
+          },
+          {
+            "type": "plans",
+            "code": 400,
+            "kept": true,
+            "open": true,
+            "inlineAlertVisible": true,
+            "ambiguousNoRetry": true
+          },
+          {
+            "type": "work",
+            "code": 400,
+            "kept": true,
+            "open": true,
+            "inlineAlertVisible": true,
+            "ambiguousNoRetry": true
+          },
+          {
+            "type": "notes",
+            "code": 400,
+            "kept": true,
+            "open": true,
+            "inlineAlertVisible": true,
+            "ambiguousNoRetry": true
+          },
+          {
+            "type": "worknotes",
+            "code": 400,
+            "kept": true,
+            "open": true,
+            "inlineAlertVisible": true,
+            "ambiguousNoRetry": true
+          },
+          {
+            "type": "food",
+            "code": 400,
+            "kept": true,
+            "open": true,
+            "inlineAlertVisible": true,
+            "ambiguousNoRetry": true
+          },
+          {
+            "type": "memory",
+            "code": 400,
+            "kept": true,
+            "open": true,
+            "inlineAlertVisible": true,
+            "ambiguousNoRetry": true
+          },
+          {
+            "type": "expense",
+            "code": 401,
+            "kept": true,
+            "open": true,
+            "inlineAlertVisible": true,
+            "ambiguousNoRetry": true
+          },
+          {
+            "type": "tasks",
+            "code": 401,
+            "kept": true,
+            "open": true,
+            "inlineAlertVisible": true,
+            "ambiguousNoRetry": true
+          },
+          {
+            "type": "plans",
+            "code": 401,
+            "kept": true,
+            "open": true,
+            "inlineAlertVisible": true,
+            "ambiguousNoRetry": true
+          },
+          {
+            "type": "work",
+            "code": 401,
+            "kept": true,
+            "open": true,
+            "inlineAlertVisible": true,
+            "ambiguousNoRetry": true
+          },
+          {
+            "type": "notes",
+            "code": 401,
+            "kept": true,
+            "open": true,
+            "inlineAlertVisible": true,
+            "ambiguousNoRetry": true
+          },
+          {
+            "type": "worknotes",
+            "code": 401,
+            "kept": true,
+            "open": true,
+            "inlineAlertVisible": true,
+            "ambiguousNoRetry": true
+          },
+          {
+            "type": "food",
+            "code": 401,
+            "kept": true,
+            "open": true,
+            "inlineAlertVisible": true,
+            "ambiguousNoRetry": true
+          },
+          {
+            "type": "memory",
+            "code": 401,
+            "kept": true,
+            "open": true,
+            "inlineAlertVisible": true,
+            "ambiguousNoRetry": true
+          },
+          {
+            "type": "expense",
+            "code": 409,
+            "kept": true,
+            "open": true,
+            "inlineAlertVisible": true,
+            "ambiguousNoRetry": true
+          },
+          {
+            "type": "tasks",
+            "code": 409,
+            "kept": true,
+            "open": true,
+            "inlineAlertVisible": true,
+            "ambiguousNoRetry": true
+          },
+          {
+            "type": "plans",
+            "code": 409,
+            "kept": true,
+            "open": true,
+            "inlineAlertVisible": true,
+            "ambiguousNoRetry": true
+          },
+          {
+            "type": "work",
+            "code": 409,
+            "kept": true,
+            "open": true,
+            "inlineAlertVisible": true,
+            "ambiguousNoRetry": true
+          },
+          {
+            "type": "notes",
+            "code": 409,
+            "kept": true,
+            "open": true,
+            "inlineAlertVisible": true,
+            "ambiguousNoRetry": true
+          },
+          {
+            "type": "worknotes",
+            "code": 409,
+            "kept": true,
+            "open": true,
+            "inlineAlertVisible": true,
+            "ambiguousNoRetry": true
+          },
+          {
+            "type": "food",
+            "code": 409,
+            "kept": true,
+            "open": true,
+            "inlineAlertVisible": true,
+            "ambiguousNoRetry": true
+          },
+          {
+            "type": "memory",
+            "code": 409,
+            "kept": true,
+            "open": true,
+            "inlineAlertVisible": true,
+            "ambiguousNoRetry": true
+          },
+          {
+            "type": "expense",
+            "code": 500,
+            "kept": true,
+            "open": true,
+            "inlineAlertVisible": true,
+            "ambiguousNoRetry": true
+          },
+          {
+            "type": "tasks",
+            "code": 500,
+            "kept": true,
+            "open": true,
+            "inlineAlertVisible": true,
+            "ambiguousNoRetry": true
+          },
+          {
+            "type": "plans",
+            "code": 500,
+            "kept": true,
+            "open": true,
+            "inlineAlertVisible": true,
+            "ambiguousNoRetry": true
+          },
+          {
+            "type": "work",
+            "code": 500,
+            "kept": true,
+            "open": true,
+            "inlineAlertVisible": true,
+            "ambiguousNoRetry": true
+          },
+          {
+            "type": "notes",
+            "code": 500,
+            "kept": true,
+            "open": true,
+            "inlineAlertVisible": true,
+            "ambiguousNoRetry": true
+          },
+          {
+            "type": "worknotes",
+            "code": 500,
+            "kept": true,
+            "open": true,
+            "inlineAlertVisible": true,
+            "ambiguousNoRetry": true
+          },
+          {
+            "type": "food",
+            "code": 500,
+            "kept": true,
+            "open": true,
+            "inlineAlertVisible": true,
+            "ambiguousNoRetry": true
+          },
+          {
+            "type": "memory",
+            "code": 500,
+            "kept": true,
+            "open": true,
+            "inlineAlertVisible": true,
+            "ambiguousNoRetry": true
+          },
+          {
+            "type": "expense",
+            "code": "offline",
+            "kept": true,
+            "open": true,
+            "inlineAlertVisible": true,
+            "ambiguousNoRetry": true
+          },
+          {
+            "type": "tasks",
+            "code": "offline",
+            "kept": true,
+            "open": true,
+            "inlineAlertVisible": true,
+            "ambiguousNoRetry": true
+          },
+          {
+            "type": "plans",
+            "code": "offline",
+            "kept": true,
+            "open": true,
+            "inlineAlertVisible": true,
+            "ambiguousNoRetry": true
+          },
+          {
+            "type": "work",
+            "code": "offline",
+            "kept": true,
+            "open": true,
+            "inlineAlertVisible": true,
+            "ambiguousNoRetry": true
+          },
+          {
+            "type": "notes",
+            "code": "offline",
+            "kept": true,
+            "open": true,
+            "inlineAlertVisible": true,
+            "ambiguousNoRetry": true
+          },
+          {
+            "type": "worknotes",
+            "code": "offline",
+            "kept": true,
+            "open": true,
+            "inlineAlertVisible": true,
+            "ambiguousNoRetry": true
+          },
+          {
+            "type": "food",
+            "code": "offline",
+            "kept": true,
+            "open": true,
+            "inlineAlertVisible": true,
+            "ambiguousNoRetry": true
+          },
+          {
+            "type": "memory",
+            "code": "offline",
+            "kept": true,
+            "open": true,
+            "inlineAlertVisible": true,
+            "ambiguousNoRetry": true
+          },
+          {
+            "type": "expense",
+            "code": 503,
+            "kept": true,
+            "open": true,
+            "inlineAlertVisible": true,
+            "ambiguousNoRetry": true
+          },
+          {
+            "type": "tasks",
+            "code": 503,
+            "kept": true,
+            "open": true,
+            "inlineAlertVisible": true,
+            "ambiguousNoRetry": true
+          },
+          {
+            "type": "plans",
+            "code": 503,
+            "kept": true,
+            "open": true,
+            "inlineAlertVisible": true,
+            "ambiguousNoRetry": true
+          },
+          {
+            "type": "work",
+            "code": 503,
+            "kept": true,
+            "open": true,
+            "inlineAlertVisible": true,
+            "ambiguousNoRetry": true
+          },
+          {
+            "type": "notes",
+            "code": 503,
+            "kept": true,
+            "open": true,
+            "inlineAlertVisible": true,
+            "ambiguousNoRetry": true
+          },
+          {
+            "type": "worknotes",
+            "code": 503,
+            "kept": true,
+            "open": true,
+            "inlineAlertVisible": true,
+            "ambiguousNoRetry": true
+          },
+          {
+            "type": "food",
+            "code": 503,
+            "kept": true,
+            "open": true,
+            "inlineAlertVisible": true,
+            "ambiguousNoRetry": true
+          },
+          {
+            "type": "memory",
+            "code": 503,
+            "kept": true,
+            "open": true,
+            "inlineAlertVisible": true,
+            "ambiguousNoRetry": true
+          }
+        ]
+      },
+      {
+        "test": "final-successful-retry",
+        "closed": true,
+        "cleared": true,
+        "inlineCleared": true,
+        "saved": true
+      },
+      {
+        "test": "final-memory-error-draft-and-retry",
+        "errorKept": true,
+        "otherError": "",
+        "draftRestored": "QA memory error draft",
+        "successFeedbackCleared": true,
+        "selected": "qa person",
+        "panelTop": -0.28125,
+        "viewport": 820
+      },
+      {
+        "test": "final-mobile-escape",
+        "hidden": true
+      },
+      {
+        "test": "tablet-selected",
+        "top": 435.90625,
+        "width": 820,
+        "overflow": false
+      },
+      {
+        "test": "final-desktop-close-and-revisit",
+        "before": 774,
+        "after": 1148,
+        "staysClosed": true,
+        "overflow": false
+      },
+      {
+        "test": "empty-graph-panel-reopen",
+        "nodes": 0,
+        "opened": true,
+        "formNameVisible": true
+      },
+      {
+        "test": "real-20s-timeout-backoff",
+        "elapsedMs": 20001,
+        "aborted": true,
+        "calls": 1,
+        "flightCleared": true,
+        "backoff": true,
+        "recovered": true
+      }
+    ],
+    "errors": [],
+    "soak": {
+      "start": 1793157703825,
+      "cycles": 60,
+      "samples": [
+        {
+          "sec": 3,
+          "dom": 682,
+          "heap": 2778728
+        },
+        {
+          "sec": 6,
+          "dom": 682,
+          "heap": 2700185
+        },
+        {
+          "sec": 9,
+          "dom": 682,
+          "heap": 2703909
+        },
+        {
+          "sec": 12,
+          "dom": 682,
+          "heap": 2706789
+        },
+        {
+          "sec": 15,
+          "dom": 682,
+          "heap": 2708526
+        },
+        {
+          "sec": 18,
+          "dom": 682,
+          "heap": 2725742
+        },
+        {
+          "sec": 21,
+          "dom": 682,
+          "heap": 2739679
+        },
+        {
+          "sec": 24,
+          "dom": 682,
+          "heap": 2714611
+        },
+        {
+          "sec": 27,
+          "dom": 682,
+          "heap": 2714987
+        },
+        {
+          "sec": 30,
+          "dom": 682,
+          "heap": 2722683
+        }
+      ],
+      "timer": 120,
+      "end": 1793157733827,
+      "elapsedSeconds": 30.002
+    },
+    "pendingData": false
+  },
+  "browserTab": {
+    "targetId": "629147591509AEF7DCD9E8C82757DEDE",
+    "profile": "openclaw",
+    "target": "host",
+    "url": "http://127.0.0.1:8793/#agents"
+  }
+}

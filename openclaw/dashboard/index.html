@@ -146,9 +146,9 @@ body[data-page="graph"] .flower { width: 170px; height: 170px; right: 10px; }
   .s4, .s5, .s7 { grid-column: span 6; } .s8 { grid-column: 1 / -1; }
 }
 @media (max-width: 760px) {
-  .side { left: 50%; top: auto; bottom: max(12px, env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); }
-  .nav { flex-direction: row; padding: 8px; }
-  .nav .item { width: 46px; height: 46px; }
+  .side { width:max-content; max-width:calc(100vw - 24px); left: 50%; top: auto; bottom: max(12px, env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); }
+  .nav { flex-direction: row; padding: 8px; gap: clamp(2px, 1vw, 8px); max-width:100%; }
+  .nav .item { width: clamp(34px, 10vw, 46px); height: 46px; flex: 0 1 46px; min-width:0; }
   .nav .label { display: none; }
   .nav .sep { width: 1px; height: auto; margin: 10px 2px; }
   .main { padding: max(14px, env(safe-area-inset-top, 0px)) 14px 112px; gap: 14px; }
@@ -282,6 +282,8 @@ a.tile span { font-size: 12px; color: color-mix(in srgb, var(--ink) 55%, transpa
 .kinds button[aria-pressed="false"] { opacity: 0.4; }
 .kinds button[aria-pressed="false"] i { background: transparent; box-shadow: inset 0 0 0 1.5px var(--c); }
 .kinds button:active { transform: scale(0.92); }
+.g-layout.panel-closed { grid-template-columns: minmax(0, 1fr); }
+.g-panel[hidden] { display: none; }
 .g-layout { display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 14px; min-height: 0; }
 .g-box { position: relative; border-radius: 20px; overflow: hidden; height: min(720px, calc(100vh - 290px)); min-height: 440px;
   background: radial-gradient(circle at 30% 20%, color-mix(in srgb, var(--accent-soft) 70%, transparent), transparent 55%), radial-gradient(circle at 80% 90%, color-mix(in srgb, var(--p2) 70%, transparent), transparent 50%), var(--field); }
@@ -303,7 +305,7 @@ a.tile span { font-size: 12px; color: color-mix(in srgb, var(--ink) 55%, transpa
 @media (max-width: 760px) { .g-box { height: 58vh; min-height: 340px; } .g-hint { display: none; } }
 
 /* ----- AI chat ----- */
-body[data-page="ai"] .banner, body[data-page="ai"] .foot-hint { display:none; }
+body[data-page="agents"] .banner, body[data-page="agents"] .foot-hint, body[data-page="agent"] .banner, body[data-page="agent"] .foot-hint, body[data-page="ai"] .banner, body[data-page="ai"] .foot-hint { display:none; }
 body[data-page="ai"] .main { padding-bottom:20px; }
 #page-ai, #page-ai * { min-width:0; box-sizing:border-box; overflow-wrap:anywhere; }
 .ai-card { padding:0; height:calc(100dvh - 40px); overflow:hidden; display:block; position:relative; }
@@ -411,6 +413,8 @@ dialog[open] { animation: pop .4s var(--spring); }
     <a class="item" href="#work" id="tab-work"><svg class="i" viewBox="0 0 24 24"><rect x="3.5" y="7.5" width="17" height="12" rx="3"/><path d="M9 7.5V6a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v1.5M3.5 13h17"/></svg><span class="label">Работа</span></a>
     <a class="item" href="#graph" id="tab-graph"><svg class="i" viewBox="0 0 24 24"><circle cx="6" cy="7" r="2.5"/><circle cx="18" cy="6" r="2"/><circle cx="16" cy="18" r="2.5"/><circle cx="6" cy="17" r="1.8"/><path d="M8.4 7.3 16 6.2M7.6 9l7 7.2M17.6 8l-1.2 7.6M7.8 17.2h5.7"/></svg><span class="label">Память</span></a>
     <a class="item" href="#ai" id="tab-ai"><svg class="i" viewBox="0 0 24 24"><path d="M5 5.5h14a1.5 1.5 0 0 1 1.5 1.5v8.5A1.5 1.5 0 0 1 19 17h-7.5L7 20.5V17H5a1.5 1.5 0 0 1-1.5-1.5V7A1.5 1.5 0 0 1 5 5.5z"/><path d="M8.5 11.25h.01M12 11.25h.01M15.5 11.25h.01" stroke-width="2.4"/></svg><span class="label">ИИ</span></a>
+    <a class="item" href="#agents" id="tab-agents" aria-label="Агенты · офис запусков" title="Агенты · офис запусков"><svg class="i" viewBox="0 0 24 24"><rect x="3" y="8" width="18" height="13" rx="3"/><path d="M12 3v5M7 13h2m6 0h2M8 17h8"/></svg><span class="label">Агенты</span></a>
+    <a class="item" href="#agent" id="tab-agent" aria-label="Агент · серверный чат" title="Агент · серверный чат" hidden><svg class="i" viewBox="0 0 24 24"><path d="M4 4h16v13H9l-5 4zM8 9h8M8 13h5"/></svg><span class="label">Агент · чат</span></a>
     <span class="sep" aria-hidden="true"></span>
     <button class="item" type="button" id="theme-btn" aria-label="Тема"><svg class="i" viewBox="0 0 24 24" id="theme-ico"></svg><span class="label" id="theme-label">Тема</span></button>
   </nav>
@@ -424,7 +428,7 @@ dialog[open] { animation: pop .4s var(--spring); }
       <p id="b-sum">Загружаю сводку дня…</p>
       <div class="b-actions">
         <button class="pill dark" type="button" id="qa-open"><svg class="i" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>Быстро добавить</button>
-        <span class="badge dot" id="status">Загружаю…</span>
+        <span class="badge dot" id="status" role="status">Загружаю…</span><span id="mutation-status"></span>
       </div>
     </div>
     <svg class="flower" viewBox="0 0 200 200" aria-hidden="true">
@@ -587,12 +591,13 @@ dialog[open] { animation: pop .4s var(--spring); }
       <div class="g-tools">
         <div class="head"><h2 id="h-graph">Граф памяти <small id="g-count"></small></h2></div>
         <span class="sp" style="flex:1"></span>
+        <button class="pill soft small" type="button" onclick="selectNode('', false)">Новая страница</button>
         <label class="search"><svg class="i" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4 4"/></svg><input id="g-search" type="search" placeholder="Найти страницу" aria-label="Поиск по памяти"></label>
       </div>
       <div class="kinds" id="g-kinds" role="group" aria-label="Фильтр по типам"></div>
       <div class="g-layout">
         <div class="g-box" id="g-box">
-          <canvas id="g-canvas" aria-label="Граф памяти: перетаскивай узлы, колесо или щипок для масштаба"></canvas>
+          <canvas id="g-canvas" tabindex="0" aria-label="Граф памяти: перетаскивай узлы, колесо или щипок для масштаба"></canvas>
           <div class="g-hint">Тяни узлы · колесо или щипок для масштаба · нажми, чтобы открыть</div>
           <div class="g-zoom">
             <button class="icon-btn" type="button" id="g-in" aria-label="Приблизить"><svg class="i" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></button>
@@ -607,6 +612,8 @@ dialog[open] { animation: pop .4s var(--spring); }
 
   <!-- ===== ИИ ===== -->
   <div id="page-ai" class="page" hidden>
+    <div class="agent-toolbar"><button class="pill soft" id="mode-chat">Чат</button> <button class="pill soft" id="mode-agent">Серверный агент</button> <button class="pill soft" id="agent-layout-toggle">Отдельная вкладка агента</button></div>
+    <div id="agent-embedded"></div>
     <section class="card ai-card" aria-labelledby="h-ai">
       <div class="ai-layout" id="ai-layout">
         <button class="ai-backdrop" id="ai-backdrop" aria-label="Закрыть меню"></button>
@@ -632,6 +639,9 @@ dialog[open] { animation: pop .4s var(--spring); }
       <dialog id="ai-dialog" aria-label="Настройки"></dialog>
     </section>
   </div>
+
+<section class="page" id="page-agents" hidden><div class="card"><h2>Офис агентов</h2><p class="meta">Только реальные запуски Сводки и очередь кодера · только чтение</p><p id="office-state" role="status"></p><div id="office" class="office"></div></div></section>
+<section class="page" id="page-agent" hidden><div id="agent-separate"></div></section>
 
   <p class="hint foot-hint">Пиши Джарвису в Telegram: «потратил 500 на такси», «надо оплатить интернет до пятницы», «по работе: позвонить поставщику плёнки», «запомни: …», а ещё фото еды, этикетки или чека. Всё появится здесь само в течение 10 секунд.</p>
 </main>
@@ -692,6 +702,31 @@ dialog[open] { animation: pop .4s var(--spring); }
   </div>
 </dialog>
 
+<style>
+.agent-toolbar {display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px}
+.agent-panel {padding:22px;max-width:900px;margin:auto}
+.agent-history {max-height:55dvh;overflow:auto;display:grid;gap:16px;white-space:pre-wrap;overflow-wrap:anywhere}
+.agent-panel textarea {width:100%;min-height:90px;margin:14px 0}
+.office {display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:16px}
+.desk {padding:20px;border:1px solid var(--field);border-radius:22px;background:linear-gradient(145deg,var(--card),var(--field));overflow:hidden}
+.workstation {position:relative;height:148px;margin:0 0 18px;border-radius:14px;background:radial-gradient(ellipse at 50% 90%,#9891d72b,transparent 70%);isolation:isolate}
+.monitor {position:absolute;width:80px;height:54px;left:calc(50% - 40px);top:12px;border:5px solid #343348;border-radius:7px;background:#747786;box-shadow:0 4px 14px #24213322}
+.monitor::before {content:'';position:absolute;inset:9px;background:repeating-linear-gradient(0deg,#dad7f055 0 2px,transparent 2px 8px);transform:scaleX(.75);transform-origin:left}
+.monitor::after {content:'';position:absolute;width:6px;height:15px;top:49px;left:32px;background:#343348}
+.desktop {position:absolute;left:12%;right:12%;top:80px;height:9px;border-radius:4px;background:#b5a28f;box-shadow:0 5px 0 #746556}
+.desktop::before,.desktop::after {content:'';position:absolute;top:9px;width:5px;height:45px;background:#746556}.desktop::before{left:9px}.desktop::after{right:9px}
+.avatar {position:absolute;width:39px;height:40px;border-radius:18px 18px 7px 7px;left:calc(50% - 19px);top:68px;background:#696381;z-index:2;transform-origin:50% 100%}
+.avatar::before {content:'';position:absolute;width:24px;height:25px;border-radius:50%;left:7px;top:-22px;background:#a59bb8;box-shadow:inset 0 6px 0 #494259}
+.chair {position:absolute;left:calc(50% - 25px);top:94px;width:50px;height:34px;border-radius:10px;background:#393747;z-index:3;box-shadow:0 3px 0 #242331}
+.chair::after {content:'';position:absolute;width:4px;height:15px;background:#393747;left:23px;top:34px;box-shadow:-16px 13px 0 1px #393747,16px 13px 0 1px #393747}
+.desk.running .monitor {background:#a5c7bd;box-shadow:0 0 22px #a5c7bd66}
+.desk.running .monitor::before {animation:office-screen 1.8s steps(3) infinite}
+.desk.running .avatar {animation:office-work 2s ease-in-out infinite}
+@keyframes office-work {50% {transform:rotate(4deg) translateY(1px)}}
+@keyframes office-screen {50% {transform:scaleX(1)}}
+@media(prefers-reduced-motion:reduce){.desk.running .avatar,.desk.running .monitor::before{animation:none}}
+
+</style>
 <script>
 // Ссылки на странице «Работа». Поменять или добавить: правь этот список.
 const LINKS = [
@@ -766,30 +801,114 @@ function countTo(node, value, show) {
 }
 function badge(id, text, tone) { const b = $(id); b.textContent = text; b.className = 'badge' + (tone ? ' ' + tone : ''); b.hidden = !text; }
 
-async function load() {
-  try {
-    const r = await fetch('/api/data', { cache: 'no-store' });
-    if (!r.ok) throw new Error();
-    const text = await r.text();
-    if (text !== lastJson) { lastJson = text; data = JSON.parse(text); render(); }
-    setStatus('Обновлено в ' + new Date().toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' }));
-  } catch { setStatus('Нет связи с сервером', true); }
+let mutationError = '', mutationRetry = null, failedMutationKey = '';
+const mutationFailures = new Map();
+function mutationStatus(error = '', retry = null, key = failedMutationKey) {
+  if (error) mutationFailures.set(key, {error, retry});
+  else mutationFailures.delete(key);
+  const latest = [...mutationFailures.entries()].at(-1);
+  failedMutationKey = latest ? latest[0] : '';
+  mutationError = latest ? latest[1].error : '';
+  mutationRetry = latest ? latest[1].retry : null;
+  const status = $('mutation-status');
+  status.replaceChildren();
+  for (const [id, failure] of mutationFailures) {
+    const row = el('span', {role:'status', text:failure.error});
+    if (failure.retry) row.append(el('button', {type:'button', text:'Повторить', onclick:failure.retry}));
+    row.append(el('button', {type:'button', text:'Скрыть ошибку', 'aria-label':'Скрыть ошибку сохранения', onclick:() => mutationStatus('', null, id)}));
+    status.append(row);
+  }
 }
+// Static forms own their feedback; rebuilt memory forms use the entity draft key.
+const factFeedback = new Map();
+function renderFormFeedback(f) {
+  const feedback = f.dataset.draftKey ? factFeedback.get(f.dataset.draftKey) : f._feedback;
+  if (!f._feedbackNode) {
+    f._feedbackNode = el('p', {class:'hint', style:'flex-basis:100%;white-space:normal'});
+    f.append(f._feedbackNode);
+  }
+  const node = f._feedbackNode;
+  node.setAttribute('role', feedback?.error ? 'alert' : 'status');
+  node.setAttribute('aria-live', feedback?.error ? 'assertive' : 'polite');
+  node.textContent = feedback?.text || '';
+  node.hidden = !feedback;
+}
+function formFeedback(f, text = '', error = false) {
+  const feedback = text ? {text, error} : null;
+  if (f.dataset.draftKey) {
+    if (feedback) factFeedback.set(f.dataset.draftKey, feedback);
+    else factFeedback.delete(f.dataset.draftKey);
+  } else f._feedback = feedback;
+  renderFormFeedback(f);
+}
+let dataFlight = null, dataAgain = false, dataRevision = 0, dataAppliedRevision = -1, dataFailures = 0, dataNext = 0;
+function load(fresh = false) {
+  // Invalidation happens before returning, even when a request is already running.
+  if (fresh) { dataRevision++; dataAgain = true; }
+  if (dataFlight) return dataFlight;
+  if (!fresh && Date.now() < dataNext) return Promise.resolve(false);
+  // Own cleanup in the same async job as the loop: no promise-finalizer gap.
+  dataFlight = (async () => {
+    let ok = false;
+    try {
+      do {
+        dataAgain = false; ok = false;
+        const revision = dataRevision, controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 20000);
+        try {
+          const r = await fetch('/api/data', {cache:'no-store', signal:controller.signal});
+          if (!r.ok) throw new Error();
+          const text = await r.text(), parsed = JSON.parse(text);
+          if (revision === dataRevision) {
+            if (text !== lastJson) { lastJson = text; data = parsed; render(); }
+            dataAppliedRevision = revision; applyPendingMemory();
+            setStatus('Обновлено в ' + new Date().toLocaleTimeString('ru-RU', {hour:'2-digit', minute:'2-digit'}));
+          }
+          dataFailures = 0; dataNext = 0; ok = true;
+        } catch {
+          dataNext = Date.now() + Math.min(60000, 1000 * 2 ** Math.min(++dataFailures, 6));
+          setStatus('Нет связи с сервером', true);
+        } finally { clearTimeout(timer); }
+      } while (dataAgain);
+      return ok;
+    } finally { dataFlight = null; }
+  })();
+  return dataFlight;
+}
+function scheduleRefresh() { load(true).catch(() => setStatus('Не удалось обновить данные', true)); }
 async function post(path, body) {
+  const payload = JSON.stringify(body), key = path + '\n' + payload;
+  let r;
   try {
-    const r = await fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    r = await fetch(path, {method:'POST', headers:{'Content-Type':'application/json'}, body:payload});
+  } catch {
+    const error = 'Результат сохранения неизвестен. Обнови данные и проверь результат; повтори вручную только после проверки.';
+    mutationStatus(error, null, key);
+    return {ok:false, error, ambiguous:true, key};
+  }
+  if ([502, 503, 504].includes(r.status)) {
+    const error = 'Прокси не подтвердил результат сохранения (HTTP ' + r.status + '). Обнови данные и проверь результат перед повтором.';
+    mutationStatus(error, null, key);
+    return {ok:false, error, ambiguous:true, key};
+  }
+  if (!r.ok) {
     const j = await r.json().catch(() => ({}));
-    if (!r.ok) setStatus(j.error || 'Не сохранилось', true);
-  } catch { setStatus('Нет связи с сервером', true); }
-  await load();
+    const error = j.error || 'Не сохранилось (HTTP ' + r.status + ')';
+    mutationStatus(error, () => post(path, body), key);
+    return {ok:false, error, key};
+  }
+  mutationStatus('', null, key);
+  scheduleRefresh();
+  return {ok:true};
 }
 
 // ----- pages: fade out the old one, cascade the new one in -----
-const PAGES = ['life', 'work', 'graph', 'ai'];
+const PAGES = ['life', 'work', 'graph', 'ai', 'agents', 'agent'];
 let current = '';
 let leaveTimer;
 function showPage() {
-  const page = PAGES.includes(location.hash.slice(1)) ? location.hash.slice(1) : 'life';
+  let page = PAGES.includes(location.hash.slice(1)) ? location.hash.slice(1) : 'life';
+  if(page==='agent' && !agentSeparate){page='ai';agentPanel.hidden=false;document.querySelector('.ai-card').hidden=true;}
   if (page === current) { if (page === 'graph') graphShown(); return; }
   const prev = current && $('page-' + current);
   current = page;
@@ -807,6 +926,7 @@ function showPage() {
     next.classList.add('enter');
     if (current === 'graph') requestAnimationFrame(graphShown);
     if (current === 'ai') aiShown();
+    if (current === 'agents' || current === 'agent') refreshAgent();
   };
   if (prev && !RM.matches) { prev.classList.add('leave'); leaveTimer = setTimeout(swap, 160); } else swap();
 }
@@ -841,6 +961,7 @@ function rich(text) {
   return frag;
 }
 function openEntity(key) {
+  panelOpen = true; persistMemoryPanel();
   if (location.hash !== '#graph') { selected = key; G.history = []; location.hash = '#graph'; } else selectNode(key, true);
 }
 
@@ -1224,7 +1345,7 @@ function graphShown() {
   readColors();
   if (!resizeCanvas()) return;
   if (!G.fitted) fit(false);
-  if (selected) selectNode(selected, true, true);
+  renderPanel();
   redraw();
 }
 // Zoom/pan so every visible node fits; animated unless reduced motion.
@@ -1380,7 +1501,37 @@ function hit(x, y) {
   });
 })();
 
+let panelOpen = true, panelReturnFocus = null, pendingMemory = '', pendingMemoryRevision = 0;
+function applyPendingMemory() {
+  if (pendingMemory && dataAppliedRevision >= pendingMemoryRevision && G.ents.has(pendingMemory)) {
+    const key = pendingMemory; pendingMemory = ''; selectNode(key, true);
+  }
+}
+try { panelOpen = localStorage.getItem('svodka-memory-closed') !== 'true'; } catch {}
+function persistMemoryPanel() { try { localStorage.setItem('svodka-memory-closed', String(!panelOpen)); } catch {} }
+const factDrafts = new Map(), savingDrafts = new Set();
+function captureFactDraft() {
+  const f = $('f-fact');
+  if (f) factDrafts.set(f.dataset.draftKey, [...f.elements].filter(x => x.name).map(x => [x.name, x.value]));
+}
+function closeMemoryPanel() {
+  captureFactDraft(); panelOpen = false; pendingMemory = ''; persistMemoryPanel();
+  renderPanel(); resizeCanvas(); redraw();
+  const target = panelReturnFocus && panelReturnFocus.isConnected && panelReturnFocus.matches('button,input,select,textarea,a[href],[tabindex]') ? panelReturnFocus : $('g-search');
+  target.focus({preventScroll:true});
+  if (matchMedia('(max-width: 1100px)').matches) $('g-box').scrollIntoView({block:'start'});
+}
+document.addEventListener('keydown', ev => {
+  if (ev.key === 'Escape' && current === 'graph' && panelOpen && !document.querySelector('dialog[open]') &&
+      !$('g-search').contains(document.activeElement) && !['INPUT','SELECT','TEXTAREA'].includes(document.activeElement?.tagName) &&
+      ($('g-box').contains(document.activeElement) || $('g-panel').contains(document.activeElement))) {
+    ev.preventDefault(); closeMemoryPanel();
+  }
+});
 function selectNode(key, center, keepHistory) {
+  captureFactDraft();
+  if (!panelOpen || !$('g-panel').contains(document.activeElement)) panelReturnFocus = document.activeElement;
+  panelOpen = true; persistMemoryPanel();
   if (key && !G.ents.has(key)) key = '';
   if (!keepHistory && selected && selected !== key) G.history.push(selected);
   selected = key;
@@ -1388,7 +1539,12 @@ function selectNode(key, center, keepHistory) {
   if (n && G.hidden.has(n.ent.kind)) { G.hidden.delete(n.ent.kind); renderKinds(); }
   if (n && center && G.w) setView(Math.max(G.scale, 0.9), G.w / 2 - n.x * Math.max(G.scale, 0.9), G.h / 2 - n.y * Math.max(G.scale, 0.9), true);
   renderPanel();
-  redraw();
+  resizeCanvas(); redraw();
+  if (key && matchMedia('(max-width: 1100px)').matches) {
+    $('g-panel').setAttribute('tabindex', '-1');
+    $('g-panel').focus({preventScroll:true});
+    $('g-panel').scrollIntoView({block:'start'});
+  }
 }
 function renderKinds() {
   const count = {};
@@ -1410,32 +1566,42 @@ function factForm(e) {
     e && e.page ? null : kindSel,
     el('input', { class: 'grow', name: 'text', placeholder: e ? 'Новый факт, можно с [[ссылками]]' : 'Первый факт, можно с [[ссылками]]', required: '', 'aria-label': 'Новый факт', style: 'flex-basis:100%' }),
     el('button', { class: 'pill dark small', type: 'submit', text: 'Запомнить' }));
+  f.dataset.draftKey = e ? e.key : '__new__';
+  renderFormFeedback(f);
+  if (savingDrafts.has(f.dataset.draftKey)) f.querySelector('[type=submit]').disabled = true;
   return f;
 }
 function renderPanel() {
   const panel = $('g-panel');
   const e = selected && G.ents.get(selected);
-  // the panel is rebuilt on every data refresh: keep what is being typed
-  const old = $('f-fact'), typing = old && old.contains(document.activeElement);
-  const keep = typing ? [...old.elements].filter(x => x.name && x.type !== 'hidden').map(x => [x.name, x.value]) : null;
-  const focusName = typing ? document.activeElement.name : '';
+  captureFactDraft();
+  panel.hidden = !panelOpen;
+  panel.parentElement.classList.toggle('panel-closed', !panelOpen);
+  if (!panelOpen) return;
+  if ($('f-fact')?._saving && $('f-fact').dataset.draftKey === (e ? e.key : '__new__') && panelOpen) return;
+  const old = $('f-fact'), active = document.activeElement;
+  const typing = old && old.contains(active) && old.dataset.draftKey === (e ? e.key : '__new__');
+  const keep = factDrafts.get(e ? e.key : '__new__');
+  const focusName = typing ? active.name : '';
+  const caret = typing ? [active.selectionStart, active.selectionEnd] : null;
   const box = el('div', { class: 'fade' });
   if (!e) {
     const pages = [...G.ents.values()].filter(x => x.page).sort((a, b) => b.weight - a.weight).slice(0, 12);
     box.append(
+      el('button', {class:'icon-btn', type:'button', 'aria-label':'Закрыть', text:'×', onclick:closeMemoryPanel}),
       el('div', {}, el('h3', { text: 'Выбери страницу' }), el('p', { class: 'hint', text: 'Страницы про людей, места, компании, проекты и темы, связанные [[ссылками]], как в Obsidian. Джарвис сам дописывает сюда то, что узнаёт из разговоров.' })),
       pages.length ? el('h4', { text: 'Самые связанные' }) : null,
       pages.length ? el('ul', {}, ...pages.map(p => el('li', { class: 'row' }, el('div', { class: 'grow1' }, el('button', { class: 'ent', type: 'button', text: p.name, onclick: () => selectNode(p.key, true) })), kindBadge(p)))) : null,
       el('h4', { text: 'Новая страница' }), factForm(null));
     panel.replaceChildren(box);
-    return restoreTyping(keep, focusName);
+    return restoreTyping(keep, focusName, caret);
   }
   const facts = e.page ? e.page.facts : [];
   box.append(el('div', { class: 'ttl' },
     G.history.length ? el('button', { class: 'icon-btn', type: 'button', 'aria-label': 'Назад', title: 'Назад', onclick: () => { const k = G.history.pop(); selectNode(k || '', true, true); } },
       (() => { const s = document.createElementNS('http://www.w3.org/2000/svg', 'svg'); s.setAttribute('class', 'i'); s.setAttribute('viewBox', '0 0 24 24'); s.innerHTML = '<path d="m15 6-6 6 6 6"/>'; return s; })()) : null,
     el('div', { class: 'grow1', style: 'display:grid;gap:6px' }, el('h3', { text: (e.tag && !e.page ? '#' : '') + e.name }), el('div', {}, kindBadge(e))),
-    el('button', { class: 'icon-btn', type: 'button', 'aria-label': 'Закрыть', title: 'Закрыть', onclick: () => selectNode('', false) }, '×')));
+    el('button', { class: 'icon-btn', type: 'button', 'aria-label': 'Закрыть', title: 'Закрыть', onclick: closeMemoryPanel }, '×')));
   box.append(el('ul', {}, ...(facts.length ? facts.map(f => el('li', { class: 'row' },
     el('div', { class: 'grow1' }, el('div', {}, rich(f.text)), f.date ? el('div', { class: 'meta', text: short(f.date) }) : null),
     el('button', { class: 'x', 'aria-label': 'Удалить факт', title: 'Удалить', text: '×', onclick: () => post('/api/memory/delete', { name: e.page.name, line: f.line, raw: f.raw }) })))
@@ -1453,14 +1619,14 @@ function renderPanel() {
       el('div', { class: 'grow1' }, el('div', {}, rich(it.text)), it.date ? el('div', { class: 'meta', text: short(it.date) }) : null),
       el('span', { class: 'badge', text: KIND[it.kind] })))));
   panel.replaceChildren(box);
-  restoreTyping(keep, focusName);
+  restoreTyping(keep, focusName, caret);
 }
-function restoreTyping(keep, focusName) {
+function restoreTyping(keep, focusName, caret) {
   const f = $('f-fact');
   if (!keep || !f) return;
   for (const [name, value] of keep) { const x = f.elements.namedItem(name); if (x && x.type !== 'hidden') x.value = value; }
   const x = f.elements.namedItem(focusName);
-  if (x && x.focus) x.focus();
+  if (x && x.focus) { x.focus({preventScroll:true}); if (caret && x.setSelectionRange && caret[0] != null) x.setSelectionRange(...caret); }
 }
 function renderGraph() {
   const ents = memoryModel();
@@ -1479,10 +1645,11 @@ function renderGraph() {
 function kindOptions() { return [el('option', { value: '', text: 'тип не указан' }), ...KINDS.slice(0, 6).map(k => el('option', { value: k.id, text: k.id }))]; }
 document.querySelectorAll('select[name="category"]').forEach(s => s.append(...CATS.map(c => el('option', { text: c }))));
 document.querySelectorAll('select[name="kind"]').forEach(s => s.append(...kindOptions()));
-document.addEventListener('submit', ev => {
+document.addEventListener('submit', async ev => {
   const f = ev.target, type = f.dataset.form;
   if (!type) return;
   ev.preventDefault();
+  if (f._saving || (f.dataset.draftKey && savingDrafts.has(f.dataset.draftKey))) return;
   const v = n => { const x = f.elements.namedItem(n); return x ? x.value.trim() : ''; };
   let req;
   if (type === 'expense') {
@@ -1502,15 +1669,51 @@ document.addEventListener('submit', ev => {
   } else if (type === 'memory') {
     const name = v('name'), text = v('text');
     if (!name || !text) return;
-    if (selected !== entKey(name)) G.history = selected ? [...G.history, selected] : G.history;
-    selected = entKey(name);
     req = ['/api/memory/add', { name, text, kind: v('kind') }];
   }
-  const name = f.id === 'f-fact' ? f.elements.namedItem('name') : null, keep = name && name.type === 'hidden' ? name.value : '';
-  f.reset();
-  if (keep) name.value = keep;
-  if (f.closest('dialog')) f.closest('dialog').close();
-  post(...req);
+  if (!req) return;
+  const snapshot = [...f.elements].filter(x => x.name).map(x => [x.name, x.value]);
+  const draftKey = f.dataset.draftKey;
+  f._saving = true;
+  if (draftKey) savingDrafts.add(draftKey);
+  const buttons = [...f.elements].filter(x => x.type === 'submit');
+  buttons.forEach(x => x.disabled = true);
+  try {
+    const result = await post(...req);
+    if (!result.ok) {
+      const message = result.error + (result.ambiguous ? '' : ' · Исправь данные и повтори сохранение кнопкой формы.');
+      formFeedback(f, message, true);
+      // Form retries must submit current values through the guarded form handler.
+      mutationStatus(result.error, null, result.key);
+      const visible = draftKey ? $('f-fact') : f;
+      if (visible && visible !== f && visible.dataset.draftKey === draftKey) renderFormFeedback(visible);
+      return;
+    }
+    formFeedback(f);
+    if (type === 'memory' && (!draftKey || draftKey === '__new__')) {
+      pendingMemory = entKey(req[1].name); pendingMemoryRevision = dataRevision;
+    }
+    // A poll may have rebuilt the memory form while this request was pending.
+    const live = draftKey ? $('f-fact') : f;
+    const values = live && (!draftKey || live.dataset.draftKey === draftKey)
+      ? [...live.elements].filter(x => x.name).map(x => [x.name, x.value]) : factDrafts.get(draftKey);
+    if (JSON.stringify(values) === JSON.stringify(snapshot)) {
+      if (draftKey) factDrafts.delete(draftKey);
+      if (live && (!draftKey || live.dataset.draftKey === draftKey)) {
+        live.reset();
+        for (const [name, value] of snapshot) { const x = live.elements.namedItem(name); if (x && x.type === 'hidden') x.value = value; }
+      }
+      if (f.closest('dialog')) f.closest('dialog').close();
+    } else {
+      formFeedback(f, 'Сохранено; новые изменения еще не отправлены');
+      if (live && live !== f && live.dataset.draftKey === draftKey) renderFormFeedback(live);
+    }
+  } finally {
+    f._saving = false; buttons.forEach(x => x.disabled = false);
+    if (draftKey) { savingDrafts.delete(draftKey); renderPanel(); }
+    applyPendingMemory();
+  }
+
 });
 document.querySelectorAll('[data-toggle]').forEach(b => b.addEventListener('click', () => {
   const f = $(b.dataset.toggle), open = f.hidden;
@@ -1557,17 +1760,17 @@ function aiChoiceTitle() { return aiModel==='auto' ? 'Авто' : aiModel.starts
 async function aiLoadModels() {
  try { AI.models=await aiGet('/api/ai/models'); } catch { return; }
  const M=AI.models;
- if (aiModel!=='auto' && !M.models.some(m=>m.id===aiModel) && !(M.free_models || []).some(m=>'free:'+m.id===aiModel)) { aiModel='auto'; aiSave(); }
+ if (aiModel!=='auto' && !M.models.some(m=>m.id===aiModel) && !(M.free_models || []).some(m=>'free:'+m.id===aiModel)) { aiErr('Выбранная модель больше не перечислена. Выберите модель явно.'); }
  $('ai-model').textContent=aiChoiceTitle();
  const c=M.claude, w=c.windows || {}, parts=[w.five_hour && `5 часов ${w.five_hour.pct}%`,w.seven_day && `неделя ${w.seven_day.pct}%`].filter(Boolean);
- badge('ai-claude',c.exhausted ? 'Лимит Claude до '+aiWhen(c.until) : 'Claude: '+(parts.join(' · ') || 'лимит доступен'),c.exhausted?'warn':'lav');
- summary.ai=M.auto ? 'Сейчас отвечает '+M.auto.title+'. Диалоги сохраняются.' : 'Нет доступных моделей.';
+ badge('ai-claude',c.exhausted ? 'Лимит Claude до '+aiWhen(c.until) : 'Claude: '+(parts.join(' · ') || 'данных о лимите нет'),c.exhausted?'warn':'lav');
+ summary.ai=M.auto ? 'Авто попробует '+M.auto.title+'. Выполнение не проверено.' : 'Нет доступных моделей.';
  renderBanner(); aiPicker();
 }
 function aiPicker() {
  const box=$('ai-picker'), M=AI.models; if (!M) return;
  function choice(id,title,hint,available=true) { return el('button',{type:'button',role:'option','aria-selected':String(aiModel===id),...(!available?{disabled:''}:{}),onclick:()=>{aiModel=id;aiSave();$('ai-model').textContent=aiChoiceTitle();box.hidden=true;$('ai-model').setAttribute('aria-expanded','false');}},el('b',{text:title}),hint ? el('div',{class:'meta',text:hint}) : null); }
- box.replaceChildren(choice('auto','Авто',M.auto ? 'Сейчас отвечает '+M.auto.title : 'Нет доступных моделей'),...M.models.map(m=>choice(m.id,m.id==='free'?'Бесплатная (авто)':m.title,m.available?m.detail:m.why,m.available)));
+ box.replaceChildren(choice('auto','Авто',M.auto ? 'Первый маршрут: '+M.auto.title+' · затем резервный маршрут' : 'Нет доступных моделей'),...M.models.map(m=>choice(m.id,m.id==='free'?'Бесплатная (авто)':m.title,m.available?m.detail:m.why+' · '+m.detail,m.available)));
  if (!(M.free_models || []).length) return;
  const search=el('input',{placeholder:'Поиск моделей','aria-label':'Поиск моделей'}), group=el('div');
  const rank=p=>p==='Подбор шлюзом'?0:p==='Другие'?2:1;
@@ -1628,10 +1831,11 @@ function aiMarkdown(text) {
 }
 function aiBubble(m) {
  if(m.role==='user')return el('div',{class:'msg me'},el('div',{class:'bubble',text:m.text}));
- return el('div',{class:'msg bot'},m.text?aiMarkdown(m.text):el('div',{class:'typing'},'печатает',el('i'),el('i'),el('i')),el('div',{class:'meta',text:[m.model,m.detail,m.auto?'авто':'',aiTime(m.time),m.stopped?'остановлено':''].filter(Boolean).join(' · ')}));
+ const copy=el('button',{class:'pill soft small',type:'button',text:'Копировать ответ',onclick:()=>aiCopy(m.text,copy)});
+ return el('div',{class:'msg bot'},m.text?aiMarkdown(m.text):el('div',{class:'typing'},'печатает',el('i'),el('i'),el('i')),el('div',{class:'meta',text:[m.model,m.detail,m.auto?'авто':'',aiTime(m.time),m.stopped?'остановлено':''].filter(Boolean).join(' · ')}),m.text?copy:null);
 }
 function aiHeader(){ $('h-ai').textContent=AI.chat?.title || 'Новый чат';$('ai-project-name').textContent=AI.projects.find(p=>p.id===AI.project)?.name || ''; }
-function aiRender(){aiHeader();const kids=(AI.chat?.messages || []).map(aiBubble);if(AI.pending)kids.push(aiBubble({role:'user',text:AI.pending.user}),aiBubble(AI.pending));if(!kids.length)kids.push(el('div',{class:'ai-empty'},el('b',{text:'О чём поговорим?'}),el('span',{class:'meta',text:AI.projects.find(p=>p.id===AI.project)?.name || ''})));const msgs=$('ai-msgs'),near=msgs.scrollHeight-msgs.scrollTop-msgs.clientHeight<100;msgs.replaceChildren(...kids);if(near || AI.pending)msgs.scrollTop=msgs.scrollHeight;}
+function aiRender(){aiHeader();const kids=(AI.chat?.messages || []).map(aiBubble);if(AI.pending)kids.push(aiBubble({role:'user',text:AI.pending.user}),aiBubble(AI.pending));if(!kids.length)kids.push(el('div',{class:'ai-empty'},el('b',{text:'О чём поговорим?'}),el('span',{class:'meta',text:AI.projects.find(p=>p.id===AI.project)?.name || ''})));const msgs=$('ai-msgs'),oldTop=msgs.scrollTop,near=msgs.scrollHeight-msgs.scrollTop-msgs.clientHeight<100;msgs.replaceChildren(...kids);msgs.scrollTop=near?msgs.scrollHeight:oldTop;}
 function aiSchedule(){if(!AI.frame)AI.frame=requestAnimationFrame(()=>{AI.frame=0;aiRender();});}
 function aiLists(open){$('ai-layout').classList.toggle('lists',open);$('ai-chats-btn').setAttribute('aria-expanded',String(open));}
 async function aiOpen(id){if(AI.busy)return;aiLists(false);try{AI.chat=await aiGet('/api/ai/chat?id='+encodeURIComponent(id));aiChatId=id;AI.project=AI.chat.project || '';aiSave();aiRender();aiSidebar();}catch(e){aiErr(e.message);}}
@@ -1692,10 +1896,68 @@ matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => appl
 applyTheme(theme);
 
 $('banner').classList.add('enter');
-showPage();
 load();
 setInterval(() => { if (!document.hidden) { load(); renderBanner(); } }, 10000);
-document.addEventListener('visibilitychange', () => { if (!document.hidden) load(); });
+document.addEventListener('visibilitychange', () => { if (!document.hidden) scheduleRefresh(); });
+
+// Persistent server agent: polling only observes work; closing this page never cancels it.
+const agentPanel=el('div',{class:'card agent-panel'},el('h2',{text:'Серверный агент'}));
+const agentReason=el('p',{class:'meta',role:'status'}), agentHistory=el('div',{class:'agent-history'});
+const agentInput=el('textarea',{'aria-label':'Сообщение серверному агенту',placeholder:'Задача для серверного агента'});
+const agentSend=el('button',{class:'pill dark',text:'Отправить',type:'submit'});
+const agentForm=el('form',{},agentInput,agentSend);
+agentPanel.append(agentReason,agentHistory,agentForm);
+let agentSeparate=false;
+try { agentSeparate=(new URLSearchParams(location.search).get('agentLayout') || localStorage.getItem('svodka-agent-layout'))==='separate'; } catch {}
+function setAgentLayout(){
+ $('tab-agent').hidden=!agentSeparate;
+ (agentSeparate?$('agent-separate'):$('agent-embedded')).append(agentPanel);
+ $('agent-layout-toggle').textContent=agentSeparate?'Агент внутри ИИ':'Отдельная вкладка агента';
+ agentPanel.hidden=!agentSeparate;
+ if(agentSeparate)document.querySelector('.ai-card').hidden=false;
+}
+setAgentLayout();
+$('agent-layout-toggle').onclick=()=>{agentSeparate=!agentSeparate;try{localStorage.setItem('svodka-agent-layout',agentSeparate?'separate':'embedded');}catch{}setAgentLayout();location.hash=agentSeparate?'agent':'ai';};
+$('mode-chat').onclick=()=>{agentPanel.hidden=!agentSeparate;document.querySelector('.ai-card').hidden=false;};
+$('mode-agent').onclick=()=>{if(agentSeparate){agentPanel.hidden=false;location.hash='agent';}else{agentPanel.hidden=false;document.querySelector('.ai-card').hidden=true;}refreshAgent();};
+agentForm.onsubmit=async e=>{e.preventDefault();const text=agentInput.value.trim();if(!text)return;agentSend.disabled=true;try{const r=await fetch('/api/agent/send',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text})});const j=await r.json();if(!r.ok)throw new Error(j.error);agentInput.value='';await refreshAgent();}catch(e){agentReason.textContent=e.message;agentSend.disabled=false;}};
+const statusLabels={running:'Выполняется',completed:'Завершён',incomplete:'Ответ неполный',failed:'Ошибка',interrupted:'Прерван',queued:'В очереди',waiting_limit:'Ожидание лимита',question:'Требуется ответ',done:'Готово',nochange:'Без изменений',cancelled:'Отменён',merged:'Объединён',unknown:'Неизвестно'};
+const statusLabel=s=>statusLabels[s] || 'Неизвестно';
+const officeTime=t=>typeof t==='number'?new Date(t*1000).toLocaleString('ru-RU'):t || 'неизвестно';
+let agentRefreshing=false,officeSignature='';
+const runNodes=new Map();
+function renderAgentRuns(runs){
+ const ids=new Set(runs.map(r=>r.id));
+ for(const [id,node] of runNodes)if(!ids.has(id)){node.remove();runNodes.delete(id);}
+ for(const r of runs){
+  let node=runNodes.get(r.id);
+  if(!node){node=el('div',{},el('div',{class:'msg user'}),el('div',{class:'agent-output'}),el('div',{class:'meta'}));runNodes.set(r.id,node);agentHistory.append(node);}
+  const values=[r.input,r.output || (r.status==='running'?'Выполняется на сервере…':'Ответа нет'),statusLabel(r.status)+' · '+officeTime(r.updated)+(r.error?' · '+r.error:'')+(r.truncated?' · Показана часть ответа':'')];
+  [...node.children].forEach((child,i)=>{if(child.textContent!==values[i])child.textContent=values[i];});
+ }
+}
+async function refreshAgent(){
+ if(document.hidden || agentRefreshing)return;
+ agentRefreshing=true;
+ try {
+ const [a,o]=await Promise.all([aiGet('/api/agent'),aiGet('/api/office')]);
+ agentReason.textContent=a.reason+' · История хранится на сервере. Закрытие браузера не останавливает работу.';
+ agentSend.disabled=!a.available || a.runs.some(r=>r.status==='running');
+ renderAgentRuns(a.runs);
+ $('office-state').textContent=o.agent.reason+' · '+o.queue.reason;
+ const signature=JSON.stringify(o);
+ if(signature!==officeSignature){
+ const rows=[...o.runs.map(r=>({label:'Сводка #'+r.id,...r})),...o.queue.jobs.map(r=>({label:'Кодер #'+r.id,...r}))];
+ $('office').replaceChildren(...rows.map(r=>el('article',{class:'desk '+r.status,'aria-label':r.label+' · '+statusLabel(r.status)},el('div',{class:'workstation','aria-hidden':'true'},el('div',{class:'monitor'}),el('div',{class:'desktop'}),el('div',{class:'avatar'}),el('div',{class:'chair'})),el('b',{text:r.label}),el('p',{text:statusLabel(r.status)}),el('div',{class:'meta',text:'Начало: '+officeTime(r.started || r.created)}),el('div',{class:'meta',text:'Обновлено: '+officeTime(r.updated)}))));
+ for(const event of (o.events || [])) $('office').append(el('div',{class:'meta',text:'Сводка #'+event.run+' · '+statusLabel(event.status)+' · '+officeTime(event.time)+(event.output_chars?' · Получено символов: '+event.output_chars:'')}));
+ if(!rows.length)$('office').append(el('p',{class:'meta',text:'Запусков пока нет. Рабочие места появятся при реальных запусках.'}));
+ officeSignature=signature;
+ }
+ }catch(e){agentReason.textContent='Нет связи с сервером';$('office-state').textContent='Офис недоступен';$('office').replaceChildren();officeSignature='';}
+ finally{agentRefreshing=false;}
+}
+showPage();refreshAgent();setInterval(()=>{if(!document.hidden && ['ai','agent','agents'].includes(current))refreshAgent();},2500);
+document.addEventListener('visibilitychange',()=>{if(!document.hidden && ['ai','agent','agents'].includes(current))refreshAgent();});
 </script>
 </body>
 </html>
