@@ -282,6 +282,8 @@ a.tile span { font-size: 12px; color: color-mix(in srgb, var(--ink) 55%, transpa
 .kinds button[aria-pressed="false"] { opacity: 0.4; }
 .kinds button[aria-pressed="false"] i { background: transparent; box-shadow: inset 0 0 0 1.5px var(--c); }
 .kinds button:active { transform: scale(0.92); }
+.g-layout.panel-closed { grid-template-columns: minmax(0, 1fr); }
+.g-panel[hidden] { display: none; }
 .g-layout { display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 14px; min-height: 0; }
 .g-box { position: relative; border-radius: 20px; overflow: hidden; height: min(720px, calc(100vh - 290px)); min-height: 440px;
   background: radial-gradient(circle at 30% 20%, color-mix(in srgb, var(--accent-soft) 70%, transparent), transparent 55%), radial-gradient(circle at 80% 90%, color-mix(in srgb, var(--p2) 70%, transparent), transparent 50%), var(--field); }
@@ -594,7 +596,7 @@ dialog[open] { animation: pop .4s var(--spring); }
       <div class="kinds" id="g-kinds" role="group" aria-label="Фильтр по типам"></div>
       <div class="g-layout">
         <div class="g-box" id="g-box">
-          <canvas id="g-canvas" aria-label="Граф памяти: перетаскивай узлы, колесо или щипок для масштаба"></canvas>
+          <canvas id="g-canvas" tabindex="0" aria-label="Граф памяти: перетаскивай узлы, колесо или щипок для масштаба"></canvas>
           <div class="g-hint">Тяни узлы · колесо или щипок для масштаба · нажми, чтобы открыть</div>
           <div class="g-zoom">
             <button class="icon-btn" type="button" id="g-in" aria-label="Приблизить"><svg class="i" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></button>
@@ -798,22 +800,63 @@ function countTo(node, value, show) {
 }
 function badge(id, text, tone) { const b = $(id); b.textContent = text; b.className = 'badge' + (tone ? ' ' + tone : ''); b.hidden = !text; }
 
-async function load() {
-  try {
-    const r = await fetch('/api/data', { cache: 'no-store' });
-    if (!r.ok) throw new Error();
-    const text = await r.text();
-    if (text !== lastJson) { lastJson = text; data = JSON.parse(text); render(); }
-    setStatus('Обновлено в ' + new Date().toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' }));
-  } catch { setStatus('Нет связи с сервером', true); }
+let mutationError = '', mutationRetry = null, failedMutationKey = '';
+function mutationStatus(error = '', retry = null) {
+  mutationError = error; mutationRetry = retry;
+  const status = $('status');
+  if (error) {
+    setStatus(error, true);
+    status.append(el('button', {type: 'button', text: 'Повторить', onclick: async () => {
+      if (!mutationRetry) return;
+      const action = mutationRetry; mutationRetry = null;
+      await action();
+    }}));
+  }
+}
+let dataFlight = null, dataAgain = false, dataRevision = 0, dataFailures = 0, dataNext = 0;
+function load(fresh = false) {
+  if (fresh) { dataRevision++; dataAgain = true; }
+  if (dataFlight) return dataFlight;
+  if (!fresh && Date.now() < dataNext) return Promise.resolve(false);
+  dataFlight = (async () => {
+    let ok = false;
+    do {
+      dataAgain = false;
+      const revision = dataRevision, controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 20000);
+      try {
+        const r = await fetch('/api/data', {cache: 'no-store', signal: controller.signal});
+        if (!r.ok) throw new Error();
+        const text = await r.text(), parsed = JSON.parse(text);
+        if (revision === dataRevision) {
+          if (text !== lastJson) { lastJson = text; data = parsed; render(); }
+          if (!mutationError) setStatus('Обновлено в ' + new Date().toLocaleTimeString('ru-RU', {hour:'2-digit', minute:'2-digit'}));
+        }
+        dataFailures = 0; dataNext = 0; ok = true;
+      } catch {
+        dataNext = Date.now() + Math.min(60000, 1000 * 2 ** Math.min(++dataFailures, 6));
+        if (!mutationError) setStatus('Нет связи с сервером', true);
+      } finally { clearTimeout(timer); }
+    } while (dataAgain);
+    return ok;
+  })().finally(() => { dataFlight = null; });
+  return dataFlight;
 }
 async function post(path, body) {
+  const key = path;
   try {
-    const r = await fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    const r = await fetch(path, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)});
     const j = await r.json().catch(() => ({}));
-    if (!r.ok) setStatus(j.error || 'Не сохранилось', true);
-  } catch { setStatus('Нет связи с сервером', true); }
-  await load();
+    if (!r.ok) throw new Error(j.error || 'Не сохранилось');
+    if (!mutationError || failedMutationKey === key) { mutationStatus(); failedMutationKey = ''; }
+    await load(true);
+    return {ok:true};
+  } catch (err) {
+    const error = err.message || 'Нет связи с сервером';
+    failedMutationKey = key;
+    mutationStatus(error, () => post(path, body));
+    return {ok:false, error};
+  }
 }
 
 // ----- pages: fade out the old one, cascade the new one in -----
@@ -875,6 +918,7 @@ function rich(text) {
   return frag;
 }
 function openEntity(key) {
+  panelOpen = true;
   if (location.hash !== '#graph') { selected = key; G.history = []; location.hash = '#graph'; } else selectNode(key, true);
 }
 
@@ -1414,7 +1458,28 @@ function hit(x, y) {
   });
 })();
 
+let panelOpen = true, panelReturnFocus = null;
+const factDrafts = new Map(), savingDrafts = new Set();
+function captureFactDraft() {
+  const f = $('f-fact');
+  if (f) factDrafts.set(f.dataset.draftKey, [...f.elements].filter(x => x.name).map(x => [x.name, x.value]));
+}
+function closeMemoryPanel() {
+  captureFactDraft(); panelOpen = false;
+  renderPanel(); resizeCanvas(); redraw();
+  const target = panelReturnFocus && panelReturnFocus.isConnected && panelReturnFocus.matches('button,input,select,textarea,a[href],[tabindex]') ? panelReturnFocus : $('g-search');
+  target.focus({preventScroll:true});
+  if (matchMedia('(max-width: 1100px)').matches) $('g-box').scrollIntoView({block:'start'});
+}
+document.addEventListener('keydown', ev => {
+  if (ev.key === 'Escape' && current === 'graph' && panelOpen && !document.querySelector('dialog[open]')) {
+    ev.preventDefault(); closeMemoryPanel();
+  }
+});
 function selectNode(key, center, keepHistory) {
+  captureFactDraft();
+  if (!panelOpen || !$('g-panel').contains(document.activeElement)) panelReturnFocus = document.activeElement;
+  panelOpen = true;
   if (key && !G.ents.has(key)) key = '';
   if (!keepHistory && selected && selected !== key) G.history.push(selected);
   selected = key;
@@ -1422,7 +1487,12 @@ function selectNode(key, center, keepHistory) {
   if (n && G.hidden.has(n.ent.kind)) { G.hidden.delete(n.ent.kind); renderKinds(); }
   if (n && center && G.w) setView(Math.max(G.scale, 0.9), G.w / 2 - n.x * Math.max(G.scale, 0.9), G.h / 2 - n.y * Math.max(G.scale, 0.9), true);
   renderPanel();
-  redraw();
+  resizeCanvas(); redraw();
+  if (key && matchMedia('(max-width: 1100px)').matches) {
+    $('g-panel').setAttribute('tabindex', '-1');
+    $('g-panel').focus({preventScroll:true});
+    $('g-panel').scrollIntoView({block:'start'});
+  }
 }
 function renderKinds() {
   const count = {};
@@ -1444,32 +1514,41 @@ function factForm(e) {
     e && e.page ? null : kindSel,
     el('input', { class: 'grow', name: 'text', placeholder: e ? 'Новый факт, можно с [[ссылками]]' : 'Первый факт, можно с [[ссылками]]', required: '', 'aria-label': 'Новый факт', style: 'flex-basis:100%' }),
     el('button', { class: 'pill dark small', type: 'submit', text: 'Запомнить' }));
+  f.dataset.draftKey = e ? e.key : '__new__';
+  if (savingDrafts.has(f.dataset.draftKey)) f.querySelector('[type=submit]').disabled = true;
   return f;
 }
 function renderPanel() {
   const panel = $('g-panel');
   const e = selected && G.ents.get(selected);
-  // the panel is rebuilt on every data refresh: keep what is being typed
-  const old = $('f-fact'), typing = old && old.contains(document.activeElement);
-  const keep = typing ? [...old.elements].filter(x => x.name && x.type !== 'hidden').map(x => [x.name, x.value]) : null;
-  const focusName = typing ? document.activeElement.name : '';
+  captureFactDraft();
+  panel.hidden = !panelOpen;
+  panel.parentElement.classList.toggle('panel-closed', !panelOpen);
+  if (!panelOpen) return;
+  if ($('f-fact')?._saving && $('f-fact').dataset.draftKey === (e ? e.key : '__new__') && panelOpen) return;
+  const old = $('f-fact'), active = document.activeElement;
+  const typing = old && old.contains(active) && old.dataset.draftKey === (e ? e.key : '__new__');
+  const keep = factDrafts.get(e ? e.key : '__new__');
+  const focusName = typing ? active.name : '';
+  const caret = typing ? [active.selectionStart, active.selectionEnd] : null;
   const box = el('div', { class: 'fade' });
   if (!e) {
     const pages = [...G.ents.values()].filter(x => x.page).sort((a, b) => b.weight - a.weight).slice(0, 12);
     box.append(
+      el('button', {type:'button', 'aria-label':'Закрыть', text:'×', onclick:closeMemoryPanel}),
       el('div', {}, el('h3', { text: 'Выбери страницу' }), el('p', { class: 'hint', text: 'Страницы про людей, места, компании, проекты и темы, связанные [[ссылками]], как в Obsidian. Джарвис сам дописывает сюда то, что узнаёт из разговоров.' })),
       pages.length ? el('h4', { text: 'Самые связанные' }) : null,
       pages.length ? el('ul', {}, ...pages.map(p => el('li', { class: 'row' }, el('div', { class: 'grow1' }, el('button', { class: 'ent', type: 'button', text: p.name, onclick: () => selectNode(p.key, true) })), kindBadge(p)))) : null,
       el('h4', { text: 'Новая страница' }), factForm(null));
     panel.replaceChildren(box);
-    return restoreTyping(keep, focusName);
+    return restoreTyping(keep, focusName, caret);
   }
   const facts = e.page ? e.page.facts : [];
   box.append(el('div', { class: 'ttl' },
     G.history.length ? el('button', { class: 'icon-btn', type: 'button', 'aria-label': 'Назад', title: 'Назад', onclick: () => { const k = G.history.pop(); selectNode(k || '', true, true); } },
       (() => { const s = document.createElementNS('http://www.w3.org/2000/svg', 'svg'); s.setAttribute('class', 'i'); s.setAttribute('viewBox', '0 0 24 24'); s.innerHTML = '<path d="m15 6-6 6 6 6"/>'; return s; })()) : null,
     el('div', { class: 'grow1', style: 'display:grid;gap:6px' }, el('h3', { text: (e.tag && !e.page ? '#' : '') + e.name }), el('div', {}, kindBadge(e))),
-    el('button', { class: 'icon-btn', type: 'button', 'aria-label': 'Закрыть', title: 'Закрыть', onclick: () => selectNode('', false) }, '×')));
+    el('button', { class: 'icon-btn', type: 'button', 'aria-label': 'Закрыть', title: 'Закрыть', onclick: closeMemoryPanel }, '×')));
   box.append(el('ul', {}, ...(facts.length ? facts.map(f => el('li', { class: 'row' },
     el('div', { class: 'grow1' }, el('div', {}, rich(f.text)), f.date ? el('div', { class: 'meta', text: short(f.date) }) : null),
     el('button', { class: 'x', 'aria-label': 'Удалить факт', title: 'Удалить', text: '×', onclick: () => post('/api/memory/delete', { name: e.page.name, line: f.line, raw: f.raw }) })))
@@ -1487,14 +1566,14 @@ function renderPanel() {
       el('div', { class: 'grow1' }, el('div', {}, rich(it.text)), it.date ? el('div', { class: 'meta', text: short(it.date) }) : null),
       el('span', { class: 'badge', text: KIND[it.kind] })))));
   panel.replaceChildren(box);
-  restoreTyping(keep, focusName);
+  restoreTyping(keep, focusName, caret);
 }
-function restoreTyping(keep, focusName) {
+function restoreTyping(keep, focusName, caret) {
   const f = $('f-fact');
   if (!keep || !f) return;
   for (const [name, value] of keep) { const x = f.elements.namedItem(name); if (x && x.type !== 'hidden') x.value = value; }
   const x = f.elements.namedItem(focusName);
-  if (x && x.focus) x.focus();
+  if (x && x.focus) { x.focus({preventScroll:true}); if (caret && x.setSelectionRange && caret[0] != null) x.setSelectionRange(...caret); }
 }
 function renderGraph() {
   const ents = memoryModel();
@@ -1513,10 +1592,11 @@ function renderGraph() {
 function kindOptions() { return [el('option', { value: '', text: 'тип не указан' }), ...KINDS.slice(0, 6).map(k => el('option', { value: k.id, text: k.id }))]; }
 document.querySelectorAll('select[name="category"]').forEach(s => s.append(...CATS.map(c => el('option', { text: c }))));
 document.querySelectorAll('select[name="kind"]').forEach(s => s.append(...kindOptions()));
-document.addEventListener('submit', ev => {
+document.addEventListener('submit', async ev => {
   const f = ev.target, type = f.dataset.form;
   if (!type) return;
   ev.preventDefault();
+  if (f._saving || (f.dataset.draftKey && savingDrafts.has(f.dataset.draftKey))) return;
   const v = n => { const x = f.elements.namedItem(n); return x ? x.value.trim() : ''; };
   let req;
   if (type === 'expense') {
@@ -1536,15 +1616,42 @@ document.addEventListener('submit', ev => {
   } else if (type === 'memory') {
     const name = v('name'), text = v('text');
     if (!name || !text) return;
-    if (selected !== entKey(name)) G.history = selected ? [...G.history, selected] : G.history;
-    selected = entKey(name);
     req = ['/api/memory/add', { name, text, kind: v('kind') }];
   }
-  const name = f.id === 'f-fact' ? f.elements.namedItem('name') : null, keep = name && name.type === 'hidden' ? name.value : '';
-  f.reset();
-  if (keep) name.value = keep;
-  if (f.closest('dialog')) f.closest('dialog').close();
-  post(...req);
+  if (!req) return;
+  const snapshot = [...f.elements].filter(x => x.name).map(x => [x.name, x.value]);
+  const draftKey = f.dataset.draftKey;
+  f._saving = true;
+  if (draftKey) savingDrafts.add(draftKey);
+  const buttons = [...f.elements].filter(x => x.type === 'submit');
+  buttons.forEach(x => x.disabled = true);
+  try {
+    const result = await post(...req);
+    if (!result.ok) {
+      mutationStatus(result.error, () => {
+        const target = draftKey ? $('f-fact') : f;
+        if (target && (!draftKey || target.dataset.draftKey === draftKey)) target.requestSubmit();
+        else mutationStatus(result.error + ' · Открой страницу и повтори сохранение');
+      });
+      return;
+    }
+    // A poll may have rebuilt the memory form while this request was pending.
+    const live = draftKey ? $('f-fact') : f;
+    const values = live && (!draftKey || live.dataset.draftKey === draftKey)
+      ? [...live.elements].filter(x => x.name).map(x => [x.name, x.value]) : factDrafts.get(draftKey);
+    if (JSON.stringify(values) === JSON.stringify(snapshot)) {
+      if (draftKey) factDrafts.delete(draftKey);
+      if (live && (!draftKey || live.dataset.draftKey === draftKey)) {
+        live.reset();
+        for (const [name, value] of snapshot) { const x = live.elements.namedItem(name); if (x.type === 'hidden') x.value = value; }
+      }
+      if (f.closest('dialog')) f.closest('dialog').close();
+    }
+  } finally {
+    f._saving = false; buttons.forEach(x => x.disabled = false);
+    if (draftKey) { savingDrafts.delete(draftKey); renderPanel(); }
+  }
+
 });
 document.querySelectorAll('[data-toggle]').forEach(b => b.addEventListener('click', () => {
   const f = $(b.dataset.toggle), open = f.hidden;

@@ -19,7 +19,20 @@ Jarvis writes them from Telegram; this server shows them and lets you edit them
 from any browser. Only the Python standard library is used.
 """
 
-from agent import Agent, Unavailable, queue_snapshot
+# -I deliberately excludes the script directory. Load only the resolved sibling,
+# never a module selected through cwd, environment, or an expanded sys.path.
+import importlib.util
+import sys
+from pathlib import Path
+_dashboard_dir = Path(__file__).resolve().parent
+_agent_path = (_dashboard_dir / "agent.py").resolve(strict=True)
+if _agent_path.parent != _dashboard_dir:
+    raise ImportError("agent.py must resolve to a trusted dashboard sibling")
+_agent_spec = importlib.util.spec_from_file_location("agent", _agent_path)
+_agent_module = importlib.util.module_from_spec(_agent_spec)
+sys.modules[_agent_spec.name] = _agent_module  # decorators may inspect their module
+_agent_spec.loader.exec_module(_agent_module)
+Agent, Unavailable, queue_snapshot = _agent_module.Agent, _agent_module.Unavailable, _agent_module.queue_snapshot
 
 import csv
 import hashlib
@@ -39,7 +52,6 @@ import urllib.request
 from urllib.parse import parse_qs, urlsplit
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from pathlib import Path
 
 LIFE_DIR = Path(os.environ.get("LIFE_DIR", Path.home() / ".openclaw/workspace/life")).expanduser()
 agent_service = Agent(LIFE_DIR / "dashboard-agent")
