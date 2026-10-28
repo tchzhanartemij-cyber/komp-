@@ -65,6 +65,10 @@ office_sessions, coder_metadata = _office_module.office_sessions, _office_module
 LIFE_DIR = Path(os.environ.get("LIFE_DIR", Path.home() / ".openclaw/workspace/life")).expanduser()
 agent_service = Agent(LIFE_DIR / "dashboard-agent")
 
+VOICE_MAX_BYTES = 10 * 1024 * 1024
+VOICE_TIMEOUT = 90
+voice_semaphore = threading.Semaphore(1)
+
 HOST = os.environ.get("DASHBOARD_HOST", "127.0.0.1")
 PORT = int(os.environ.get("DASHBOARD_PORT", "8787"))
 STATIC = Path(__file__).resolve().parent / "index.html"
@@ -782,6 +786,99 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
 
+    def same_origin(self, required=False):
+        origin = self.headers.get('Origin')
+        if origin is None:
+            return not required
+        try:
+            u = urlsplit(origin)
+            expected = urlsplit(u.scheme + '://' + self.headers.get('Host', ''))
+            return bool(u.scheme in ('http', 'https') and u.hostname and not u.username and not u.password
+                        and not u.path and not u.query and not u.fragment and u.hostname == expected.hostname
+                        and (u.port or (443 if u.scheme == 'https' else 80)) == (expected.port or (443 if u.scheme == 'https' else 80)))
+        except ValueError:
+            return False
+
+    def voice_status(self):
+        binary = None
+        candidate = os.environ.get('SVODKA_OPENCLAW_BIN', '')
+        if candidate and Path(candidate).is_absolute() and Path(candidate).is_file() and os.access(candidate, os.X_OK):
+            binary = candidate
+        else:
+            binary = shutil.which('openclaw')
+            fallback = Path.home() / '.npm-global/bin/openclaw'
+            if not binary and fallback.is_file():
+                binary = str(fallback)
+        if os.environ.get('SVODKA_VOICE_ENABLED') != '1':
+            reason = 'Распознавание отключено: требуется разрешение оператора SVODKA_VOICE_ENABLED=1'
+        elif not self.agent_protected():
+            reason = 'Распознавание запрещено: требуется защита панели токеном или доверенным прокси'
+        elif not binary:
+            reason = 'Исполняемый файл OpenClaw не найден'
+        else:
+            return dict(stt=True, reason='Распознавание через OpenClaw (провайдер из его настроек); живой вызов не проверялся этим экраном', max_bytes=VOICE_MAX_BYTES, max_seconds=60), binary
+        return dict(stt=False, reason=reason, max_bytes=VOICE_MAX_BYTES, max_seconds=60), binary
+
+    def transcribe(self):
+        def fail(code, msg):
+            self.send_json(code, {'error': msg})
+        if not self.same_origin(required=True):
+            return fail(403, 'Источник запроса не совпадает с панелью')
+        if self.headers.get('X-Svodka-Voice') != '1':
+            return fail(403, 'Требуется X-Svodka-Voice: 1')
+        state, binary = self.voice_status()
+        if not state['stt']:
+            return fail(503, state['reason'])
+        extensions = {'audio/webm':'webm', 'audio/mp4':'m4a', 'audio/x-m4a':'m4a', 'audio/aac':'aac', 'audio/ogg':'ogg', 'audio/wav':'wav', 'audio/x-wav':'wav', 'audio/mpeg':'mp3'}
+        mime = self.headers.get('Content-Type', '').split(';', 1)[0].strip().lower()
+        if mime not in extensions:
+            return fail(415, 'Неподдерживаемый формат аудио')
+        try:
+            n = int(self.headers.get('Content-Length', ''))
+        except ValueError:
+            return fail(400, 'Неверная длина аудио')
+        if not 1024 <= n <= VOICE_MAX_BYTES:
+            return fail(413, 'Размер аудио должен быть от 1024 байт до 10 МиБ')
+        audio = self.rfile.read(n)
+        if len(audio) != n:
+            return fail(400, 'Аудио получено не полностью')
+        if not voice_semaphore.acquire(blocking=False):
+            return fail(429, 'Распознавание уже идёт')
+        try:
+            with tempfile.TemporaryDirectory(prefix='svodka-voice-') as directory:
+                f = Path(directory) / ('audio.' + extensions[mime])
+                fd = os.open(f, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+                with os.fdopen(fd, 'wb') as out:
+                    out.write(audio)
+                try:
+                    result = subprocess.run([binary, 'infer', 'audio', 'transcribe', '--file', str(f), '--language', 'ru', '--json'], stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, cwd=directory, timeout=VOICE_TIMEOUT)
+                except subprocess.TimeoutExpired:
+                    return fail(504, 'Распознавание не уложилось в 90 с')
+                except OSError:
+                    return fail(503, 'Не удалось запустить OpenClaw')
+                stdout = result.stdout.decode('utf-8', errors='replace')
+                stderr = result.stderr.decode('utf-8', errors='replace')
+                try:
+                    obj = json.loads(stdout)
+                except ValueError:
+                    obj = {}
+                if not isinstance(obj, dict):
+                    obj = {}
+                outputs = obj.get('outputs')
+                first = outputs[0] if isinstance(outputs, list) and outputs and isinstance(outputs[0], dict) else {}
+                text = first.get('text')
+                if obj.get('ok') is True and isinstance(text, str) and text.strip():
+                    return self.send_json(200, dict(text=text[:20000], provider=one_line(obj.get('provider'), 60), model=one_line(obj.get('model'), 100)))
+                if 'No audio transcription provider' in stdout + stderr:
+                    return fail(502, 'Провайдер распознавания речи в OpenClaw не настроен или не готов')
+                lines = [line for line in stderr.splitlines() if line.strip()]
+                detail = lines[-1] if lines else str(obj.get('error') or 'Некорректный ответ OpenClaw')
+                detail = detail.replace(directory, '<аудио>')
+                detail = re.sub(r'(sk|gsk|xai|key)[-_][A-Za-z0-9_-]{8,}|Bearer \S+', '***', detail)
+                return fail(502, 'Ошибка распознавания: ' + one_line(detail, 200))
+        finally:
+            voice_semaphore.release()
+
     def agent_protected(self):
         return bool(load_token()) or os.environ.get("SVODKA_AGENT_TRUSTED_PROXY") == "1"
 
@@ -894,6 +991,8 @@ class Handler(BaseHTTPRequestHandler):
                     "today": datetime.now().strftime("%Y-%m-%d"),
                 }
             self.send_json(200, payload)
+        elif route == "/api/voice":
+            self.send_json(200, self.voice_status()[0])
         elif route == "/api/agent":
             self.send_json(200, self.agent_snapshot())
         elif route == "/api/office":
@@ -930,35 +1029,29 @@ class Handler(BaseHTTPRequestHandler):
         if not allowed:
             self.deny()
             return
+        if urlsplit(self.path).path == "/api/voice/transcribe":
+            self.transcribe()
+            return
         if urlsplit(self.path).path == "/api/agent/send":
             if self.headers.get("Content-Type", "").split(";", 1)[0].strip().lower() != "application/json":
                 self.send_json(415, {"error": "Требуется application/json"})
                 return
-            origin = self.headers.get("Origin")
-            if origin is not None:
-                try:
-                    u = urlsplit(origin)
-                    host = self.headers.get("Host", "")
-                    expected = urlsplit(u.scheme + "://" + host)
-                    valid = (u.scheme in ("http", "https") and u.hostname and not u.username and not u.password
-                             and not u.path and not u.query and not u.fragment
-                             and u.hostname == expected.hostname
-                             and (u.port or (443 if u.scheme == "https" else 80)) == (expected.port or (443 if u.scheme == "https" else 80)))
-                except ValueError:
-                    valid = False
-                if not valid:
-                    self.send_json(403, {"error": "Источник запроса не совпадает с панелью"})
-                    return
+            if not self.same_origin():
+                self.send_json(403, {"error": "Источник запроса не совпадает с панелью"})
+                return
         try:
             b = self.body()
             if urlsplit(self.path).path == "/api/agent/send":
-                if set(b) != {"text"} or not isinstance(b["text"], str) or not 0 < len(b["text"].strip()) <= 20000:
+                if not isinstance(b, dict) or set(b) not in ({"text"}, {"text", "request"}) or not isinstance(b["text"], str) or not 0 < len(b["text"].strip()) <= 20000:
+                    raise ValueError()
+                if 'request' in b and (not isinstance(b['request'], str) or not re.fullmatch(r'[A-Za-z0-9_-]{16,64}', b['request'])):
                     raise ValueError()
                 try:
                     if not self.agent_protected():
                         raise Unavailable("Запуск запрещён: панель не защищена токеном; требуется отдельное доверие защищённому прокси")
-                    rid = agent_service.submit(b["text"].strip())
-                    self.send_json(202, {"id": rid})
+                    rid = agent_service.submit(b["text"].strip(), b['request']) if 'request' in b else agent_service.submit(b["text"].strip())
+                    duplicate = getattr(rid, 'duplicate', False)
+                    self.send_json(200 if duplicate else 202, {"id": rid, **({"duplicate": True} if duplicate else {})})
                 except Unavailable as e:
                     self.send_json(503, {"error": str(e)})
                 return

@@ -148,7 +148,7 @@ body[data-page="graph"] .flower { width: 170px; height: 170px; right: 10px; }
 @media (max-width: 760px) {
   .side { width:max-content; max-width:calc(100vw - 24px); left: 50%; top: auto; bottom: max(12px, env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); }
   .nav { flex-direction: row; padding: 8px; gap: clamp(2px, 1vw, 8px); max-width:100%; }
-  .nav .item { width: clamp(34px, 10vw, 46px); height: 46px; flex: 0 1 46px; min-width:0; }
+  .nav .item { width: clamp(28px, 9vw, 46px); height: 46px; flex: 0 1 auto; min-width:0; }
   .nav .label { display: none; }
   .nav .sep { width: 1px; height: auto; margin: 10px 2px; }
   .main { padding: max(14px, env(safe-area-inset-top, 0px)) 14px 112px; gap: 14px; }
@@ -415,6 +415,7 @@ dialog[open] { animation: pop .4s var(--spring); }
     <a class="item" href="#ai" id="tab-ai"><svg class="i" viewBox="0 0 24 24"><path d="M5 5.5h14a1.5 1.5 0 0 1 1.5 1.5v8.5A1.5 1.5 0 0 1 19 17h-7.5L7 20.5V17H5a1.5 1.5 0 0 1-1.5-1.5V7A1.5 1.5 0 0 1 5 5.5z"/><path d="M8.5 11.25h.01M12 11.25h.01M15.5 11.25h.01" stroke-width="2.4"/></svg><span class="label">ИИ</span></a>
     <a class="item" href="#agents" id="tab-agents" aria-label="Агенты · офис запусков" title="Агенты · офис запусков"><svg class="i" viewBox="0 0 24 24"><rect x="3" y="8" width="18" height="13" rx="3"/><path d="M12 3v5M7 13h2m6 0h2M8 17h8"/></svg><span class="label">Агенты</span></a>
     <a class="item" href="#agent" id="tab-agent" aria-label="Агент · серверный чат" title="Агент · серверный чат" hidden><svg class="i" viewBox="0 0 24 24"><path d="M4 4h16v13H9l-5 4zM8 9h8M8 13h5"/></svg><span class="label">Агент · чат</span></a>
+    <button id="voice-btn" class="item" type="button" aria-label="Голосовой помощник" aria-haspopup="dialog"><svg class="i" viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="12" rx="3"/><path d="M6 11v1a6 6 0 0 0 12 0v-1M12 18v3M9 21h6"/></svg><span class="label">Голос</span></button>
     <span class="sep" aria-hidden="true"></span>
     <button class="item" type="button" id="theme-btn" aria-label="Тема"><svg class="i" viewBox="0 0 24 24" id="theme-ico"></svg><span class="label" id="theme-label">Тема</span></button>
   </nav>
@@ -765,7 +766,28 @@ dialog[open] { animation: pop .4s var(--spring); }
  #office-drawer {position:fixed;top:auto;bottom:calc(88px + env(safe-area-inset-bottom,0px));left:10px;right:10px;width:auto;max-height:55dvh;border-radius:22px}
 }
 
+#voice { width:min(540px,calc(100vw - 32px)); max-height:85dvh; overflow:auto; box-sizing:border-box; border:1px solid var(--rule); border-radius:24px; padding:24px; background:var(--bg); color:var(--ink); }
+#voice::backdrop { background:#10102088; }
+.voice-head { display:flex; align-items:center; justify-content:space-between; gap:12px; }
+#voice textarea { display:block; width:100%; box-sizing:border-box; margin:8px 0; }
+#voice-record { width:76px; height:76px; border-radius:50%; font-size:30px; }
+#voice-answer { white-space:pre-wrap; overflow-wrap:anywhere; }
+@media (prefers-reduced-motion:no-preference) { #voice[data-state="listening"] #voice-record { animation:voice-pulse 1s ease-in-out infinite alternate; } }
+@keyframes voice-pulse { to { box-shadow:0 0 0 12px #a99be944; } }
 </style>
+<dialog id="voice" data-state="idle" aria-labelledby="voice-title">
+ <div class="voice-head"><h2 id="voice-title">Голосовой помощник</h2><button id="voice-close" class="pill soft" aria-label="Закрыть">×</button></div>
+ <p id="voice-status" role="status" aria-live="polite">Готов</p>
+ <button id="voice-record" class="pill" aria-label="Начать или остановить запись">●</button>
+ <button id="voice-stop" class="pill soft">Стоп</button> <button id="voice-mute" class="pill soft" aria-pressed="false">Без звука</button>
+ <p id="voice-reason" class="meta"></p>
+ <label for="voice-text">Текст для агента</label><textarea id="voice-text" rows="4" maxlength="19000"></textarea>
+ <p id="voice-context" class="meta"></p><label><input id="voice-attach" type="checkbox" checked> Передать контекст страницы</label>
+ <p><button id="voice-send" class="pill">Отправить агенту</button> <button id="voice-retry" class="pill soft" hidden>Повторить</button></p>
+ <div id="voice-answer" aria-live="polite"></div><h3>Что изменилось в данных</h3><p id="voice-diff" class="meta"></p>
+ <p class="meta">Микрофон работает только на открытой странице по HTTPS (или localhost). Фонового прослушивания и активации голосом нет. На iPhone/iPad запись останавливается при блокировке экрана или сворачивании вкладки. Ответы озвучивает синтез речи браузера.</p>
+</dialog>
+
 <script>
 // Ссылки на странице «Работа». Поменять или добавить: правь этот список.
 const LINKS = [
@@ -2328,6 +2350,37 @@ async function refreshAgent(){
 }
 showPage();refreshAgent();setInterval(()=>{if(!document.hidden && ['ai','agent','agents'].includes(current))refreshAgent();},2500);
 document.addEventListener('visibilitychange',()=>{officeVisibility();if(!document.hidden && ['ai','agent','agents'].includes(current))refreshAgent();});
+// ----- voice: explicit recording, review, persistent request identity -----
+const V={dialog:$('voice'),blob:null,stream:null,recorder:null,timer:0,poll:0,controller:null,epoch:0,attempt:null,retry:null,run:null,before:null,available:false,stt:false,opener:null};
+const voiceLabels={idle:'Готов',listening:'Слушаю…',transcribing:'Распознаю…',review:'Проверьте текст',sending:'Отправляю…',running:'Агент выполняет…',speaking:'Отвечаю (озвучка)',done:'Готово'};
+function voiceState(state,message){V.dialog.dataset.state=state;$('voice-status').textContent=message || voiceLabels[state] || 'Ошибка';$('voice-retry').hidden=state!=='error'||!V.retry;$('voice-send').disabled=!V.available||['listening','transcribing','sending','running'].includes(state);}
+function voiceError(e,retry=null){V.retry=retry;voiceState('error','Ошибка: '+(e.message||e));}
+function voiceContext(){let text='вкладка '+({life:'Личное',work:'Работа',graph:'Память',ai:'ИИ',agents:'Агенты',agent:'Агент'}[current]||'Личное');if(current==='graph'&&selected&&G.ents.get(selected))text+=' · страница «'+G.ents.get(selected).name+'»';if(current==='ai'&&AI.chat)text+=' · чат «'+AI.chat.title+'»';return text;}
+async function voiceJSON(url,options){const r=await fetch(url,{cache:'no-store',...options});let j;try{j=await r.json();}catch(e){throw new Error('Некорректный ответ сервера');}if(!r.ok)throw new Error(j.error||('Ошибка HTTP '+r.status));return j;}
+function voiceTracks(){if(V.stream)V.stream.getTracks().forEach(t=>t.stop());V.stream=null;clearInterval(V.timer);V.timer=0;}
+function voiceStop(){const waiting=['running','sending'].includes(V.dialog.dataset.state);V.epoch++;V.controller?.abort();V.controller=null;clearTimeout(V.poll);V.poll=0;if(V.recorder&&V.recorder.state!=='inactive'){V.recorder.onstop=null;V.recorder.stop();}V.recorder=null;voiceTracks();window.speechSynthesis?.cancel();voiceState('idle',waiting?'Ожидание остановлено. Запуск на сервере не отменяется — результат будет во вкладке «Агенты».':'Готов');}
+function voiceClose(){voiceStop();V.blob=null;V.retry=null;V.dialog.close();V.opener?.focus();}
+async function voiceOpen(){if(V.dialog.open)return;V.opener=document.activeElement;V.dialog.showModal();V.available=false;V.stt=false;$('voice-record').setAttribute('aria-disabled','true');voiceState('idle');$('voice-context').textContent='Контекст: '+voiceContext();$('voice-record').focus();const epoch=V.epoch;try{const [v,a]=await Promise.all([voiceJSON('/api/voice'),voiceJSON('/api/agent')]);if(epoch!==V.epoch||!V.dialog.open)return;V.stt=v.stt;V.available=a.available;let reason=v.reason;if(!window.isSecureContext||!navigator.mediaDevices?.getUserMedia||!window.MediaRecorder){V.stt=false;reason+=' · Запись недоступна в этом браузере или соединении. Введите текст.';}$('voice-reason').textContent=reason+(a.available?'':' · '+a.reason);$('voice-record').setAttribute('aria-disabled',String(!V.stt));voiceState('idle');}catch(e){if(epoch===V.epoch&&V.dialog.open)voiceError(e);}}
+$('voice-btn').onclick=voiceOpen;$('voice-close').onclick=voiceClose;V.dialog.addEventListener('cancel',e=>{e.preventDefault();voiceClose();});$('voice-stop').onclick=voiceStop;V.dialog.addEventListener('close',()=>{if(V.dialog.dataset.state!=='idle')voiceStop();V.blob=null;V.retry=null;});
+let voiceMuted=false;try{voiceMuted=localStorage.getItem('svodka-voice-mute')==='1';}catch{}
+function voiceMute(){ $('voice-mute').setAttribute('aria-pressed',String(voiceMuted));}voiceMute();$('voice-mute').onclick=()=>{voiceMuted=!voiceMuted;voiceMute();try{localStorage.setItem('svodka-voice-mute',voiceMuted?'1':'0');}catch{}if(voiceMuted)window.speechSynthesis?.cancel();};
+async function voiceTranscribe(){if(!V.blob)return;const epoch=V.epoch;V.retry=null;voiceState('transcribing');V.controller=new AbortController();try{const j=await voiceJSON('/api/voice/transcribe',{method:'POST',headers:{'Content-Type':V.blob.type.split(';')[0],'X-Svodka-Voice':'1'},body:V.blob,signal:V.controller.signal});if(epoch!==V.epoch)return;$('voice-text').value=j.text;V.blob=null;voiceState('review');}catch(e){if(epoch===V.epoch)voiceError(e,'transcribe');}}
+$('voice-record').onclick=async()=>{window.speechSynthesis?.cancel();if(V.recorder?.state==='recording'){V.recorder.stop();voiceTracks();return;}if(!V.dialog.open||!V.stt)return;voiceStop();V.blob=null;V.retry=null;const epoch=V.epoch;try{const stream=await navigator.mediaDevices.getUserMedia({audio:true});if(epoch!==V.epoch||!V.dialog.open||document.hidden){stream.getTracks().forEach(t=>t.stop());return;}V.stream=stream;const mime=['audio/webm;codecs=opus','audio/webm','audio/mp4','audio/ogg;codecs=opus','audio/ogg'].find(t=>MediaRecorder.isTypeSupported(t));const rec=new MediaRecorder(stream,mime?{mimeType:mime}:{});V.recorder=rec;const chunks=[];rec.ondataavailable=e=>{if(e.data.size)chunks.push(e.data);};rec.onerror=()=>{voiceStop();voiceError('Не удалось записать аудио');};rec.onstop=()=>{voiceTracks();V.recorder=null;if(epoch!==V.epoch)return;const blob=new Blob(chunks,{type:(rec.mimeType||chunks[0]?.type||'').split(';')[0]});if(blob.size<1024)return voiceError('Слишком короткая запись');V.blob=blob;voiceTranscribe();};rec.start();const started=Date.now();voiceState('listening','Слушаю… 0 с');V.timer=setInterval(()=>{const seconds=Math.floor((Date.now()-started)/1000);voiceState('listening','Слушаю… '+seconds+' с');if(seconds>=60){rec.stop();voiceTracks();}},250);}catch(e){voiceTracks();voiceError(['NotAllowedError','SecurityError'].includes(e.name)?'Доступ к микрофону запрещён. Разрешите его в настройках браузера (Safari: aA → Настройки веб-сайта → Микрофон) или введите текст.':e.name==='NotFoundError'?'Микрофон не найден. Введите текст.':e.message);}};
+// Each section: [number of records, exact content] so edits without a count change are also reported.
+function voiceCounts(d){const c={},put=(k,rows)=>{c[k]=[(rows||[]).length,JSON.stringify(rows||[])];};put('Страницы памяти',(d.memory||[]).map(p=>p.name));for(const p of d.memory||[])put('Память: «'+p.name+'»',(p.facts||[]).map(f=>f.raw));for(const [key,title] of [['tasks','Дела'],['plans','Планы'],['work','Работа']])put(title,(d.tasks?.[key]||[]).map(t=>t.raw));for(const [key,title] of [['notes','Заметки'],['work','Рабочие заметки']])put(title,(d.notes?.[key]||[]).map(n=>n.raw));put('Траты',d.expenses);put('Еда',d.food);return c;}
+async function voiceDiff(epoch){try{const after=voiceCounts(await voiceJSON('/api/data'));if(epoch!==V.epoch)return;const lines=[];for(const key of new Set([...Object.keys(V.before||{}),...Object.keys(after)])){const [n0,s0]=V.before?.[key]||[0,'[]'],[n1,s1]=after[key]||[0,'[]'],delta=n1-n0;if(delta)lines.push(key+': '+(delta>0?'+':'')+delta);else if(s0!==s1)lines.push(key+': изменено');}$('voice-diff').textContent=V.before?(lines.join(' · ')||'В данных Сводки изменений нет'):'Сравнение недоступно: исходный снимок не получен';await load(true);}catch(e){if(epoch===V.epoch)$('voice-diff').textContent='Не удалось проверить изменения: '+e.message;}}
+function voiceSpeak(text){if(voiceMuted){voiceState('done');return;}if(!window.speechSynthesis){voiceState('done','Готово · Озвучка недоступна в этом браузере');return;}const speech=new SpeechSynthesisUtterance(text.replace(/[#*_`>~\[\]]/g,'').slice(0,1500));speech.lang='ru-RU';speech.voice=speechSynthesis.getVoices().find(v=>v.lang.startsWith('ru'))||null;const epoch=V.epoch;speech.onend=()=>{if(epoch===V.epoch)voiceState('done');};speech.onerror=()=>{if(epoch===V.epoch)voiceState('done','Готово · Озвучка недоступна в этом браузере');};voiceState('speaking');speechSynthesis.speak(speech);}
+async function voicePoll(epoch){if(epoch!==V.epoch)return;try{const a=await voiceJSON('/api/agent');if(epoch!==V.epoch)return;const run=a.runs.find(r=>r.id===V.run);if(!run)throw new Error('Запуск не найден во вкладке «Агенты»');$('voice-answer').textContent=run.output||'';if(run.status==='running'){voiceState('running');V.poll=setTimeout(()=>voicePoll(epoch),1500);return;}await voiceDiff(epoch);refreshAgent();if(epoch!==V.epoch)return;if(run.status==='completed'){V.retry=null;voiceSpeak(run.output||'Готово');}else voiceError(run.error||statusLabel(run.status),'run');}catch(e){if(epoch===V.epoch)voiceError(e,'poll');}}
+function voiceRequest(){return window.crypto?.randomUUID?crypto.randomUUID().replace(/-/g,''):Array.from({length:32},()=>Math.floor(Math.random()*16).toString(16)).join('');}
+async function voiceSend(reuse=false){if(!V.available||['listening','transcribing','sending','running'].includes(V.dialog.dataset.state))return;const epoch=V.epoch;window.speechSynthesis?.cancel();
+// iOS Safari speaks only after speech was started inside a user gesture: prime it on this click.
+if(!voiceMuted&&window.speechSynthesis)try{speechSynthesis.speak(new SpeechSynthesisUtterance(''));}catch{}
+if(!reuse){const text=$('voice-text').value.trim();if(!text)return;voiceState('sending');V.attempt={request:voiceRequest(),text:($('voice-attach').checked?'[Голосовой запрос из Сводки. Контекст: '+voiceContext()+']\n':'')+text};try{V.before=voiceCounts(await voiceJSON('/api/data'));}catch(e){if(epoch===V.epoch)voiceError('Не удалось получить исходный снимок: '+e.message,'snapshot');return;}}if(epoch!==V.epoch)return;V.retry=null;voiceState('sending');$('voice-diff').textContent='';$('voice-answer').textContent='';let response;try{response=await fetch('/api/agent/send',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(V.attempt)});const j=await response.json();if(epoch!==V.epoch)return;if(!response.ok){voiceError(j.error||'Ошибка отправки','send');return;}V.run=j.id;voiceState('running');voicePoll(epoch);}catch(e){if(epoch===V.epoch)voiceError(e,'ambiguous');}}
+$('voice-send').onclick=()=>voiceSend();$('voice-text').addEventListener('keydown',e=>{if(e.key==='Enter'&&(e.ctrlKey||e.metaKey)){e.preventDefault();if(!$('voice-send').disabled)voiceSend();}});
+$('voice-retry').onclick=()=>{if(V.retry==='transcribe')voiceTranscribe();else if(V.retry==='poll'){voiceState('running');voicePoll(V.epoch);}else if(V.retry==='ambiguous')voiceSend(true);else if(V.retry==='run'){if(confirm('Агент мог уже частично выполнить действия. Отправить запрос заново?'))voiceSend();}else voiceSend();};
+addEventListener('keydown',e=>{if((e.altKey&&e.shiftKey&&e.code==='KeyV')||(e.ctrlKey&&e.shiftKey&&e.code==='Space')){e.preventDefault();voiceOpen();}});
+addEventListener('pagehide',()=>{voiceStop();V.blob=null;});document.addEventListener('visibilitychange',()=>{if(document.hidden&&V.stream){voiceStop();voiceError('Запись прервана: страница свёрнута');}});
+
 </script>
 </body>
 </html>
