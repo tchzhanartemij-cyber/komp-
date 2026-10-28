@@ -14,6 +14,12 @@ import urllib.error
 ROOT = Path(__file__).resolve().parents[1]
 
 class QA(unittest.TestCase):
+    def test_install_includes_trusted_sibling(self):
+        install = (ROOT/"install.sh").read_text()
+        copy_line = next(line for line in install.splitlines() if line.startswith("cp "))
+        self.assertIn('"$SRC_DIR/agent.py"', copy_line)
+        self.assertIn('ExecStart=/usr/bin/python3 -I', install)
+
     def test_frontend_regressions(self):
         if not shutil.which('node'):
             self.skipTest('node unavailable')

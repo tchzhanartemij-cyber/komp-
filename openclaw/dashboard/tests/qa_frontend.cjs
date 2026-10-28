@@ -3,7 +3,7 @@ const fs = require('fs'), vm = require('vm'), assert = require('assert');
 const html = fs.readFileSync(__dirname + '/../index.html', 'utf8');
 const between = (a,b) => html.slice(html.indexOf(a),html.indexOf(b,html.indexOf(a)));
 const nodes = new Map();
-function node() { return {dataset:{}, elements:[], hidden:false, children:[], classList:{toggle(){}}, append(x){this.children.push(x)},replaceChildren(){this.children=[]},setAttribute(){},focus(){document.activeElement=this},scrollIntoView(){this.scrolled=true}, contains(x){return this===x},parentElement:{classList:{toggle(k,v){nodes.set(k,v)}}}}; }
+function node() { return {dataset:{}, elements:[], hidden:false, children:[], classList:{toggle(){}}, append(x){this.children.push(x)},replaceChildren(){this.children=[]},setAttribute(k,v){this[k]=v},focus(){document.activeElement=this},scrollIntoView(){this.scrolled=true}, contains(x){return this===x},parentElement:{classList:{toggle(k,v){nodes.set(k,v)}}}}; }
 const $ = id => nodes.get(id) || (nodes.set(id,node()),nodes.get(id));
 const listeners={}; const document={activeElement:null,addEventListener:(k,f)=>listeners[k]=f,querySelector:()=>null};
 const storage=new Map();
@@ -37,6 +37,12 @@ async function main(){
    p=run("post('/api/rejected',{id:1})");pending.shift().resolve({...reply(false),status});assert.equal((await p).ok,false);assert.equal(run('typeof mutationRetry'),'function');
  }
  run("mutationStatus('',null,failedMutationKey)");
+ // A proxy gateway error cannot prove that an add/toggle was rejected.
+ for (const status of [502,503,504]) {
+   p=run("post('/api/tasks/toggle',{id:status})".replace('status',String(status)));
+   pending.shift().resolve({ok:false,status});const result=await p;
+   assert(result.ambiguous);assert.equal(run('mutationRetry'),null);
+ }
  // R6: coalesce polling and force a fresh response after a mutation invalidates a pending read.
  run('dataNext=0');let first=run('load()');assert.strictEqual(run('load()'),first);
  let second=run('load(true)');assert.strictEqual(first,second);assert.equal(pending.length,1);
@@ -72,7 +78,7 @@ async function main(){
  const simplePanel = ctx.renderPanel;
  $('g-panel').replaceChildren=()=>{};
  ctx.kindBadge=()=>node(); ctx.rich=()=>node(); ctx.short=x=>x;
- ctx.factForm=e=>{const next=form('memory',{name:e?e.name:'',text:'',kind:''},e?e.key:'__new__');nodes.set('f-fact',next);return next;};
+ ctx.factForm=e=>{const next=form('memory',{name:e?e.name:'',text:'',kind:''},e?e.key:'__new__');nodes.set('f-fact',next);ctx.renderFormFeedback(next);return next;};
  ctx.G.history=[];
  Object.assign(entity,{page:null,backlinks:[],links:new Map(),mentions:[]});
  vm.runInContext(between('function renderPanel()', 'function restoreTyping('),ctx);
@@ -85,11 +91,31 @@ async function main(){
  // R1: every common form retains complete draft on rejection and suppresses duplicates.
  const handler=between("document.addEventListener('submit', async ev =>", "document.querySelectorAll('[data-toggle]')");vm.runInContext(handler,ctx);
  const cases={expense:{amount:'12',category:'food',note:'note'},tasks:{title:'task',due:'2026-11-01'},plans:{title:'plan',due:''},work:{title:'work',due:''},notes:{text:'note'},worknotes:{text:'work note'},food:{item:'meal',kcal:'120'},memory:{name:'QA',text:'fact',kind:'person'}};
- for(const [type,values] of Object.entries(cases)){
+ for(const [type,values] of Object.entries(cases)) for(const fault of [400,500,502,503,504,'network']){
    f=form(type,values,type==='memory'?'qa':null);if(type==='memory')nodes.set('f-fact',f);
    const event={target:f,preventDefault(){}};let save=listeners.submit(event);assert(f.elements.at(-1).disabled);count=requests.length;await listeners.submit(event);assert.equal(requests.length,count);
-   pending.shift().resolve(reply(false,'{"error":"save failed"}'));await save;assert(!f.closed);assert(!f.elements.at(-1).disabled);for(const [k,v] of Object.entries(values))assert.equal(f.elements.namedItem(k).value,v);
+   const request=pending.shift();
+   if(fault==='network')request.reject(Error('lost'));else request.resolve({...reply(false,'{"error":"save failed"}'),status:fault});
+   await save;assert(!f.closed);assert(!f.elements.at(-1).disabled);for(const [k,v] of Object.entries(values))assert.equal(f.elements.namedItem(k).value,v);
+   const message=f._feedbackNode;
+   assert(f.children.includes(message));assert.equal(message.role,'alert');assert.equal(message['aria-live'],'assertive');assert(!message.hidden);assert.equal(message.children.length,0);
+   assert(message.textContent.includes(fault===400||fault===500?'кнопкой формы':'проверь результат'));
+   assert.equal(run('mutationRetry'),null);
  }
+ // Rebuilt memory DOM retains its own error, without exposing it on another draft.
+ vm.runInContext(between('function renderPanel()', 'function restoreTyping('),ctx);
+ run("selected='qa';panelOpen=true");
+ for(let i=0;i<12;i++){run('renderPanel()');assert($('f-fact')._feedbackNode.textContent.includes('неизвестен'));}
+ run("selected='';renderPanel()");assert($('f-fact')._feedbackNode.hidden);
+ run("selected='qa';renderPanel()");assert.equal($('f-fact')._feedbackNode.role,'alert');
+ ctx.renderPanel=simplePanel;
+ // Static forms keep independent errors; success clears only the submitted form.
+ const staticForms=[form('notes',{text:'first'}),form('notes',{text:'second'})];
+ for(const target of staticForms){const save=listeners.submit({target,preventDefault(){}});pending.shift().resolve({...reply(false,'{"error":"own error"}'),status:400});await save;}
+ const retry=listeners.submit({target:staticForms[0],preventDefault(){}});
+ pending.shift().resolve(reply());await retry;
+ assert(staticForms[0]._feedbackNode.hidden);assert.equal(staticForms[1]._feedbackNode.textContent,'own error · Исправь данные и повтори сохранение кнопкой формы.');
+ pending.shift().resolve(reply());await run('dataFlight');
  // A POST resolves while an older GET remains hung; stale data is discarded.
  run('dataNext=0');let hung=run('load()');let hungRequest=pending.shift();
  f=form('notes',{text:'clear immediately'});let immediate=listeners.submit({target:f,preventDefault(){}});
@@ -100,7 +126,7 @@ async function main(){
  for(const edit of [false,true]){
    f=form('notes',{text:'submitted'});const save=listeners.submit({target:f,preventDefault(){}});if(edit)f.elements.namedItem('text').value='later edit';
    pending.shift().resolve(reply());await save;assert.equal(pending.length,1);pending.shift().resolve(reply());await run('dataFlight');
-   assert.equal(f.elements.namedItem('text').value,edit?'later edit':'');assert.equal(!!f.closed,!edit);
+   assert.equal(f.elements.namedItem('text').value,edit?'later edit':'');assert.equal(!!f.closed,!edit);assert.equal(f._feedbackNode.hidden,!edit);if(edit){assert.equal(f._feedbackNode.role,'status');assert.equal(f._feedbackNode.textContent,'Сохранено; новые изменения еще не отправлены');}
  }
  // Missing named controls after reset must not turn confirmed success into rejection.
  f=form('notes',{text:'submitted'});const reset=f.reset;f.reset=()=>{reset();f.elements.namedItem=()=>null};
@@ -114,7 +140,7 @@ async function main(){
  run("captureFactDraft();selected='';renderPanel()");
  $('f-fact').elements.namedItem('text').value='independent new page';
  pending.shift().resolve(reply());await save;assert.equal(pending.length,1);pending.shift().resolve(reply());await run('dataFlight');
- assert.equal(run("factDrafts.has('qa')"),false);
+ assert.equal(run("factDrafts.has('qa')"),false);assert.equal(run("factFeedback.has('qa')"),false);
  assert.equal($('f-fact').elements.namedItem('text').value,'independent new page');
  // Reopen a pending entity and edit after submission: success must retain later text.
  run("selected='qa';renderPanel()");f=$('f-fact');f.elements.namedItem('text').value='submitted fact';

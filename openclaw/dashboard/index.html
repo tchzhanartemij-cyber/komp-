@@ -819,6 +819,28 @@ function mutationStatus(error = '', retry = null, key = failedMutationKey) {
     status.append(row);
   }
 }
+// Static forms own their feedback; rebuilt memory forms use the entity draft key.
+const factFeedback = new Map();
+function renderFormFeedback(f) {
+  const feedback = f.dataset.draftKey ? factFeedback.get(f.dataset.draftKey) : f._feedback;
+  if (!f._feedbackNode) {
+    f._feedbackNode = el('p', {class:'hint', style:'flex-basis:100%;white-space:normal'});
+    f.append(f._feedbackNode);
+  }
+  const node = f._feedbackNode;
+  node.setAttribute('role', feedback?.error ? 'alert' : 'status');
+  node.setAttribute('aria-live', feedback?.error ? 'assertive' : 'polite');
+  node.textContent = feedback?.text || '';
+  node.hidden = !feedback;
+}
+function formFeedback(f, text = '', error = false) {
+  const feedback = text ? {text, error} : null;
+  if (f.dataset.draftKey) {
+    if (feedback) factFeedback.set(f.dataset.draftKey, feedback);
+    else factFeedback.delete(f.dataset.draftKey);
+  } else f._feedback = feedback;
+  renderFormFeedback(f);
+}
 let dataFlight = null, dataAgain = false, dataRevision = 0, dataAppliedRevision = -1, dataFailures = 0, dataNext = 0;
 function load(fresh = false) {
   // Invalidation happens before returning, even when a request is already running.
@@ -861,6 +883,11 @@ async function post(path, body) {
     r = await fetch(path, {method:'POST', headers:{'Content-Type':'application/json'}, body:payload});
   } catch {
     const error = 'Результат сохранения неизвестен. Обнови данные и проверь результат; повтори вручную только после проверки.';
+    mutationStatus(error, null, key);
+    return {ok:false, error, ambiguous:true, key};
+  }
+  if ([502, 503, 504].includes(r.status)) {
+    const error = 'Прокси не подтвердил результат сохранения (HTTP ' + r.status + '). Обнови данные и проверь результат перед повтором.';
     mutationStatus(error, null, key);
     return {ok:false, error, ambiguous:true, key};
   }
@@ -1540,6 +1567,7 @@ function factForm(e) {
     el('input', { class: 'grow', name: 'text', placeholder: e ? 'Новый факт, можно с [[ссылками]]' : 'Первый факт, можно с [[ссылками]]', required: '', 'aria-label': 'Новый факт', style: 'flex-basis:100%' }),
     el('button', { class: 'pill dark small', type: 'submit', text: 'Запомнить' }));
   f.dataset.draftKey = e ? e.key : '__new__';
+  renderFormFeedback(f);
   if (savingDrafts.has(f.dataset.draftKey)) f.querySelector('[type=submit]').disabled = true;
   return f;
 }
@@ -1653,13 +1681,15 @@ document.addEventListener('submit', async ev => {
   try {
     const result = await post(...req);
     if (!result.ok) {
-      if (!result.ambiguous) mutationStatus(result.error, () => {
-        const target = draftKey ? $('f-fact') : f;
-        if (target && (!draftKey || target.dataset.draftKey === draftKey)) target.requestSubmit();
-        else mutationStatus(result.error + ' · Открой страницу и повтори сохранение', null, result.key);
-      }, result.key);
+      const message = result.error + (result.ambiguous ? '' : ' · Исправь данные и повтори сохранение кнопкой формы.');
+      formFeedback(f, message, true);
+      // Form retries must submit current values through the guarded form handler.
+      mutationStatus(result.error, null, result.key);
+      const visible = draftKey ? $('f-fact') : f;
+      if (visible && visible !== f && visible.dataset.draftKey === draftKey) renderFormFeedback(visible);
       return;
     }
+    formFeedback(f);
     if (type === 'memory' && (!draftKey || draftKey === '__new__')) {
       pendingMemory = entKey(req[1].name); pendingMemoryRevision = dataRevision;
     }
@@ -1674,6 +1704,9 @@ document.addEventListener('submit', async ev => {
         for (const [name, value] of snapshot) { const x = live.elements.namedItem(name); if (x && x.type === 'hidden') x.value = value; }
       }
       if (f.closest('dialog')) f.closest('dialog').close();
+    } else {
+      formFeedback(f, 'Сохранено; новые изменения еще не отправлены');
+      if (live && live !== f && live.dataset.draftKey === draftKey) renderFormFeedback(live);
     }
   } finally {
     f._saving = false; buttons.forEach(x => x.disabled = false);
