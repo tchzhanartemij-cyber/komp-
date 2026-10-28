@@ -20,6 +20,12 @@ TOTAL_TIMEOUT = 600
 LINE_LIMIT = 64 * 1024
 EVENT_LIMIT = 1024 * 1024
 
+class RunID(int):
+    def __new__(cls, value, duplicate=False):
+        obj = int.__new__(cls, value)
+        obj.duplicate = duplicate
+        return obj
+
 class Agent:
     def __init__(self, root):
         self.root = Path(root)
@@ -47,6 +53,9 @@ class Agent:
             c.execute('ALTER TABLE events ADD COLUMN output_chars INTEGER DEFAULT 0')
         if 'model' not in {r[1] for r in c.execute('PRAGMA table_info(runs)')}:
             c.execute('ALTER TABLE runs ADD COLUMN model TEXT')
+        if 'request' not in {r[1] for r in c.execute('PRAGMA table_info(runs)')}:
+            c.execute('ALTER TABLE runs ADD COLUMN request TEXT')
+        c.execute('CREATE UNIQUE INDEX IF NOT EXISTS runs_request ON runs(request) WHERE request IS NOT NULL')
         if not self.started:
             c.execute("UPDATE runs SET status='interrupted', error='Сервер панели перезапущен; автоматический повтор не выполнялся' WHERE status='running'")
             c.commit()
@@ -97,18 +106,24 @@ class Agent:
                           ('Поток выполнения остановлен; автоматический повтор не выполнялся', time.time(), row['id']))
                 self.active.pop(row['id'], None)
 
-    def submit(self, text):
-        config = self.config()
+    def submit(self, text, request=None):
+        if request is not None and (not isinstance(request, str) or not re.fullmatch(r'[A-Za-z0-9_-]{16,64}', request)):
+            raise ValueError('Неверный идентификатор запроса')
         with self.lock:
-            return self._submit_locked(text, config)
+            if request is not None:
+                with self.db() as c:
+                    row = c.execute('SELECT id FROM runs WHERE request=?', (request,)).fetchone()
+                    if row:
+                        return RunID(row['id'], True)
+            return self._submit_locked(text, self.config(), request)
 
-    def _submit_locked(self, text, config):
+    def _submit_locked(self, text, config, request=None):
         with self.db() as c:
             self.recover(c)
             if c.execute("SELECT 1 FROM runs WHERE status='running'").fetchone():
                 raise Unavailable('В панели уже выполняется запуск')
             now = time.time()
-            rid = c.execute("INSERT INTO runs(status,input,output,error,started,updated) VALUES('running',?,'','',?,?)", (text, now, now)).lastrowid
+            rid = c.execute("INSERT INTO runs(status,input,output,error,started,updated,request) VALUES('running',?,'','',?,?,?)", (text, now, now, request)).lastrowid
             c.execute('INSERT INTO events(run,status,time) VALUES(?,?,?)', (rid, 'running', now))
             worker = threading.Thread(target=self.work, args=(rid, text, config), daemon=True)
             self.active[rid] = worker
@@ -118,7 +133,7 @@ class Agent:
             with self.lock:
                 self.active.pop(rid, None)
             raise
-        return rid
+        return RunID(rid)
 
     def update(self, rid, status, output, error=''):
         with self.lock, self.db() as c:
