@@ -23,11 +23,11 @@ async function close(s) { if (s) { s.closeAllConnections(); await new Promise(r 
   let offline = false, gateway, child, browser, context, page, origin, serverLog = '';
   async function check(name, fn) { const start = Date.now(); try { const details = await fn(); report.checks.push({ name, passed: true, err: null, ms: Date.now() - start, details }); } catch (e) { report.checks.push({ name, passed: false, err: clean(e.stack || e), ms: Date.now() - start }); process.exitCode = 1; } console.log(`${engine}: ${name}: ${report.checks.at(-1).passed ? 'passed' : 'FAILED'}`); }
   async function api(p, route, body, headers = {}) { return p.evaluate(async ({ route, body, headers }) => { const r = await fetch(route, { ...(body === undefined ? {} : { method: 'POST', body: JSON.stringify(body), headers: { 'Content-Type': 'application/json', ...headers } }) }); return { status: r.status, body: await r.json() }; }, { route, body, headers }); }
-  const texts = p => p.locator('#chat-messages article > p').allTextContents();
+  const texts = p => p.locator('#ai-msgs article .bubble, #ai-msgs article .ai-answer').allTextContents();
   const countText = async (p, text) => (await texts(p)).filter(t => t === text).length;
   async function unique(p, expected) { const values = await texts(p); assert.equal(values.length, expected); assert.equal(new Set(values).size, expected); }
   function observe(p) { p.on('pageerror', e => report.pageErrors.push(clean(e.message))); p.on('console', m => { if (m.type() === 'error') report.consoleErrors.push(clean(m.text())); }); }
-  async function boot(p) { await p.goto(origin + '/#chat'); await p.waitForFunction(() => window.__svodkaBooted === true); await until(async () => (await p.locator('#chat-live').innerText()).includes('обновлено'), 'No updated status'); }
+  async function boot(p) { await p.goto(origin + '/#chat'); await p.waitForFunction(() => window.__svodkaBooted === true); await until(async () => (await p.locator('#ai-live').innerText()).includes('обновлено'), 'No updated status'); }
   try {
     await fs.mkdir(path.join(root, 'life')); await fs.writeFile(path.join(root, 'agent-token'), token, { mode: 0o600 });
     assert.equal((await fs.stat(path.join(root, 'agent-token'))).mode & 0o777, 0o600);
@@ -66,28 +66,28 @@ async function close(s) { if (s) { s.closeAllConnections(); await new Promise(r 
     report.browserVersion = browser.version(); context = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
     await context.route('**/*', route => new URL(route.request().url()).origin === origin ? route.continue() : route.abort());
     page = await context.newPage(); observe(page);
-    await check('boot', async () => { await boot(page); assert.equal(await page.locator('#chat-key').innerText(), key); assert.deepEqual(report.pageErrors, []); assert.deepEqual(report.consoleErrors, []); });
+    await check('boot', async () => { await boot(page); assert.equal(await page.locator('#h-ai').innerText(), 'Telegram · основной диалог'); assert.deepEqual(report.pageErrors, []); assert.deepEqual(report.consoleErrors, []); });
     await check('history', async () => {
-      await unique(page, 30); await page.locator('#chat-earlier').click(); await until(async () => (await texts(page)).length === 44, 'Earlier page absent'); await unique(page, 44);
-      const content = await page.locator('#chat-messages').innerText(); assert(!/think|секрет|синтетическийключ|Синтетическое сообщение 2\n/.test(content)); assert(content.includes('[image: fixture.png]'));
-      const tasks = await page.locator('#chat-tasks').innerText(); assert(tasks.includes('Субагент-тест')); assert(!tasks.includes('telegram:group')); return { initial: 30, totalVisible: 44, systemHidden: true };
+      await unique(page, 30); await page.locator('#ai-earlier').click(); await until(async () => (await texts(page)).length === 44, 'Earlier page absent'); await unique(page, 44);
+      const content = await page.locator('#ai-msgs').innerText(); assert(!/think|секрет|синтетическийключ|Синтетическое сообщение 2\n/.test(content)); assert(content.includes('[image: fixture.png]'));
+      await page.locator('#ai-tasks summary').click(); const tasks = await page.locator('#ai-tasks').innerText(); assert(tasks.includes('Субагент-тест')); assert(!tasks.includes('telegram:group')); return { initial: 30, totalVisible: 44, systemHidden: true };
     });
     const text = 'Синтетическая проверка отправки workspace'; let sent;
     await check('send and duplicate', async () => {
-      await page.locator('#chat-input').fill(text); sent = await page.evaluate(() => JSON.parse(sessionStorage.getItem('svodka-chat')));
-      const start = Date.now(); await page.locator('#chat-send').click();
+      await page.locator('#ai-text').fill(text); sent = await page.evaluate(() => JSON.parse(sessionStorage.getItem('svodka-chat')));
+      const start = Date.now(); await page.locator('#ai-send').click();
       await until(async () => await countText(page, text) === 1, 'Sent message absent'); const messageMs = Date.now() - start;
       await until(async () => requests[0]?.answer && await countText(page, requests[0].answer) === 1, 'Assistant absent');
       report.latency = { mock: true, label: 'synthetic Gateway polling latency', messageMs, assistantMs: Date.now() - start };
       assert.equal(requests.length, 1); assert.equal(requests[0].headers['x-openclaw-session-key'], key); assert(!Object.hasOwn(requests[0].body, 'user')); assert(requests[0].body.input.startsWith(`[Сводка:${sent.request}]`));
-      assert((await page.locator('#chat-messages article').filter({ has: page.locator('p', { hasText: text }) }).innerText()).includes('Сводка'));
-      assert(!(await page.locator('#chat-messages').innerText()).includes('ожидает подтверждения'));
+      assert((await page.locator('#ai-msgs article').filter({ has: page.locator('.bubble', { hasText: text }) }).innerText()).includes('Сводка'));
+      assert(!(await page.locator('#ai-msgs').innerText()).includes('ожидает подтверждения'));
       assert.equal((await api(page, '/api/workspace/send', sent)).body.duplicate, true); await delay(500); assert.equal(requests.length, 1);
     });
-    await check('two tabs', async () => { const second = await context.newPage(); observe(second); try { await boot(second); for (const p of [page, second]) { assert.equal(await countText(p, text), 1); assert.equal(await countText(p, requests[0].answer), 1); } await second.locator('#chat-earlier').click(); await until(async () => (await texts(second)).length === (await texts(page)).length, 'Tabs did not converge'); assert.deepEqual(await texts(second), await texts(page)); } finally { await second.close(); } });
+    await check('two tabs', async () => { const second = await context.newPage(); observe(second); try { await boot(second); for (const p of [page, second]) { assert.equal(await countText(p, text), 1); assert.equal(await countText(p, requests[0].answer), 1); } await second.locator('#ai-earlier').click(); await until(async () => (await texts(second)).length === (await texts(page)).length, 'Tabs did not converge'); assert.deepEqual(await texts(second), await texts(page)); } finally { await second.close(); } });
     await check('revision and duplicate', async () => {
-      const card = page.locator('#chat-messages article').filter({ has: page.locator('p').filter({ hasText: text }) }); await card.getByRole('button', { name: 'Уточнить', exact: true }).click();
-      await page.locator('#chat-revision textarea').nth(1).fill('Уточнённая синтетическая формулировка');
+      const card = page.locator('#ai-msgs article').filter({ has: page.locator('.bubble').filter({ hasText: text }) }); await card.getByRole('button', { name: 'Уточнить', exact: true }).click();
+      await page.locator('#ai-revision textarea').nth(1).fill('Уточнённая синтетическая формулировка');
       const responsePromise = page.waitForResponse(r => r.url().endsWith('/api/workspace/revision') && r.request().method() === 'POST');
       await page.getByRole('button', { name: 'Сохранить черновик', exact: true }).click(); const draft = await (await responsePromise).json();
       await delay(1500); assert.equal(requests.length, 1);
@@ -96,15 +96,15 @@ async function close(s) { if (s) { s.closeAllConnections(); await new Promise(r 
       assert.equal((await api(page, '/api/workspace/revision/send', { id: draft.id, confirm: true })).body.duplicate, true);
       await until(async () => requests[1].answer && await countText(page, requests[1].answer) === 1, 'Revision answer absent'); assert.equal(requests.length, 2);
     });
-    await check('offline recovery', async () => { offline = true; try { await until(async () => (await page.locator('#chat-live').innerText()).includes('соединение потеряно'), 'Offline not reported'); } finally { offline = false; } await until(async () => (await page.locator('#chat-live').innerText()).includes('обновлено'), 'Recovery absent', 40000); await unique(page, 48); });
-    await check('cancel disabled with reason', async () => { const buttons = page.locator('#chat-tasks button'); assert(await buttons.count() >= 2); for (const b of await buttons.all()) { assert(await b.isDisabled()); assert((await b.getAttribute('title')).length > 15); } });
+    await check('offline recovery', async () => { offline = true; try { await until(async () => (await page.locator('#ai-live').innerText()).includes('соединение потеряно'), 'Offline not reported'); } finally { offline = false; } await until(async () => (await page.locator('#ai-live').innerText()).includes('обновлено'), 'Recovery absent', 40000); await unique(page, 48); });
+    await check('cancel disabled with reason', async () => { const buttons = page.locator('#ai-tasks button'); assert(await buttons.count() >= 2); for (const b of await buttons.all()) { assert(await b.isDisabled()); assert((await b.getAttribute('title')).length > 15); } });
     await check('security', async () => {
       assert.equal((await api(page, '/api/workspace/send', sent, { 'Content-Type': 'text/plain' })).status, 415);
       const status = await new Promise((resolve, reject) => { const req = http.request(origin + '/api/workspace/send', { method: 'POST', headers: { Origin: 'http://evil.test', 'Content-Type': 'application/json' } }, res => { res.resume(); res.on('end', () => resolve(res.statusCode)); }); req.on('error', reject); req.end(JSON.stringify(sent)); }); assert.equal(status, 403);
       assert(!(await page.content()).includes(token)); for (const route of ['/', '/api/workspace', '/api/workspace/history', '/api/agent']) { const body = await (await fetch(origin + route)).text(); assert(!body.includes(token), route); } assert(!serverLog.includes(token));
     });
-    await check('navigation and voice regression', async () => { for (const tab of ['life', 'work', 'graph', 'ai', 'agents', 'chat']) { await page.locator('#tab-' + tab).click(); await page.locator('#page-' + tab).waitFor({ state: 'visible' }); } await page.locator('#voice-btn').click(); await page.locator('#voice').waitFor({ state: 'visible' }); await page.locator('#voice-close').click(); assert.deepEqual(report.pageErrors, []); });
-    for (const [label, width, height] of [['desktop', 1440, 1000], ['ipad', 820, 1180], ['phone', 390, 844]]) await check('screenshot ' + label, async () => { await page.setViewportSize({ width, height }); await page.locator('#tab-chat').click(); const file = `${engine}-${label}.png`; await page.screenshot({ path: path.join(evidence, file), animations: 'disabled' }); report.screenshots.push(file); });
+    await check('navigation and voice regression', async () => { for (const tab of ['life', 'work', 'graph', 'ai', 'agents']) { await page.locator('#tab-' + tab).click(); await page.locator('#page-' + tab).waitFor({ state: 'visible' }); } await page.evaluate(() => { location.hash = '#chat'; }); await page.locator('#page-ai').waitFor({ state: 'visible' }); await page.locator('#voice-btn').click(); await page.locator('#voice').waitFor({ state: 'visible' }); await page.locator('#voice-close').click(); assert.deepEqual(report.pageErrors, []); });
+    for (const [label, width, height] of [['desktop', 1440, 1000], ['ipad', 820, 1180], ['phone', 390, 844]]) await check('screenshot ' + label, async () => { await page.setViewportSize({ width, height }); await page.evaluate(() => { location.hash = '#chat'; }); await page.locator('#page-ai').waitFor({ state: 'visible' }); const file = `${engine}-${label}.png`; await page.screenshot({ path: path.join(evidence, file), animations: 'disabled' }); report.screenshots.push(file); });
   } catch (e) { await check('setup / suite', async () => { throw e; }); }
   finally {
     await context?.close(); await browser?.close();

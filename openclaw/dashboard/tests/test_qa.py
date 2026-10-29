@@ -17,7 +17,8 @@ class QA(unittest.TestCase):
     def test_install_includes_trusted_sibling(self):
         install = (ROOT/"install.sh").read_text()
         copy_line = next(line for line in install.splitlines() if line.startswith("cp "))
-        self.assertIn('"$SRC_DIR/agent.py"', copy_line)
+        for name in ('agent.py', 'workspace.py', 'attachments.py'):
+            self.assertIn('"$SRC_DIR/'+name+'"', copy_line)
         self.assertIn('ExecStart=/usr/bin/python3 -I', install)
 
     def test_frontend_regressions(self):
@@ -43,6 +44,7 @@ class QA(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             (root/'workspace.py').write_text((ROOT/'workspace.py').read_text())
+            (root/'attachments.py').write_text((ROOT/'attachments.py').read_text())
             sibling = root/'agent.py'
             sibling.write_text('from dataclasses import dataclass\n@dataclass\nclass Agent: value: int = 1\nclass Unavailable(Exception): pass\ndef queue_snapshot(): pass\n')
             script = "import sys\nbefore=list(sys.path)\n__file__=" + repr(str(root/'server.py')) + "\n" + loader + "\nassert sys.path == before\nassert Agent().value == 1\nassert sys.modules['agent'].Agent is Agent\n"

@@ -41,8 +41,17 @@ _workspace_module = importlib.util.module_from_spec(_workspace_spec)
 sys.modules[_workspace_spec.name] = _workspace_module
 _workspace_spec.loader.exec_module(_workspace_module)
 
+_attachments_path = (_dashboard_dir / 'attachments.py').resolve(strict=True)
+if _attachments_path.parent != _dashboard_dir:
+    raise ImportError('attachments.py must resolve to a trusted dashboard sibling')
+_attachments_spec = importlib.util.spec_from_file_location('svodka_attachments', _attachments_path)
+attachments = importlib.util.module_from_spec(_attachments_spec)
+sys.modules[_attachments_spec.name] = attachments
+_attachments_spec.loader.exec_module(attachments)
+
 
 import csv
+import base64
 import hashlib
 import hmac
 import io
@@ -58,7 +67,7 @@ import threading
 import time
 import urllib.error
 import urllib.request
-from urllib.parse import parse_qs, urlsplit
+from urllib.parse import parse_qs, urlsplit, unquote
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
@@ -499,6 +508,10 @@ chatgpt_pause = {"until": 0.0}
 free_models_cache = {"at": 0.0, "models": []}
 ai_runs = {}
 runs_lock = threading.Lock()
+probe_lock = threading.Lock()
+probe_cache_lock = threading.Lock()
+probe_cache = {}
+PROBE_TTL = 6 * 3600
 
 
 # freellmapi пишет у всех моделей owned_by "freellmapi" и не говорит, через какой провайдер
@@ -539,44 +552,126 @@ def gateway_models():
     return free_models_cache["models"]
 
 
+def claude_title(mid):
+    parts = mid.removeprefix('claude-').split('-')
+    return 'Claude ' + ' '.join(p.capitalize() for p in parts if not p.isdigit()) + (' ' + '.'.join(p for p in parts if p.isdigit()) if any(p.isdigit() for p in parts) else '')
+
+
+def probe_status(mid):
+    # Scope memory cache by data root as well as model (also permits isolated tests).
+    with probe_cache_lock:
+        key = (str(LIFE_DIR), mid)
+        row = probe_cache.get(key)
+        if row is None:
+            saved = read_json(LIFE_DIR / 'ai/probes.json')
+            row = saved.get(mid) if isinstance(saved, dict) else None
+            if isinstance(row, dict):
+                probe_cache[key] = row
+        if not isinstance(row, dict) or not isinstance(row.get('at'), (float, int)) or time.time() - row['at'] >= PROBE_TTL:
+            return dict(status='unknown', actual_model=None, at=None, error=None)
+        return dict(status='ok' if row.get('ok') else 'failed', actual_model=row.get('actual_model'), at=row['at'], error=row.get('error'))
+
+
+def model_row(mid, title, route, available, why, detail, image=False, **extra):
+    return dict(id=mid, title=title, route=route, available=available, why=why, detail=detail,
+                caps=dict(image=image, pdf=True, text=True), probe=probe_status(mid), **extra)
+
+
 def listed_models():
     out = []
-    cache = read_json(Path(os.environ.get("SVODKA_CODEX_MODELS_FILE", Path.home() / ".codex/models_cache.json")))
-    rows = cache.get("models", []) if isinstance(cache, dict) else []
+    ids = os.environ.get('SVODKA_CLAUDE_MODELS', 'claude-opus-5-5,claude-sonnet-5-5,claude-haiku-5-5').split(',')
+    for mid in dict.fromkeys(x.strip() for x in ids):
+        if re.fullmatch(r'claude-[a-zA-Z0-9._-]{1,93}', mid):
+            out.append(model_row('claude:'+mid, claude_title(mid), 'claude', bool(claude_bin()) and not claude_state()['exhausted'],
+                                 'Claude недоступен или исчерпана подписка', 'Claude Code CLI · подписка', True,
+                                 provenance='SVODKA_CLAUDE_MODELS' if 'SVODKA_CLAUDE_MODELS' in os.environ else 'список Claude', verified_runnable=False))
+    cache = read_json(Path(os.environ.get('SVODKA_CODEX_MODELS_FILE', Path.home() / '.codex/models_cache.json')))
+    rows = cache.get('models', []) if isinstance(cache, dict) else []
     for m in rows if isinstance(rows, list) else []:
         if not isinstance(m, dict):
             continue
-        mid = m.get("slug", "")
-        if isinstance(mid, str) and re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9._-]{0,99}", mid) and m.get("visibility") == "list":
-            out.append({"id": "chatgpt:"+mid, "title": one_line(m.get("display_name") or mid, 100), "available": bool(codex_bin()) and chatgpt_pause["until"] <= time.time(), "why": "Codex CLI недоступен или действует пауза", "detail": "Кеш Codex · модель перечислена; выполнение не проверено", "provenance": "Codex models_cache.json", "verified_runnable": False})
-    source = "переменная окружения оператора"
-    if "SVODKA_CLAUDE_MODELS" in os.environ:
-        ids = os.environ["SVODKA_CLAUDE_MODELS"].split(",")
-    else:
-        config = read_json(Path.home() / ".openclaw/openclaw.json")
-        node = config
-        for key in ("agents", "defaults", "models"):
-            node = node.get(key) if isinstance(node, dict) else None
-        ids = [key[len("anthropic/"):] for key in node if isinstance(key, str) and key.startswith("anthropic/")] if isinstance(node, dict) else []
-        source = "настройки OpenClaw"
-    for mid in dict.fromkeys(ids):
-        mid = mid.strip()
-        if re.fullmatch(r"claude-[a-zA-Z0-9._-]{1,93}", mid):
-            out.append({"id":"claude:"+mid, "title":"Claude · "+mid, "available":bool(claude_bin()) and not claude_state()["exhausted"], "why":"Claude недоступен или исчерпана подписка", "detail":source+" · настроена; выполнение не проверено", "provenance":source, "verified_runnable":False})
+        mid = m.get('slug', '')
+        if isinstance(mid, str) and re.fullmatch(r'[a-zA-Z0-9][a-zA-Z0-9._-]{0,99}', mid) and m.get('visibility') == 'list':
+            modalities = m.get('input_modalities', [])
+            out.append(model_row('chatgpt:'+mid, one_line(m.get('display_name') or mid, 100), 'chatgpt', bool(codex_bin()) and chatgpt_pause['until'] <= time.time(),
+                                 'Codex CLI недоступен или действует пауза', 'Codex CLI · подписка', isinstance(modalities, list) and 'image' in modalities,
+                                 provenance='Codex models_cache.json', verified_runnable=False))
     return out
 
 
 def models_payload():
     c = claude_state()
-    models = [{"id":"claude", "title":"Claude · по умолчанию CLI", "available":bool(claude_bin()) and not c["exhausted"], "why":"CLI недоступен или исчерпана подписка", "detail":"Модель по умолчанию CLI · модель и выполнение не проверены"},
-              {"id":"chatgpt", "title":"ChatGPT · по умолчанию CLI", "available":bool(codex_bin()) and chatgpt_pause["until"] <= time.time(), "why":"CLI недоступен или действует пауза", "detail":"Модель по умолчанию Codex · выполнение не проверено"},
-              {"id":"free", "title":"Бесплатная", "available":bool(free_key()) and gate_up(), "why":"Шлюз недоступен", "detail":"Автовыбор шлюза · выполнение не проверено"}]
-    auto = next(({"id":m["id"], "title":m["title"]} for m in models if m["available"]), None)
-    return {"models":models + listed_models(), "auto":auto, "claude":c, "free_models":gateway_models()}
+    free_available = bool(free_key()) and gate_up()
+    models = listed_models() + [model_row('free', 'Бесплатная', 'free', free_available, 'Шлюз недоступен', 'freellmapi')]
+    # Auto prefers Opus, then Codex, then the free gateway. Other Claude choices stay explicit.
+    candidates = [m for m in models if m['route'] == 'claude' and 'opus' in m['id']] + [m for m in models if m['route'] != 'claude']
+    auto = next((dict(m, label='Авто → '+m['title']) for m in candidates if m['available']), None)
+    free = [dict(model_row('free:'+m['id'], m.get('name') or m['id'], 'free', free_available, 'Шлюз недоступен', 'freellmapi'), id=m['id'], name=m.get('name'), provider=m.get('provider')) for m in gateway_models()]
+    return dict(models=models, auto=auto, claude=c, free_models=free)
 
 
-def route_name(provider, model):
-    return {"claude": "подписка Claude", "chatgpt": "подписка ChatGPT · Codex"}.get(provider, f"{model} · шлюз freellmapi")
+def model_pool(model_id):
+    payload = models_payload()
+    rows = payload['models'] + [dict(m, id='free:'+m['id']) for m in payload['free_models']]
+    if model_id in ('claude', 'chatgpt'):
+        model_id = next((m['id'] for m in rows if m['route'] == model_id), '')
+    if model_id == 'auto':
+        pool = [m for m in rows if m['available'] and ((m['route'] == 'claude' and 'opus' in m['id']) or m['route'] == 'chatgpt' or m['id'] == 'free')]
+        if not pool:
+            raise AIError('Нет настроенных маршрутов для авто')
+        return pool
+    selected = next((m for m in rows if m['id'] == model_id), None)
+    if selected is None:
+        raise ValueError('Неизвестная модель')
+    return [selected]
+
+
+def route_name(provider, model=None):
+    return {'claude': 'Claude Code CLI · подписка', 'chatgpt': 'Codex CLI · подписка', 'free': 'freellmapi'}[provider]
+
+
+def ai_probe(model_id):
+    if not probe_lock.acquire(blocking=False):
+        raise attachments.AttachmentError('Уже выполняется проверка модели', 409)
+    try:
+        selected = model_pool(model_id)[0]
+        mid = selected['id']
+        status = probe_status(mid)
+        if status['status'] != 'unknown':
+            with probe_cache_lock:
+                return dict(probe_cache[(str(LIFE_DIR), mid)], cached=True)
+        run = dict(stop=threading.Event(), proc=None)
+        started = time.monotonic()
+        actual, error = None, None
+        def capture_model(value):
+            nonlocal actual
+            actual = value
+        run['meta'] = capture_model
+        try:
+            model = mid.split(':', 1)[1] if ':' in mid else 'auto'
+            messages = [dict(role='user', content='Ответь одним словом: ок')]
+            if selected['route'] == 'free':
+                _, actual = call_gateway(model, messages, run, lambda text: None, timeout=60)
+            else:
+                _, actual = call_process(selected['route'], messages, AI_SYSTEM, run, lambda text: None, model, timeout=60)
+        except AIError as e:
+            error = str(e)
+        except Exception:
+            error = 'Проверка модели не удалась'
+        finally:
+            stop_run(run)
+        result = dict(ok=error is None, actual_model=actual, transport=route_name(selected['route']), ms=int((time.monotonic()-started)*1000), error=error, at=time.time())
+        with probe_cache_lock:
+            saved = read_json(LIFE_DIR / 'ai/probes.json')
+            saved = saved if isinstance(saved, dict) else {}
+            saved[mid] = result
+            folder = LIFE_DIR / 'ai'
+            folder.mkdir(parents=True, exist_ok=True)
+            attachments.private_write(folder / 'probes.json', json.dumps(saved, ensure_ascii=False).encode())
+            probe_cache[(str(LIFE_DIR), mid)] = result
+        return result
+    finally:
+        probe_lock.release()
 
 
 def chat_file(chat_id):
@@ -632,7 +727,7 @@ def transcript(messages):
     return "Ответь на последнее сообщение владельца, только сам ответ.\n\n" + "\n\n".join(("Владелец" if m["role"] == "user" else "Ты") + ": " + m["content"] for m in messages)
 
 
-def call_process(provider, messages, system, run, delta, model="auto"):
+def call_process(provider, messages, system, run, delta, model="auto", images=None, timeout=300):
     if model != "auto" and not re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9._-]{0,99}", model):
         raise AIError("Недопустимая модель")
     binary = claude_bin() if provider == "claude" else codex_bin()
@@ -645,20 +740,50 @@ def call_process(provider, messages, system, run, delta, model="auto"):
             cmd[1:1] = ["--model=" + model] if provider == "claude" else []
             if provider == "chatgpt":
                 cmd[2:2] = ["--model=" + model]
+        images = images or []
+        prompt = (system + "\n\n" if provider == "chatgpt" else "") + transcript(messages)
+        if provider == 'claude' and images:
+            cmd += ['--input-format', 'stream-json']
+            content = [{'type': 'image', 'source': {'type': 'base64', 'media_type': img['mime'], 'data': base64.b64encode(Path(img['path']).read_bytes()).decode('ascii')}} for img in images]
+            content.append({'type': 'text', 'text': prompt})
+            prompt = json.dumps({'type': 'user', 'message': {'role': 'user', 'content': content}}, ensure_ascii=False) + '\n'
+        elif provider == 'chatgpt':
+            # Keep subscription auth, without loading operator MCP servers, plugins or hooks.
+            cmd[2:2] = ['--ignore-user-config', '-c', 'web_search="disabled"']
+            for feature in ('shell_tool', 'unified_exec', 'apps', 'plugins', 'hooks', 'multi_agent',
+                            'multi_agent_v2', 'browser_use', 'computer_use', 'image_generation',
+                            'view_image', 'goals', 'sleep_tool', 'tool_suggest', 'code_mode', 'code_mode_host'):
+                cmd[2:2] = ['-c', 'features.' + feature + '=false']
+            for n, img in enumerate(images):
+                dest = Path(folder) / ('image-'+str(n)+Path(img['name']).suffix)
+                shutil.copyfile(img['path'], dest)
+                dest.chmod(0o600)
+                cmd[2:2] = ['-i', str(dest)]
         answer, final, failed = "", "", False
         diagnostic = ""
+        actual = None
+        def actual_model(value):
+            nonlocal actual
+            if isinstance(value, str) and re.fullmatch(r'[A-Za-z0-9._:/-]{1,100}', value) and not SECRET_RE.search(value) and value != actual:
+                actual = value
+                if run.get('meta'):
+                    run['meta'](actual)
         with tempfile.TemporaryFile(mode="w+") as stderr:
             proc = None
             timer = None
             try:
-                proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=stderr, text=True, cwd=tempfile.gettempdir())
+                proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=stderr, text=True, cwd=folder)
                 run["proc"] = proc
-                timer = threading.Timer(300, proc.kill)
+                expired = threading.Event()
+                def expire():
+                    expired.set()
+                    proc.kill()
+                timer = threading.Timer(timeout, expire)
                 timer.start()
                 if run["stop"].is_set():
                     stop_run(run)
                 try:
-                    proc.stdin.write((system + "\n\n" if provider == "chatgpt" else "") + transcript(messages))
+                    proc.stdin.write(prompt)
                     proc.stdin.close()
                 except BrokenPipeError:
                     pass
@@ -667,9 +792,14 @@ def call_process(provider, messages, system, run, delta, model="auto"):
                         break
                     if provider == "chatgpt":
                         diagnostic = (diagnostic + line)[-8000:]
+                        match = re.match(r'^model:\s*(\S+)', line)
+                        if match:
+                            actual_model(match[1])
                     if provider == "claude":
                         try:
                             obj = json.loads(line)
+                            if obj.get('type') == 'system' and obj.get('subtype') == 'init':
+                                actual_model(obj.get('model'))
                             event = obj.get("event", {})
                             d = event.get("delta", {})
                             if obj.get("type") == "stream_event" and event.get("type") == "content_block_delta" and d.get("type") == "text_delta":
@@ -683,22 +813,29 @@ def call_process(provider, messages, system, run, delta, model="auto"):
                 if provider == "chatgpt":
                     final = output.read_text() if output.exists() else ""
                 stderr.seek(0)
-                reason = final + "\n" + diagnostic + "\n" + stderr.read()
+                error_output = stderr.read()
+                if provider == 'chatgpt':
+                    match = re.search(r'^model:\s*(\S+)', error_output, re.M)
+                    if match:
+                        actual_model(match[1])
+                reason = final + "\n" + diagnostic + "\n" + error_output
                 if run["stop"].is_set():
-                    return answer
+                    return answer, actual
+                if expired.is_set():
+                    raise AIError('Превышено время ответа модели')
                 if proc.returncode or failed or not (final or answer).strip():
                     # Ищем «лимит» только в неудачном запуске и в хвосте вывода: в начале Codex
                     # повторяет промпт, а в удачном ответе слово может встретиться по делу.
                     if re.search(r"limit|quota|usage|лимит", reason[-3000:], re.I):
                         (claude_pause if provider == "claude" else chatgpt_pause)["until"] = time.time() + CLAUDE_PAUSE
                         raise AIError(("Claude" if provider == "claude" else "ChatGPT") + ": лимит подписки исчерпан")
-                    tail = reason.strip().splitlines()[-1:] or [""]
                     login = re.search(r"log.?in|auth|sign.?in", reason[-3000:], re.I)
-                    raise AIError(("Claude" if provider == "claude" else "ChatGPT") + (": требуется вход" if login else ": " + (one_line(tail[0], 160) or "пустой ответ")))
+                    # CLI diagnostics can contain credentials; expose only controlled reasons.
+                    raise AIError(("Claude" if provider == "claude" else "Codex") + (": требуется вход" if login else ": ошибка выполнения или пустой ответ"))
                 if not answer:
                     answer = final
                     delta(answer)
-                return answer
+                return answer, actual
             except OSError:
                 raise AIError("Не удалось запустить " + provider)
             finally:
@@ -715,12 +852,24 @@ def call_process(provider, messages, system, run, delta, model="auto"):
                 run["proc"] = None
 
 
-def call_gateway(model, messages, run, delta):
+def call_gateway(model, messages, run, delta, timeout=180):
     body = json.dumps({"model": model, "messages": messages, "stream": True}).encode()
     req = urllib.request.Request(FREE_URL + "/chat/completions", data=body, headers={"Authorization": f"Bearer {free_key()}", "Content-Type": "application/json"})
-    answer, actual = "", model
+    answer, actual = "", None
+    timer = None
+    expired = threading.Event()
     try:
-        with urllib.request.urlopen(req, timeout=180) as response:
+        with urllib.request.urlopen(req, timeout=timeout) as response:
+            sock = getattr(getattr(getattr(response, 'fp', None), 'raw', None), '_sock', None)
+            if sock is not None:
+                def expire():
+                    expired.set()
+                    try:
+                        sock.shutdown(2)
+                    except OSError:
+                        pass
+                timer = threading.Timer(timeout, expire)
+                timer.start()
             for raw in response:
                 if run["stop"].is_set():
                     break
@@ -731,7 +880,11 @@ def call_gateway(model, messages, run, delta):
                 if payload == "[DONE]":
                     break
                 obj = json.loads(payload)
-                actual = str(obj.get("model") or actual)
+                value = obj.get('model')
+                if isinstance(value, str) and re.fullmatch(r'[A-Za-z0-9._:/-]{1,100}', value) and not SECRET_RE.search(value) and actual != value:
+                    actual = value
+                    if run.get('meta'):
+                        run['meta'](actual)
                 choices = obj.get("choices") or []
                 chunk = (choices[0].get("delta", {}).get("content") or "") if choices else ""
                 if isinstance(chunk, str) and chunk:
@@ -745,100 +898,128 @@ def call_gateway(model, messages, run, delta):
         raise AIError(FREE_DOWN)
     except (ValueError, KeyError, TypeError):
         raise AIError("Шлюз freellmapi: непонятный ответ")
+    finally:
+        if timer:
+            timer.cancel()
+    if expired.is_set():
+        raise AIError('Превышено время ответа модели')
     if not answer.strip() and not run["stop"].is_set():
         raise AIError("Шлюз freellmapi: пустой ответ")
     return answer, actual
 
 
-def ai_send(chat_id, model_id, text, project, emit):
-    stamp = datetime.now().strftime("%Y-%m-%d %H:%M")
-    if model_id not in ("auto", "claude", "chatgpt", "free") and model_id not in {m["id"] for m in listed_models()} and model_id not in {"free:"+m["id"] for m in gateway_models()}:
+def ai_send(chat_id, model_id, text, project, emit, attachments_ids=None, **kwargs):
+    # Accept the public attachments keyword without shadowing the storage module.
+    ids = kwargs.pop('attachments', attachments_ids if attachments_ids is not None else [])
+    if kwargs:
         raise ValueError()
-    # Новый чат пишем на диск только вместе с ответом, чтобы ошибка не оставляла пустых диалогов.
+    pool = model_pool(model_id)
+    store = attachments.Store(LIFE_DIR)
     new = not chat_id
+    if new:
+        chat_id = secrets.token_hex(6)
+    stamp = datetime.now().strftime('%Y-%m-%d %H:%M')
     with ai_lock:
-        if chat_id:
-            chat = read_chat(chat_id)
-        else:
-            if project and not any(p["id"] == project for p in projects()):
+        if new:
+            if project and not any(p['id'] == project for p in projects()):
                 raise ValueError()
-            chat_id = secrets.token_hex(6)
-            chat = {"title": one_line(text, 60), "created": stamp, "updated": stamp, "project": project, "messages": []}
-        history = list(chat.get("messages") or [])
-        pr = next((p for p in projects() if p["id"] == chat.get("project")), None)
-    system = (f"Инструкции проекта «{pr['name']}»: {pr['instructions']}\n\n" if pr and pr.get("instructions") else "") + AI_SYSTEM
-    messages, size = [], len(text)
-    for m in reversed(history):
-        size += len(m.get("text", ""))
-        if size > AI_HISTORY_CHARS:
-            break
-        messages.insert(0, {"role": m["role"], "content": m["text"]})
-    messages.append({"role": "user", "content": text})
-    available = models_payload()["models"]
-    pool = [m["id"] for m in available if m["available"] and ":" not in m["id"]] if model_id == "auto" else [model_id]
-    if not pool:
-        raise AIError("Нет настроенных маршрутов для авто")
-    if model_id != "auto" and not model_id.startswith("free:") and not any(m["id"] == model_id and m["available"] for m in available):
-        raise AIError("Выбранный маршрут недоступен; автоматическая замена отключена")
-    run_id = secrets.token_hex(12)
-    now = time.time()
-    provider_title = {"claude": "Claude", "chatgpt": "ChatGPT", "free": "Бесплатная"}[pool[0].split(':', 1)[0]]
-    run = {"proc": None, "stop": threading.Event(), "started": now, "updated": now,
-           "provider": provider_title, "phase": "waiting"}
-    with runs_lock:
-        ai_runs[run_id] = run
-    errors, answer, title, detail = [], "", "", ""
-    def send(obj):
-        try:
-            emit(obj)
-        except (BrokenPipeError, ConnectionResetError, OSError):
-            stop_run(run)
-    def delta(chunk):
-        nonlocal answer
-        answer += chunk
-        if chunk:
-            with runs_lock:
-                run.update(phase='streaming', updated=time.time())
-        send({"type": "delta", "text": chunk})
-    try:
-        for n, mid in enumerate(pool):
-            provider = mid.split(":", 1)[0]
-            model = mid.split(":", 1)[1] if ":" in mid else "auto"
-            title = {"claude": "Claude", "chatgpt": "ChatGPT", "free": "Бесплатная"}[provider]
-            with runs_lock:
-                run.update(provider=title, phase='waiting', updated=time.time())
-            detail = route_name(provider, model) + (" · " + model if model != "auto" else " · по умолчанию CLI")
-            send({"type": "switch" if n else "start", "chat": chat_id, "run": run_id, "model": title, "detail": detail, "reason": errors[-1] if errors else ""})
-            answer = ""
-            try:
-                if provider == "free":
-                    _, actual = call_gateway(model, [{"role": "system", "content": system}] + messages, run, delta)
-                    detail = route_name(provider, actual)
-                else:
-                    call_process(provider, messages, system, run, delta, model)
+            chat = dict(title=one_line(text, 60) or 'Вложения', created=stamp, updated=stamp, project=project, messages=[])
+        else:
+            chat = read_chat(chat_id)
+        history = list(chat.get('messages') or [])
+        pr = next((p for p in projects() if p['id'] == chat.get('project')), None)
+    with store.reserve(ids, chat_id, pool[0]) as files:
+        system = (f"Инструкции проекта «{pr['name']}»: {pr['instructions']}\n\n" if pr and pr.get('instructions') else '') + AI_SYSTEM
+        messages, size = [], len(text)
+        for m in reversed(history):
+            content = m.get('text', '') + ''.join('\n[вложение: '+a['name']+']' for a in m.get('attachments', []))
+            size += len(content)
+            if size > AI_HISTORY_CHARS:
                 break
-            except AIError as e:
-                errors.append(str(e))
-                if run["stop"].is_set():
-                    break
-                answer = ""
-        stopped = run["stop"].is_set()
-        if not answer and not stopped:
-            send({"type": "error", "error": " · ".join(errors) or "Ответа нет"})
-            return
-        with ai_lock:
-            if not new:
-                chat = read_chat(chat_id)
-            chat["messages"].append({"role": "user", "text": text, "time": stamp, "model": "", "detail": "", "auto": False})
-            if answer:
-                chat["messages"].append({"role": "assistant", "text": answer, "time": datetime.now().strftime("%Y-%m-%d %H:%M"), "model": title, "detail": detail, "auto": model_id == "auto", "stopped": stopped})
-            chat["updated"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            save_chat(chat_id, chat)
-        send({"type": "done", "chat": {"id": chat_id, **chat}, "errors": errors})
-    finally:
-        stop_run(run)
+            messages.insert(0, dict(role=m['role'], content=content))
+        messages.append(dict(role='user', content=text + store.prompt(files)))
+        images = [dict(m, path=str(store.file(m['id']))) for m in files if m['kind'] == 'image']
+        # Auto may only fall back to models capable of handling the same request.
+        pool = [m for m in pool if not images or m['caps']['image']]
+        run_id = secrets.token_hex(12)
+        now = time.time()
+        run = dict(proc=None, stop=threading.Event(), started=now, updated=now,
+                   provider={'claude': 'Claude', 'chatgpt': 'ChatGPT', 'free': 'Бесплатная'}[pool[0]['route']], phase='waiting', chat=chat_id)
         with runs_lock:
-            ai_runs.pop(run_id, None)
+            ai_runs[run_id] = run
+        errors, answer, actual, fallback = [], '', None, ''
+        selected = pool[0]
+        def send(obj):
+            try:
+                emit(obj)
+            except OSError:
+                stop_run(run)
+        def delta(chunk):
+            nonlocal answer
+            answer += chunk
+            if chunk:
+                with runs_lock:
+                    run.update(phase='streaming', updated=time.time())
+            send(dict(type='delta', text=chunk))
+        def meta(value):
+            nonlocal actual
+            actual = value
+            send(dict(type='meta', actual_model=value))
+        run['meta'] = meta
+        try:
+            for n, selected in enumerate(pool):
+                if run['stop'].is_set():
+                    break
+                mid, provider = selected['id'], selected['route']
+                model = mid.split(':', 1)[1] if ':' in mid else 'auto'
+                transport = route_name(provider)
+                fallback = 'резерв: '+selected['title']+', '+errors[-1] if n else ''
+                with runs_lock:
+                    run.update(provider={'claude':'Claude', 'chatgpt':'ChatGPT', 'free':'Бесплатная'}[provider], phase='waiting', updated=time.time())
+                send(dict(type='switch' if n else 'start', chat=chat_id, run=run_id, id=mid, title=selected['title'], selected_id=mid, selected_title=selected['title'], model=selected['title'], transport=transport, detail=transport, reason=fallback, mode='chat'))
+                answer, actual = '', None
+                try:
+                    if not selected['available']:
+                        raise AIError(selected['why']+'; автоматическая замена отключена')
+                    if provider == 'free':
+                        result, value = call_gateway(model, [dict(role='system', content=system)] + messages, run, delta)
+                    else:
+                        result, value = call_process(provider, messages, system, run, delta, model, images=images)
+                    if value and value != actual:
+                        meta(value)
+                    if not answer and result:
+                        delta(result)
+                    break
+                except AIError as e:
+                    errors.append(str(e))
+                    if run['stop'].is_set():
+                        break
+                    answer = ''
+            stopped = run['stop'].is_set()
+            if not answer and not stopped:
+                send(dict(type='error', error=' · '.join(errors) or 'Ответа нет'))
+                return
+            with ai_lock:
+                if not new:
+                    chat = read_chat(chat_id)
+                chat['messages'].append(dict(role='user', text=text, time=stamp, attachments=[store.public(m) for m in files]))
+                if answer:
+                    chat['messages'].append(dict(role='assistant', text=answer, time=datetime.now().strftime('%Y-%m-%d %H:%M'), model=selected['title'], model_id=selected['id'], actual_model=actual, transport=route_name(selected['route']), mode='chat', auto=model_id == 'auto', fallback=fallback, stopped=stopped))
+                chat['updated'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                previous = [m['chat'] for m in files]
+                store.attach(files, chat_id)
+                try:
+                    save_chat(chat_id, chat)
+                except Exception:
+                    for m, old in zip(files, previous):
+                        m['chat'] = old
+                        store.save_meta(m)
+                    raise
+            send(dict(type='done', chat=dict(chat, id=chat_id), errors=errors, fallback=fallback))
+        finally:
+            stop_run(run)
+            with runs_lock:
+                ai_runs.pop(run_id, None)
 
 
 # --- HTTP ---------------------------------------------------------------
@@ -1286,8 +1467,23 @@ class Handler(BaseHTTPRequestHandler):
             with ai_lock:
                 self.send_json(200, {"projects": projects()})
         elif route == "/api/ai/chats":
+            canonical = _workspace_module.Workspace(agent_service, SECRET_RE).status()
+            if not self.agent_protected():
+                canonical = dict(available=False, reason='Требуется защита панели токеном или доверенным прокси')
             with ai_lock:
-                self.send_json(200, {"chats": list_chats()})
+                self.send_json(200, {"chats": list_chats(), 'canonical': dict(canonical, key_label='Telegram · основной диалог')})
+        elif route == '/api/ai/file':
+            try:
+                fid = parse_qs(urlsplit(self.path).query).get('id', [''])[0]
+                body, headers = attachments.Store(LIFE_DIR).download(fid)
+                self.send_response(200)
+                for key, value in headers.items():
+                    self.send_header(key, value)
+                self.send_header('Content-Length', str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+            except attachments.AttachmentError as e:
+                self.send_json(e.status, {'error': str(e)})
         elif route == "/api/ai/chat":
             try:
                 chat_id = (parse_qs(urlsplit(self.path).query).get("id") or [""])[0]
@@ -1303,6 +1499,13 @@ class Handler(BaseHTTPRequestHandler):
         if not allowed:
             self.deny()
             return
+        if urlsplit(self.path).path.startswith('/api/ai/'):
+            if not self.same_origin():
+                return self.send_json(403, {'error': 'Источник запроса не совпадает с панелью'})
+            if urlsplit(self.path).path == '/api/ai/upload':
+                return self.ai_upload()
+            if self.headers.get('Content-Type', '').split(';', 1)[0].strip().lower() != 'application/json':
+                return self.send_json(415, {'error': 'Требуется application/json'})
         if urlsplit(self.path).path.startswith('/api/workspace'):
             return self.workspace_route(urlsplit(self.path).path, True)
         if urlsplit(self.path).path in ('/api/voice/metrics', '/api/client-log'):
@@ -1343,15 +1546,52 @@ class Handler(BaseHTTPRequestHandler):
             self.send_json(409, {"error": "Запись уже изменилась. Обнови страницу."})
         except AIError as e:
             self.send_json(502, {"error": str(e)})
+        except attachments.AttachmentError as e:
+            self.send_json(e.status, {'error': str(e)})
         except (ValueError, KeyError, TypeError, StopIteration):
             self.send_json(400, {"error": "Неверные данные"})
 
+    def ai_upload(self):
+        try:
+            length = int(self.headers.get('Content-Length', ''))
+            if length < 0:
+                raise ValueError()
+            if length > attachments.MAX_BYTES:
+                raise attachments.AttachmentError('Файл больше 10 МБ', 413)
+            data = self.rfile.read(length)
+            if len(data) != length:
+                raise ValueError()
+            name = unquote(self.headers.get('X-File-Name', 'файл.txt'), errors='strict')
+            self.send_json(201, attachments.Store(LIFE_DIR).upload(data, name))
+        except attachments.AttachmentError as e:
+            self.close_connection = True
+            self.send_json(e.status, {'error': str(e)})
+        except (ValueError, UnicodeError):
+            self.close_connection = True
+            self.send_json(400, {'error': 'Неверный файл или размер запроса'})
+
     def ai_route(self, b):
         p = self.path
-        if p == "/api/ai/send":
-            text = str(b["text"]).strip()[:20000]
-            if not text:
+        if not isinstance(b, dict):
+            raise ValueError()
+        if p == '/api/ai/probe':
+            if not isinstance(b.get('model'), str):
                 raise ValueError()
+            self.send_json(200, ai_probe(b['model']))
+        elif p == '/api/ai/file/delete':
+            attachments.Store(LIFE_DIR).delete(b.get('id'))
+            self.send_json(200, {'ok': True})
+        elif p == "/api/ai/send":
+            if not isinstance(b.get('text'), str) or len(b['text']) > 20000:
+                raise ValueError()
+            text = b['text'].strip()
+            ids = b.get('attachments', [])
+            if not text and not ids:
+                raise ValueError()
+            pool = model_pool(str(b.get('model') or 'auto'))
+            attachments.Store(LIFE_DIR).validate(ids, b.get('chat') or '', pool[0])
+            if b.get('chat'):
+                read_chat(b['chat'])
             self.send_response(200)
             self.send_header("Content-Type", "application/x-ndjson; charset=utf-8")
             self.send_header("Cache-Control", "no-store")
@@ -1363,10 +1603,10 @@ class Handler(BaseHTTPRequestHandler):
                 self.wfile.write((json.dumps(obj, ensure_ascii=False) + "\n").encode())
                 self.wfile.flush()
             try:
-                ai_send(b.get("chat") or "", str(b.get("model") or "auto"), text, b.get("project") or "", emit)
-            except (AIError, ValueError, KeyError):
+                ai_send(b.get("chat") or "", str(b.get("model") or "auto"), text, b.get("project") or "", emit, attachments=ids)
+            except (AIError, ValueError, KeyError) as e:
                 try:
-                    emit({"type": "error", "error": "Не удалось отправить сообщение"})
+                    emit({"type": "error", "error": str(e) if isinstance(e, (AIError, attachments.AttachmentError)) else "Не удалось отправить сообщение"})
                 except OSError:
                     pass
         elif p == "/api/ai/stop":
@@ -1420,7 +1660,11 @@ class Handler(BaseHTTPRequestHandler):
             self.send_json(200, {"ok": True})
         elif p == "/api/ai/delete":
             with ai_lock:
+                with runs_lock:
+                    if any(r.get('chat') == b['id'] for r in ai_runs.values()):
+                        raise attachments.AttachmentError('Сначала остановите ответ в чате', 409)
                 path(chat_file(b["id"])).unlink(missing_ok=True)
+                attachments.Store(LIFE_DIR).delete_chat(b['id'])
             self.send_json(200, {"ok": True})
         else:
             self.send_json(404, {"error": "not found"})

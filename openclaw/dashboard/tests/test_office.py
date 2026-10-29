@@ -336,7 +336,7 @@ class OfficeTests(unittest.TestCase):
 
     def test_active_chat_metadata_during_real_send_flow(self):
         seen = []
-        def process(provider, messages, system, run, delta, model):
+        def process(provider, messages, system, run, delta, model, images=None):
             self.assertEqual(run['provider'], 'Claude')
             self.assertEqual(run['phase'], 'waiting')
             self.assertIsInstance(run['started'], float)
@@ -345,7 +345,8 @@ class OfficeTests(unittest.TestCase):
             seen.append(office_sessions({}, {}, server.ai_runs)[0])
             self.assertEqual(run['phase'], 'streaming')
             self.assertGreaterEqual(run['updated'], run['started'])
-        with patch.object(server, 'LIFE_DIR', self.root), patch.object(server, 'models_payload', return_value={'models': [{'id': 'claude', 'available': True}]}), patch.object(server, 'call_process', side_effect=process), patch.object(server, 'save_chat'), patch.object(server, 'ai_runs', {}):
+            return 'answer', 'claude-opus-5-5'
+        with patch.object(server, 'LIFE_DIR', self.root), patch.object(server, 'models_payload', return_value={'models': [{'id': 'claude:claude-opus-5-5', 'title': 'Claude Opus 5.5', 'route': 'claude', 'caps': {'image': True}, 'available': True}], 'free_models': []}), patch.object(server, 'call_process', side_effect=process), patch.object(server, 'save_chat'), patch.object(server, 'ai_runs', {}):
             server.ai_send(None, 'claude', 'private user message', None, lambda obj: None)
             self.assertEqual(server.ai_runs, {})
         self.assertEqual([s['activity'] for s in seen], ['waiting_model', 'answering'])

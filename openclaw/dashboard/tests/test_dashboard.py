@@ -44,7 +44,7 @@ class Tests(unittest.TestCase):
         config = {'secret':'SECRET', 'agents':{'defaults':{'models':{'anthropic/claude-opus-5-5':{'secret':'SECRET'}, 'openai/other':{}}}}}
         with patch.object(server, 'read_json', return_value=config), patch.object(server, 'claude_bin', return_value='/test'), patch.object(server, 'claude_state', return_value={'exhausted':False}):
             rows=server.listed_models()
-            self.assertEqual([r['id'] for r in rows], ['claude:claude-opus-5-5'])
+            self.assertEqual([r['id'] for r in rows], ['claude:claude-opus-5-5', 'claude:claude-sonnet-5-5', 'claude:claude-haiku-5-5'])
             self.assertFalse(rows[0]['verified_runnable'])
             self.assertNotIn('SECRET',json.dumps(rows))
             os.environ['SVODKA_CLAUDE_MODELS']='claude-other'
@@ -62,10 +62,27 @@ class Tests(unittest.TestCase):
             answer=server.call_process('claude', [], '', {'stop':threading.Event()}, lambda text:None, 'claude-opus-5-5')
             args=popen.call_args.args[0]
             self.assertIn('--model=claude-opus-5-5',args)
-            self.assertEqual(answer,'ok')
+            self.assertEqual(answer,('ok', None))
         os.environ['SVODKA_CLAUDE_MODELS']='claude-opus-5-5'
         with patch.object(server,'claude_bin',return_value='/test'), patch.object(server,'claude_state',return_value={'exhausted':True}):
             self.assertFalse(next(m for m in server.listed_models() if m['id'].startswith('claude:'))['available'])
+
+    def test_explicit_models_caps_auto_and_no_probe(self):
+        cache=self.root/'models.json'
+        cache.write_text(json.dumps({'models':[{'slug':'gpt-6-astra','display_name':'GPT 6 Astra','visibility':'list','input_modalities':['text','image']},{'slug':'text-only','visibility':'list','input_modalities':['text']},{'slug':'hidden','visibility':'hide'}]}))
+        os.environ['SVODKA_CODEX_MODELS_FILE']=str(cache)
+        with patch.object(server,'LIFE_DIR',self.root),patch.object(server,'claude_bin',return_value='/fake/claude'),patch.object(server,'codex_bin',return_value='/fake/codex'),patch.object(server,'claude_state',return_value={'exhausted':False}),patch.object(server,'free_key',return_value=None),patch.object(server,'call_process') as call:
+            payload=server.models_payload();rows=payload['models']
+            self.assertEqual([r['title'] for r in rows[:3]],['Claude Opus 5.5','Claude Sonnet 5.5','Claude Haiku 5.5'])
+            self.assertNotIn('claude',[r['id'] for r in rows]);self.assertNotIn('chatgpt',[r['id'] for r in rows]);self.assertEqual(payload['auto']['label'],'Авто → Claude Opus 5.5')
+            self.assertEqual([r['caps']['image'] for r in rows],[True,True,True,True,False,False]);self.assertTrue(all(r['caps']['pdf'] and r['caps']['text'] for r in rows));self.assertTrue(all(r['probe']['status']=='unknown' for r in rows));call.assert_not_called()
+            with patch.object(server,'claude_bin',return_value=None):self.assertEqual(server.models_payload()['auto']['id'],'chatgpt:gpt-6-astra')
+            self.assertEqual(server.model_pool('chatgpt')[0]['id'],'chatgpt:gpt-6-astra')
+
+    def test_unified_chat_ui_with_node(self):
+        import shutil, subprocess
+        if not shutil.which('node'):self.skipTest('node unavailable')
+        subprocess.run(['node',str(Path(server.__file__).parent/'tests/ai_ui.cjs')],check=True)
 
     def test_malformed_models_payload(self):
         for data in ([], 'bad', 42, {'models':None}, {'models':[None, [], {'slug':[]}]}):
