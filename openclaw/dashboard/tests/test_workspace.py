@@ -93,9 +93,50 @@ class WorkspaceTests(unittest.TestCase):
         self.assertEqual(m['attachments'],[{'kind':'image','name':'photo'}]);self.assertEqual(m['text'],'hello  *** ')
         self.assertNotIn('private',json.dumps(h));self.assertEqual(h['next_offset'],30);self.assertTrue(h['gap']);self.assertTrue(h['redacted'])
         n=len(self.seen);self.w.history();self.assertEqual(len(self.seen),n)
-        self.w.history(30);self.assertEqual(self.seen[-2][2]['args']['offset'],30)
+        self.w.history(30);self.assertEqual(self.seen[-1][2]['args']['offset'],30)
         rows=self.w.sessions();self.assertEqual(len(rows),2);self.assertNotIn('participants',rows[0]);self.assertNotIn('delivery',rows[0])
         with self.assertRaises(ValueError):self.w.gateway_invoke('exec',{})
+    def test_real_gateway_history(self):
+        def msg(mid, content, **fields):
+            return dict(role='assistant', content=content, timestamp=1700000000000, __openclaw={'id':mid,'seq':1,'runId':'run'}, **fields)
+        rows = [
+            {'role':'user','content':'hello','__openclaw':{'id':'u'}},
+            msg('t1',[{'type':'thinking','thinking':'private'},{'type':'toolCall','name':'exec','arguments':{'secret':'private'}}]),
+            msg('t2',[{'type':'toolCall','toolName':'web.search'},{'type':'toolCall','name':'bad name'}]),
+            msg('hidden',[{'type':'thinking','thinking':'private'}]),
+            msg('a',[{'type':'text','text':'answer'}],provider='test',model='model'),
+            msg('mirror',[{'type':'text','text':'delivered'}],provider='openclaw',model='delivery-mirror'),
+            msg('auto','done',model='automation-result'),
+            msg('auto2','done',openclawAutomation={}),
+            {'role':'user','content':'telegram','__openclaw':{'id':'tg','transport':{'channel':'telegram','messageId':42,'conversationRef':'private'},'senderId':'private','senderName':'private','senderUsername':'private'}},
+            {'role':'user','content':'private','__openclaw':{'id':'other','senderIsOwner':False}},
+        ]
+        rows.append(dict(rows[-2]))
+        with patch.object(self.w,'gateway_invoke',return_value={'messages':rows,'truncated':True,'contentTruncated':True,'totalMessages':100}):
+            h=self.w.history()
+        self.assertFalse(h['gap']);self.assertTrue(h['content_truncated']);self.assertEqual(h['total'],100)
+        self.assertEqual(h['hidden_count'],1)
+        m=h['messages'];self.assertEqual([r['id'] for r in m],['u','t1','a','mirror','auto','auto2','tg','other'])
+        self.assertEqual(m[0]['source'],'unknown')
+        self.assertEqual(m[1]['role'],'activity');self.assertEqual(m[1]['tools'],['exec','web.search'])
+        self.assertEqual(m[2]['model'],'test/model');self.assertTrue(m[3]['delivered_to_channel'])
+        self.assertEqual(m[3]['source'],'agent');self.assertEqual(m[4]['source'],'automation');self.assertEqual(m[5]['source'],'automation')
+        self.assertEqual(m[6]['source'],'telegram');self.assertEqual(m[6]['source_message_id'],'42')
+        self.assertTrue(m[7]['not_owner']);self.assertEqual(m[7]['text'],'')
+        self.assertNotIn('private',json.dumps(h));self.assertNotIn('arguments',json.dumps(h))
+
+    def test_subagent_visibility(self):
+        rows=[{'key':'main'}]+[dict(key=str(i),parent='main',status='completed',updatedAt=i*1000) for i in range(9)]
+        rows += [dict(key='running',parent='main',status='running'),dict(key='queued',parent='main',status='queued'),dict(key='active',parent='main',status='completed',hasActiveRun=True)]
+        visible,hidden=self.w.visible_sessions(rows)
+        self.assertEqual(hidden,4)
+        self.assertEqual({r['key'] for r in visible},{'main','4','5','6','7','8','running','queued','active'})
+        self.assertEqual(len(self.w.tasks({}, {}, rows)),9)
+        self.responses=[]
+        with patch.object(server,'workspace_service',self.w),patch.object(server,'agent_service',self.agent),patch.object(server,'load_token',return_value='panel-token'),patch.object(self.w,'sessions',return_value=rows):
+            h=self.handler('/api/workspace');h.authorize=lambda:(True,None);h.agent_snapshot=lambda:{'runs':[]};h.do_GET()
+        self.assertEqual(self.responses[-1][1]['hidden_subagents'],4)
+
     def test_revision_idempotence(self):
         draft=self.w.create_revision('m1','original','new');self.assertEqual(self.seen,[]);self.assertEqual(draft['status'],'draft')
         a=self.w.send_revision(draft['id']);b=self.w.send_revision(draft['id'])
@@ -132,7 +173,7 @@ class WorkspaceTests(unittest.TestCase):
         threads=[threading.Thread(target=lambda:results.append(self.w.history())) for _ in range(5)]
         for thread in threads:thread.start()
         for thread in threads:thread.join(3)
-        self.assertEqual(len(results),5);self.assertEqual(len(self.seen),2)
+        self.assertEqual(len(results),5);self.assertEqual(len(self.seen),1)
     def test_successful_send_and_revision_routes(self):
         self.responses=[]
         with patch.object(server,'agent_service',self.agent),patch.object(server,'load_token',return_value='panel-token'):

@@ -6,13 +6,13 @@
       "name": "boot",
       "passed": true,
       "err": null,
-      "ms": 387
+      "ms": 392
     },
     {
       "name": "history",
       "passed": true,
       "err": null,
-      "ms": 482,
+      "ms": 467,
       "details": {
         "initial": 30,
         "totalVisible": 44,
@@ -23,61 +23,61 @@
       "name": "send and duplicate",
       "passed": true,
       "err": null,
-      "ms": 4702
+      "ms": 4685
     },
     {
       "name": "two tabs",
       "passed": true,
       "err": null,
-      "ms": 871
+      "ms": 878
     },
     {
       "name": "revision and duplicate",
       "passed": true,
       "err": null,
-      "ms": 6747
+      "ms": 6699
     },
     {
       "name": "offline recovery",
       "passed": true,
       "err": null,
-      "ms": 12111
+      "ms": 12086
     },
     {
       "name": "cancel disabled with reason",
       "passed": true,
       "err": null,
-      "ms": 18
+      "ms": 21
     },
     {
       "name": "security",
       "passed": true,
       "err": null,
-      "ms": 49
+      "ms": 53
     },
     {
       "name": "navigation and voice regression",
       "passed": true,
       "err": null,
-      "ms": 1506
+      "ms": 1508
     },
     {
       "name": "screenshot desktop",
       "passed": true,
       "err": null,
-      "ms": 161
+      "ms": 150
     },
     {
       "name": "screenshot ipad",
       "passed": true,
       "err": null,
-      "ms": 153
+      "ms": 133
     },
     {
       "name": "screenshot phone",
       "passed": true,
       "err": null,
-      "ms": 117
+      "ms": 103
     }
   ],
   "pageErrors": [],
@@ -93,8 +93,8 @@
   "latency": {
     "mock": true,
     "label": "synthetic Gateway polling latency",
-    "messageMs": 4168,
-    "assistantMs": 4171
+    "messageMs": 4155,
+    "assistantMs": 4157
   },
   "gateway": {
     "count": 2,
@@ -103,7 +103,7 @@
         "headers": {
           "accept-encoding": "identity",
           "content-length": "310",
-          "host": "127.0.0.1:35017",
+          "host": "127.0.0.1:46377",
           "user-agent": "Python-urllib/3.12",
           "authorization": "Bearer [redacted]",
           "content-type": "application/json",
@@ -113,7 +113,7 @@
         },
         "body": {
           "model": "openclaw/svodka-test",
-          "input": "[Сводка:CGjlUxeZRzy22S8JFm0Mkg] Синтетическая проверка отправки workspace",
+          "input": "[Сводка:tz6U6iQ3gbOq2QXau7mkfQ] Синтетическая проверка отправки workspace",
           "stream": true
         },
         "answer": "Синтетический ответ 1"
@@ -122,7 +122,7 @@
         "headers": {
           "accept-encoding": "identity",
           "content-length": "1555",
-          "host": "127.0.0.1:35017",
+          "host": "127.0.0.1:46377",
           "user-agent": "Python-urllib/3.12",
           "authorization": "Bearer [redacted]",
           "content-type": "application/json",
@@ -132,13 +132,13 @@
         },
         "body": {
           "model": "openclaw/svodka-test",
-          "input": "[Сводка:iysfZKI6xbDM_1oLoBXeSg] Уточнение к ранее отправленному запросу (id sent-1). Исходный текст сохранён ниже без изменений. Уже выполненные действия не отменены; не повторяй их без явной необходимости.\nИсходный запрос:\nСинтетическая проверка отправки workspace\nНовая редакция:\nУточнённая синтетическая формулировка",
+          "input": "[Сводка:sqRtOMLPjlDY3duhZ0Q0ow] Уточнение к ранее отправленному запросу (id sent-1). Исходный текст сохранён ниже без изменений. Уже выполненные действия не отменены; не повторяй их без явной необходимости.\nИсходный запрос:\nСинтетическая проверка отправки workspace\nНовая редакция:\nУточнённая синтетическая формулировка",
           "stream": true
         },
         "answer": "Синтетический ответ 2"
       }
     ]
   },
-  "serverLog": "Сводка on http://127.0.0.1:39823, data in /tmp/svodka-workspace-G6QP75/life\n",
+  "serverLog": "Сводка on http://127.0.0.1:42737, data in /tmp/svodka-workspace-CSd4WJ/life\n",
   "ok": true
 }

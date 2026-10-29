@@ -1071,7 +1071,7 @@ class Handler(BaseHTTPRequestHandler):
                 key = agent_service.canonical()
             except Unavailable:
                 key = None
-            payload = dict(status=status, session={'canonical':key is not None,'key':key}, sessions=sessions, tasks=tasks)
+            payload = dict(status=status, session={'canonical':key is not None,'key':key}, sessions=sessions, tasks=tasks, hidden_subagents=workspace.visible_sessions(sessions)[1])
             if error:
                 payload['error'] = error
             return self.send_json(200,payload)

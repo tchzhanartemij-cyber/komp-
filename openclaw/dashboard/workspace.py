@@ -136,7 +136,6 @@ class Workspace:
             if offset == 0 and self.tail and self.tail[0] == cache_key and time.monotonic()-self.tail_time < 2:
                 return self.tail[1]
             data = self.gateway_invoke('sessions_history', {'sessionKey':self.agent.canonical(), 'limit':limit, 'offset':offset, 'includeTools':False})
-            channel = next((r.get('channel') for r in self.sessions() if r.get('key') in self.canonical_keys()), None) or 'unknown'
             messages, hidden, seen = [], 0, set()
             rows = data.get('messages', [])
             if not isinstance(rows,list):
@@ -146,7 +145,7 @@ class Workspace:
                     hidden += 1
                     continue
                 role, content = msg['role'], msg.get('content', '')
-                attachments = []
+                attachments, tools, has_tool = [], [], False
                 if isinstance(content, list):
                     texts = []
                     for block in content:
@@ -154,6 +153,11 @@ class Workspace:
                             continue
                         if block.get('type') == 'text' and isinstance(block.get('text'), str):
                             texts.append(block['text'])
+                        elif role == 'assistant' and block.get('type') == 'toolCall':
+                            has_tool = True
+                            name = block.get('name') or block.get('toolName')
+                            if isinstance(name, str) and re.fullmatch(r'[A-Za-z0-9_.:-]{1,64}', name) and not self.secret_re.search(name) and name not in tools:
+                                tools.append(name)
                         elif block.get('type') in ('image','audio','file','document'):
                             a = {'kind':block['type']}
                             if isinstance(block.get('name'), str):
@@ -161,6 +165,9 @@ class Workspace:
                             attachments.append(a)
                     content = '\n'.join(texts)
                 text = self.clean(content if isinstance(content, str) else '')
+                if role == 'assistant' and not text and not has_tool:
+                    hidden += 1
+                    continue
                 ts = timestamp(msg.get('timestamp'), milliseconds=True)
                 meta = msg.get('__openclaw')
                 mid = meta.get('id') if isinstance(meta, dict) else None
@@ -170,19 +177,47 @@ class Workspace:
                 if mid in seen:
                     continue
                 seen.add(mid)
-                item = dict(id=mid, role=role, text=text[:8000], ts=ts, attachments=attachments, source='agent' if role=='assistant' else channel, synthetic_id=synthetic, truncated=len(text)>8000)
+                item = dict(id=mid, role=role, text=text[:8000], ts=ts, attachments=attachments, source='agent' if role=='assistant' else 'unknown', synthetic_id=synthetic, truncated=len(text)>8000)
                 origin = re.match(r'^\[Сводка:([A-Za-z0-9_-]{16,64})\]\s*', text) if role=='user' else None
                 if origin:
                     item.update(source='dashboard', origin_request=origin[1], text=text[origin.end():][:8000])
+                if role == 'user':
+                    meta = meta if isinstance(meta, dict) else {}
+                    transport = meta.get('transport')
+                    if isinstance(transport, dict):
+                        channel = transport.get('channel')
+                        if isinstance(channel, str) and re.fullmatch(r'[a-z0-9_-]{1,32}', channel):
+                            item['source'] = channel
+                        source_id = transport.get('messageId')
+                        if isinstance(source_id, (str, int, float)) and not isinstance(source_id, bool) and len(str(source_id)) <= 64:
+                            item['source_message_id'] = self.clean(str(source_id))
+                    if meta.get('senderIsOwner') is False:
+                        item.update(text='', not_owner=True, attachments=[])
+                        item.pop('origin_request', None)
+                else:
+                    provider, model = msg.get('provider'), msg.get('model')
+                    if isinstance(provider, str) and isinstance(model, str) and provider != 'openclaw':
+                        item['model'] = self.clean(provider+'/'+model)[:100]
+                    if provider == 'openclaw' and model == 'delivery-mirror':
+                        item['delivered_to_channel'] = True
+                    if isinstance(msg.get('openclawAutomation'), dict) or model == 'automation-result':
+                        item['source'] = 'automation'
+                    if not text and has_tool:
+                        item.update(role='activity', text='', tools=tools, attachments=[])
                 for field in ('edited','editedAt','deleted'):
                     if field in msg:
                         item['deleted' if field=='deleted' else 'edited'] = bool(msg[field])
                 reply = msg.get('replyTo', msg.get('reply_to_id'))
                 if isinstance(reply, (str,int)):
                     item['reply_to'] = reply
-                messages.append(item)
+                if item['role'] == 'activity' and messages and messages[-1]['role'] == 'activity':
+                    messages[-1]['tools'] = list(dict.fromkeys(messages[-1]['tools'] + tools))
+                else:
+                    messages.append(item)
             # Gateway order is the transcript order; rows without timestamps keep their position.
-            result = dict(messages=messages, next_offset=data.get('nextOffset') if data.get('hasMore') else None, has_more=bool(data.get('hasMore')), gap=bool(data.get('truncated') or data.get('droppedMessages') or data.get('windowReset')), redacted=bool(data.get('contentRedacted')), hidden_count=hidden, fetched_at=time.time())
+            result = dict(messages=messages, next_offset=data.get('nextOffset') if data.get('hasMore') else None, has_more=bool(data.get('hasMore')), gap=bool(data.get('droppedMessages') or data.get('windowReset')), content_truncated=bool(data.get('contentTruncated')), redacted=bool(data.get('contentRedacted')), hidden_count=hidden, fetched_at=time.time())
+            if type(data.get('totalMessages')) is int:
+                result['total'] = data['totalMessages']
             if offset == 0:
                 self.tail, self.tail_time = (cache_key, result), time.monotonic()
             return result
@@ -225,9 +260,18 @@ class Workspace:
             finally:
                 c.close()
 
+    def visible_sessions(self, sessions):
+        children = [r for r in sessions if r.get('parent')]
+        active = [r for r in children if r.get('status') in ('running', 'queued') or r.get('hasActiveRun')]
+        others = [r for r in children if r not in active]
+        latest = sorted(others, key=lambda r: timestamp(r.get('updatedAt')) or 0, reverse=True)[:5]
+        visible = [r for r in sessions if not r.get('parent') or r in active or r in latest]
+        return visible, len(others) - len(latest)
+
     def tasks(self, agent_snapshot, queue, sessions=None):
         out = []
-        sources = [('dashboard', agent_snapshot.get('runs',[])), ('coder',queue.get('jobs',[])), ('session',self.sessions() if sessions is None else sessions)]
+        sessions, _ = self.visible_sessions(self.sessions() if sessions is None else sessions)
+        sources = [('dashboard', agent_snapshot.get('runs',[])), ('coder',queue.get('jobs',[])), ('session',sessions)]
         for kind, rows in sources:
             for row in rows:
                 raw = row.get('status') or ('running' if row.get('hasActiveRun') else 'unknown')
