@@ -851,7 +851,22 @@ dialog[open] { animation: pop .4s var(--spring); }
 
 #voice { position:fixed; z-index:21; right:16px; bottom:16px; width:min(420px,calc(100vw - 32px)); max-height:85vh; max-height:85dvh; overflow:auto; box-sizing:border-box; border:1px solid var(--rule); border-radius:24px; padding:18px; background:var(--bg); color:var(--ink); box-shadow:var(--shadow-up); }
 #voice[hidden],#voice-body[hidden] { display:none; }
-#voice[data-collapsed="true"] { width:min(330px,calc(100vw - 32px)); padding:10px 16px; }
+#voice[data-collapsed="true"] { display:flex; align-items:center; gap:8px; width:auto; max-width:calc(100vw - 20px); padding:6px 6px 6px 14px; border-radius:999px; overflow:visible; }
+#voice[data-collapsed="true"][hidden] { display:none; }
+#voice[data-collapsed="true"] .voice-head,#voice[data-collapsed="true"] .voice-quick { display:contents; }
+#voice[data-collapsed="true"] #voice-title,#voice[data-collapsed="true"] #voice-mic-live { display:none; }
+#voice[data-collapsed="true"] #voice-status { order:2; margin:0; min-width:0; max-width:46vw; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+#voice[data-collapsed="true"] #voice-level { order:1; } #voice[data-collapsed="true"] #voice-main { order:3; }
+#voice[data-collapsed="true"] #voice-collapse { order:4; } #voice[data-collapsed="true"] #voice-close { order:5; }
+.voice-quick { display:flex; align-items:center; gap:10px; margin:8px 0; } .voice-quick #voice-status { flex:1; }
+#voice-level { flex:none; width:12px; height:12px; border-radius:50%; background:var(--muted); transform:scale(calc(1 + var(--lvl,0) * 1.2)); transition:transform .08s linear,background .2s; }
+#voice[data-state="listening"] #voice-level,#voice[data-state="hearing"] #voice-level { background:var(--good); }
+#voice[data-state="transcribing"] #voice-level,#voice[data-state="thinking"] #voice-level,#voice[data-state="starting"] #voice-level { background:var(--warn); }
+#voice[data-state="speaking"] #voice-level { background:var(--accent); } #voice[data-state="error"] #voice-level { background:var(--bad); }
+#voice-main { min-width:92px; }
+@media (max-width:760px) { #voice[data-collapsed="true"] { left:50%; right:auto; transform:translateX(-50%); bottom:calc(88px + env(safe-area-inset-bottom,0px)); }
+ body[data-typing="true"] #voice[data-collapsed="true"] { display:none; } }
+@media (prefers-reduced-motion:reduce) { #voice-level { transition:none; transform:none; } }
 #voice h2 { font-size:17px; margin:0; } #voice h3 { font-size:14px; }
 .voice-head { display:flex; align-items:center; justify-content:space-between; gap:12px; }
 #voice textarea { display:block; width:100%; box-sizing:border-box; margin:8px 0; }
@@ -865,11 +880,11 @@ dialog[open] { animation: pop .4s var(--spring); }
 @media(prefers-reduced-motion:reduce){#voice,#voice *{animation:none!important;transition:none!important;scroll-behavior:auto!important;}}
 </style>
 <aside id="voice" role="complementary" data-state="idle" data-collapsed="false" aria-labelledby="voice-title" hidden>
- <div class="voice-head"><h2 id="voice-title">Разговор с агентом</h2><button id="voice-collapse" class="pill soft" aria-label="Свернуть панель" aria-expanded="true" aria-controls="voice-body">−</button><button id="voice-close" class="pill soft" aria-label="Закрыть панель и остановить разговор">×</button></div>
- <p id="voice-status" role="status" aria-live="polite">Готов</p>
+ <div class="voice-head"><h2 id="voice-title">Разговор с агентом</h2><button id="voice-collapse" class="pill soft" aria-label="Свернуть подробности" aria-expanded="true" aria-controls="voice-body">Свернуть</button><button id="voice-close" class="pill soft" aria-label="Закрыть панель и остановить разговор">×</button></div>
+ <div class="voice-quick"><span id="voice-level" aria-hidden="true"></span><p id="voice-status" role="status" aria-live="polite">Готов</p><button id="voice-main" class="pill" type="button">Говорить</button></div>
  <p id="voice-mic-live" hidden>● Микрофон включён</p>
  <div id="voice-body">
- <div class="voice-controls"><button id="voice-start" class="pill">Начать разговор</button><button id="voice-stop" class="pill soft">Стоп разговор</button><button id="voice-pause" class="pill soft" aria-pressed="false">Выключить микрофон</button><button id="voice-mute" class="pill soft" aria-pressed="false">Без звука</button><button id="voice-interrupt" class="pill soft">Перебить</button><button id="voice-resume" class="pill soft" hidden>Продолжить аудио</button></div>
+ <div class="voice-controls"><button id="voice-start" class="pill">Начать разговор</button><button id="voice-stop" class="pill soft">Стоп разговор</button><button id="voice-pause" class="pill soft" aria-pressed="false" hidden>Выключить микрофон</button><button id="voice-mute" class="pill soft" aria-pressed="false">Без звука</button><button id="voice-interrupt" class="pill soft">Перебить</button><button id="voice-resume" class="pill soft" hidden>Продолжить аудио</button></div>
  <p id="voice-reason" class="meta"></p>
  <p id="voice-notice" class="meta" role="status"></p><button id="voice-retry" class="pill soft" hidden>Повторить</button>
  <div id="voice-history" aria-label="Общая история с агентом" tabindex="0"></div>
@@ -2652,7 +2667,7 @@ function voiceAttempt(previous,text,context,request){return previous||{request,t
 function voiceInput(text){return String(text||'').replace(/^\[Голосовой запрос[^\n]*\]\s*\n?/,'');}
 // VOICE_CORE_END
 const V={panel:$('voice'),session:false,starting:false,paused:false,interrupted:false,stream:null,ac:null,source:null,analyser:null,samples:null,recorder:null,vad:null,timer:0,heartbeat:0,epoch:0,started:0,idleSince:0,available:false,stt:false,offline:navigator.onLine===false,poll:0,polling:false,sending:false,transcribing:false,capture:null,turns:[],runs:[],queue:[],speech:null,speechEpoch:0,recent:[],lockId:null,task:null,opener:null};
-const voiceLabels={idle:'Готов',starting:'Включаю микрофон…',listening:'Слушаю…',hearing:'Слышу вас…',transcribing:'Распознаю…',thinking:'Агент отвечает…',speaking:'Озвучиваю ответ…',paused:'Микрофон выключен',error:'Ошибка',offline:'Нет связи · переподключаюсь…'};
+const voiceLabels={idle:'Готов',starting:'Включаю микрофон…',listening:'Слушаю…',hearing:'Слышу вас…',transcribing:'Распознаю…',thinking:'Агент отвечает…',speaking:'Озвучиваю ответ…',paused:'Микрофон на паузе',error:'Ошибка',offline:'Нет связи · переподключаюсь…'};
 let voiceMuted=false;try{voiceMuted=localStorage.getItem('svodka-voice-mute')==='1';}catch{}
 function voiceState(state,message){
  const prev=V.panel.dataset.state;V.panel.dataset.state=state;const label=message||voiceLabels[state];if($('voice-status').textContent!==label)$('voice-status').textContent=label;
@@ -2661,7 +2676,9 @@ function voiceState(state,message){
  $('voice-pause').disabled=!V.session;$('voice-pause').textContent=V.paused?'Включить микрофон':'Выключить микрофон';$('voice-pause').setAttribute('aria-pressed',String(V.paused));
  $('voice-interrupt').disabled=!V.speech&&!V.queue.length&&!V.turns.some(t=>t.id&&!t.finished&&t.say);
  $('voice-mic-live').hidden=!(V.stream&&V.stream.getTracks().some(t=>t.readyState==='live'));
- $('voice-mic-live').textContent=V.paused?'● Микрофон включён · звук выключен':'● Микрофон включён';
+ $('voice-mic-live').textContent='● Микрофон включён';
+ $('voice-main').textContent=V.session||V.starting?'Стоп':'Говорить';$('voice-main').disabled=!V.session&&!V.starting&&!V.stt;$('voice-main').setAttribute('aria-pressed',String(V.session||V.starting));
+ if(!['listening','hearing','speaking'].includes(state))$('voice-level').style?.setProperty('--lvl','0');
  $('voice-send').disabled=V.turns.filter(t=>!t.id&&!t.finished).length>=4;$('voice-context').textContent='Контекст: '+voiceContext();
 }
 function voiceNotice(text,retry=false){$('voice-notice').textContent=text;$('voice-retry').hidden=!retry;}
@@ -2681,12 +2698,22 @@ async function voiceJSON(url,options={},timeout=15000){
  try{r=await fetch(url,{cache:'no-store',...options,signal:controller.signal});const j=await r.json();if(!r.ok){const e=new Error(j.error||('Ошибка HTTP '+r.status));e.status=r.status;throw e;}return j;}
  catch(e){if(!e.status)e.network=true;throw e;}finally{clearTimeout(timer);}
 }
-function voiceCollapse(value){V.panel.dataset.collapsed=String(value);$('voice-body').hidden=value;document.body.dataset.voiceDock=String(!V.panel.hidden&&!value);$('voice-collapse').textContent=value?'+':'−';$('voice-collapse').setAttribute('aria-label',value?'Развернуть панель':'Свернуть панель');$('voice-collapse').setAttribute('aria-expanded',String(!value));if(typeof resizeCanvas==='function')requestAnimationFrame(()=>{resizeCanvas();redraw();});}
+function voiceCollapse(value){V.panel.dataset.collapsed=String(value);$('voice-body').hidden=value;document.body.dataset.voiceDock=String(!V.panel.hidden&&!value);$('voice-collapse').textContent=value?'Подробнее':'Свернуть';$('voice-collapse').setAttribute('aria-label',value?'Показать историю и настройки':'Свернуть подробности');$('voice-collapse').setAttribute('aria-expanded',String(!value));if(typeof resizeCanvas==='function')requestAnimationFrame(()=>{resizeCanvas();redraw();});}
+async function voiceCheck(){
+ try{const v=await voiceJSON('/api/voice');V.checked=true;V.stt=!!(v.stt&&window.isSecureContext&&navigator.mediaDevices&&navigator.mediaDevices.getUserMedia&&window.MediaRecorder&&(window.AudioContext||window.webkitAudioContext));$('voice-reason').textContent=v.reason+(V.stt?'':' · Микрофон недоступен: используйте текст.')+' · '+(v.realtime_reason||'');voiceRest();}catch(e){V.offline=!!e.network;voiceNotice(e.message,true);voiceRest();}
+}
 async function voiceOpen(){
  V.opener=document.activeElement;V.panel.hidden=false;$('voice-btn').setAttribute('aria-expanded','true');voiceCollapse(false);$('voice-start').focus();voiceRest();voicePoll();const other=voiceLockRead();if(other&&other.id!==V.lockId&&other.until>Date.now())voiceNotice('Разговор уже идёт в другой вкладке');
- try{const v=await voiceJSON('/api/voice');V.stt=!!(v.stt&&window.isSecureContext&&navigator.mediaDevices&&navigator.mediaDevices.getUserMedia&&window.MediaRecorder&&(window.AudioContext||window.webkitAudioContext));$('voice-reason').textContent=v.reason+(V.stt?'':' · Микрофон недоступен: используйте текст.')+' · '+(v.realtime_reason||'');voiceRest();}catch(e){V.offline=!!e.network;voiceNotice(e.message,true);voiceRest();}
+ await voiceCheck();
 }
-function voiceToggle(){if(V.panel.hidden)voiceOpen();else voiceCollapse(V.panel.dataset.collapsed!=='true');}
+// One tap: start talking in a compact strip; tap again: stop and release the microphone.
+async function voiceQuick(){
+ if(V.session||V.starting){voiceStop('Разговор остановлен');return;}
+ V.opener=document.activeElement;const opened=V.panel.hidden;V.panel.hidden=false;$('voice-btn').setAttribute('aria-expanded','true');if(opened)voiceCollapse(true);voiceRest();voicePoll();
+ if(!V.checked)await voiceCheck();
+ if(V.stt)voiceStart();else{voiceCollapse(false);$('voice-text').focus();}
+}
+function voiceToggle(){voiceQuick();}
 const VOICE_LOCK='svodka-voice-lock';let voiceChannel=null;
 try{if(window.BroadcastChannel)voiceChannel=new BroadcastChannel(VOICE_LOCK);}catch{}
 function voiceLockRead(){try{return JSON.parse(localStorage.getItem(VOICE_LOCK)||'null');}catch{return null;}}
@@ -2739,6 +2766,7 @@ function voiceTick(){
  const speaking=!!V.speech;
  if(!speaking&&!V.recorder&&V.panel.dataset.state!=='listening')return;
  V.analyser.getByteTimeDomainData(V.samples);let power=0;for(const n of V.samples)power+=((n-128)/128)**2;const rms=Math.sqrt(power/V.samples.length);
+ $('voice-level').style?.setProperty('--lvl',Math.min(1,rms*8).toFixed(2));
  if(speaking&&(!V.vad||V.vad.mode!=='speaking'))V.vad={mode:'speaking'};
  const step=vadStep(V.vad||{mode:'listening'},rms,now);V.vad=step.state;
  if(step.event==='barge')voiceInterrupt();else if(step.event==='start')voiceHear();else if(step.event==='end'||step.event==='discard')voiceEndUtterance(step.event==='discard',step.state.lastVoice);
@@ -2805,7 +2833,7 @@ function voicePlay(){
  try{window.speechSynthesis.speak(u);}catch(e){u.onerror(e);}
 }
 function voiceRenderHistory(){
- const history=$('voice-history'),bottom=history.scrollHeight-history.scrollTop-history.clientHeight<60,rows=V.runs.map(r=>({key:'r'+r.id,input:voiceInput(r.input),output:r.output||'',meta:statusLabel(r.status)+(r.model?' · '+r.model:'')+(r.error?' · '+r.error:'')+(r.truncated?' · Показана часть ответа':'')}));
+ const history=$('voice-history'),bottom=history.scrollHeight-history.scrollTop-history.clientHeight<60,rows=V.runs.filter(r=>!/SVODKA_[A-Z_]*OK/.test(String(r.input)+String(r.output))).map(r=>({key:'r'+r.id,input:voiceInput(r.input),output:r.output||'',meta:statusLabel(r.status)+(r.model?' · '+r.model:'')+(r.error?' · '+r.error:'')+(r.truncated?' · Показана часть ответа':'')}));
  for(const t of V.turns)if(!t.id||!V.runs.some(r=>r.id===t.id))rows.push({key:t.attempt.request,input:t.text,output:'',meta:t.error|| (t.id?'Принят агентом':t.held?'Остановлено · нажмите «Повторить»':t.ambiguous?'Проверяю результат отправки…':'В очереди')});
  const signature=JSON.stringify(rows);if(signature===V.historySignature)return;V.historySignature=signature;
  history.replaceChildren(...rows.map(r=>el('article',{},el('p',{class:'voice-input',text:r.input}),el('button',{class:'pill soft',type:'button',text:'Исправить','aria-label':'Исправить текст реплики',onclick:()=>{$('voice-text').value=r.input;$('voice-text').focus();}}),el('p',{class:'voice-output',text:r.output}),el('div',{class:'meta',text:r.meta}))));if(bottom)history.scrollTop=history.scrollHeight;
@@ -2843,7 +2871,11 @@ async function voicePoll(){
  }catch(e){V.offline=!!e.network;voiceNotice('История: '+e.message,true);voiceState(V.offline?'offline':'error');}
  finally{V.polling=false;if(!document.hidden&&(!V.panel.hidden||V.session||V.turns.some(t=>!t.finished&&!t.held)))voiceSchedule(V.offline?3000:V.session||V.turns.some(t=>!t.finished&&!t.held)?700:2500);}
 }
-$('voice-btn').onclick=voiceToggle;$('voice-collapse').onclick=()=>voiceCollapse(V.panel.dataset.collapsed!=='true');
+$('voice-btn').onclick=voiceToggle;$('voice-main').onclick=()=>V.session||V.starting?voiceStop('Разговор остановлен'):voiceStart();
+// Check the microphone path once up front so the first tap can start in the same gesture (iOS audio unlock).
+voiceCheck();
+addEventListener('focusin',e=>{if(e.target.matches('input,textarea,[contenteditable]')&&e.target.id!=='voice-text')document.body.dataset.typing='true';});
+addEventListener('focusout',()=>{delete document.body.dataset.typing;});$('voice-collapse').onclick=()=>voiceCollapse(V.panel.dataset.collapsed!=='true');
 $('voice-close').onclick=()=>{voiceStop();V.panel.hidden=true;voiceCollapse(false);$('voice-btn').setAttribute('aria-expanded','false');if(V.opener)V.opener.focus();};
 $('voice-start').onclick=voiceStart;$('voice-stop').onclick=()=>voiceStop();$('voice-pause').onclick=voicePause;$('voice-interrupt').onclick=voiceInterrupt;$('voice-resume').onclick=voiceResumeAudio;
 $('voice-mute').setAttribute('aria-pressed',String(voiceMuted));$('voice-mute').onclick=()=>{voiceMuted=!voiceMuted;$('voice-mute').setAttribute('aria-pressed',String(voiceMuted));try{localStorage.setItem('svodka-voice-mute',voiceMuted?'1':'0');}catch{}if(voiceMuted){for(const t of V.turns)t.say=false;voiceCancelAudio();V.turns.forEach(voiceMetrics);}voiceRest();};
