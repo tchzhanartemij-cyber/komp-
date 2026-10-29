@@ -159,3 +159,49 @@ print(os.environ.get('VOICE_JSON','{}'))
             self.assertEqual(self.diagnostic('/api/client-log',dict(message='latest'))[0],200)
         rows=[json.loads(s) for s in target.read_text().splitlines()];self.assertEqual(len(rows),200);self.assertEqual(rows[0]['message'],'1');self.assertEqual(rows[-1]['message'],'latest')
         self.assertEqual(target.stat().st_mode&0o777,0o600)
+
+
+class LiveTalk(unittest.TestCase):
+    """The live voice relay with a fake call helper: secrets stay server-side, one call at a time."""
+    def setUp(self):
+        import shutil
+        if not shutil.which('node'):
+            self.skipTest('node unavailable')
+        self.tmp = tempfile.TemporaryDirectory(); self.root = Path(self.tmp.name)
+        helper = self.root / 'helper.mjs'
+        helper.write_text('''import {createInterface} from 'node:readline';
+const say=o=>process.stdout.write(JSON.stringify(o)+'\\n');
+say({ready:true,model:'gpt-live-1-codex',voice:'cove',clientSecret:'never-sent'});
+createInterface({input:process.stdin}).on('line',l=>{const m=JSON.parse(l);if(m.close)process.exit(0);if(m.offer)say(m.offer.includes('audio')?{answer:'v=0 answer'}:{error:'нет звука'});}).on('close',()=>process.exit(0));''')
+        (self.root / 'sdk.js').write_text(''); (self.root / 'token').write_text('t')
+        self.env = patch.dict(os.environ, dict(SVODKA_AGENT_TRUSTED_PROXY='1', SVODKA_AGENT_TOKEN_FILE=str(self.root / 'token'), SVODKA_OPENCLAW_SDK=str(self.root / 'sdk.js'), PATH=os.environ.get('PATH', '/usr/bin:/bin')), clear=True); self.env.start()
+        self.patches = [patch.object(server, 'TALK_HELPER', helper), patch.object(server, 'TOKEN_FILE', self.root / 'missing'), patch.object(server, 'agent_service', server.Agent(self.root / 'agent'))]
+        for p in self.patches: p.start()
+    def tearDown(self):
+        server.talk_end()
+        for p in self.patches: p.stop()
+        self.env.stop(); self.tmp.cleanup()
+    def call(self, path, body=b'', ctype='application/json'):
+        h = object.__new__(server.Handler); h.path = path
+        h.headers = {'Host': 'panel.test', 'Origin': 'https://panel.test', 'Content-Type': ctype, 'Content-Length': str(len(body))}
+        h.rfile = io.BytesIO(body); sent = []; raw = []
+        h.send_json = lambda code, data: sent.append((code, data))
+        h.send_response = lambda code: raw.append(code); h.send_header = lambda *a: None; h.end_headers = lambda: None
+        h.wfile = io.BytesIO(); h.do_POST()
+        return sent[-1] if sent else (raw[-1], h.wfile.getvalue().decode())
+    def test_start_offer_end(self):
+        code, data = self.call('/api/jarvis/talk', b'{}')
+        self.assertEqual(code, 200); self.assertEqual(data['model'], 'gpt-live-1-codex'); self.assertNotIn('never-sent', json.dumps(data))
+        self.assertEqual(self.call('/api/jarvis/offer?id=' + data['id'], b'v=0 m=audio x', 'application/sdp'), (200, 'v=0 answer'))
+        self.assertEqual(self.call('/api/jarvis/offer?id=nope', b'v=0 m=audio x', 'application/sdp')[0], 410)
+        second = self.call('/api/jarvis/talk', b'{}')[1]['id']
+        self.assertEqual(list(server.talk_calls), [second])
+        self.assertEqual(self.call('/api/jarvis/end?id=' + second), (200, {'ok': True})); self.assertEqual(server.talk_calls, {})
+    def test_offer_without_audio_and_foreign_origin(self):
+        sid = self.call('/api/jarvis/talk', b'{}')[1]['id']
+        code, data = self.call('/api/jarvis/offer?id=' + sid, b'v=0 nothing here', 'application/sdp')
+        self.assertEqual((code, data['error']), (502, 'нет звука'))
+        h = object.__new__(server.Handler); h.path = '/api/jarvis/talk'; sent = []
+        h.headers = {'Host': 'panel.test', 'Origin': 'https://evil.test', 'Content-Type': 'application/json', 'Content-Length': '2'}
+        h.rfile = io.BytesIO(b'{}'); h.send_json = lambda c, d: sent.append(c); h.do_POST()
+        self.assertEqual(sent[-1], 403)

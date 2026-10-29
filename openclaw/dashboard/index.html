@@ -2699,7 +2699,7 @@ const V={panel:$('voice'),session:false,starting:false,paused:false,interrupted:
 const voiceLabels={idle:'Готов',starting:'Включаю микрофон…',listening:'Слушаю…',hearing:'Слышу вас…',transcribing:'Распознаю…',thinking:'Агент отвечает…',speaking:'Озвучиваю ответ…',paused:'Микрофон на паузе',error:'Ошибка',offline:'Нет связи · переподключаюсь…'};
 let voiceMuted=false;try{voiceMuted=localStorage.getItem('svodka-voice-mute')==='1';}catch{}
 function voiceState(state,message){
- const prev=V.panel.dataset.state;V.panel.dataset.state=state;jarvisState(state,message);const label=message||voiceLabels[state];if($('voice-status').textContent!==label)$('voice-status').textContent=label;
+ const prev=V.panel.dataset.state;V.panel.dataset.state=state;if(typeof LT==='undefined'||!LT.pc)jarvisState(state,message);const label=message||voiceLabels[state];if($('voice-status').textContent!==label)$('voice-status').textContent=label;
  if(state==='listening'&&prev!=='listening'&&prev!=='hearing')V.idleSince=performance.now();
  $('voice-start').disabled=V.session||V.starting||!V.stt;$('voice-stop').disabled=!V.session&&!V.starting&&!V.speech&&!V.turns.some(t=>!t.finished);
  $('voice-pause').disabled=!V.session;$('voice-pause').textContent=V.paused?'Включить микрофон':'Выключить микрофон';$('voice-pause').setAttribute('aria-pressed',String(V.paused));
@@ -2738,6 +2738,7 @@ async function voiceOpen(){
 // One tap opens a hands-free conversation: it listens, notices the pause, answers aloud and listens again.
 async function voiceQuick(){
  jarvisUnlock();jarvisOpen();
+ if(liveSupported()){if(!LT.pc)liveStart();return;}
  if(V.session||V.starting)return;
  voicePoll();if(!V.checked)await voiceCheck();
  if(V.stt)voiceStart();else jarvisState('error','Микрофон недоступен в этом браузере. Напишите Джарвису в чат.');
@@ -2926,14 +2927,57 @@ async function voicePoll(){
 const JARVIS_TEXT={idle:'Нажмите на сферу, чтобы поговорить',starting:'Подключаюсь…',listening:'Слушаю',hearing:'Слушаю…',transcribing:'Думаю…',thinking:'Думаю…',speaking:'Говорю',paused:'Микрофон выключен',offline:'Нет связи · переподключаюсь…',error:'Не получилось'};
 const JARVIS_COLORS={idle:['#cfd8ff','#5b6cff'],starting:['#d8e8ff','#4c7dff'],listening:['#d9f6ff','#2f9bff'],hearing:['#e6fbff','#20b8ff'],transcribing:['#efe6ff','#8b5cff'],thinking:['#efe6ff','#8b5cff'],speaking:['#e2fff4','#18c39a'],paused:['#e4e6ee','#7c8296'],offline:['#e4e6ee','#7c8296'],error:['#ffe3e3','#e5484d']};
 const J={frame:0,level:0,color:null};
+// Live conversation: OpenClaw Talk realtime (WebRTC). Jarvis keeps tools, memory and the main session on the Gateway.
+var LT={pc:null,stream:null,audio:null,ac:null,mic:null,remote:null,buf:null,muted:false,shown:'',since:0};
+function liveSupported(){return !!(window.RTCPeerConnection&&navigator.mediaDevices?.getUserMedia);}
+function liveLevel(an){if(!an)return 0;an.getByteTimeDomainData(LT.buf);let p=0;for(const n of LT.buf)p+=((n-128)/128)**2;return Math.sqrt(p/LT.buf.length);}
+function liveMeter(stream){try{const an=LT.ac.createAnalyser();an.fftSize=1024;LT.ac.createMediaStreamSource(stream).connect(an);LT.buf=LT.buf||new Uint8Array(an.fftSize);return an;}catch{return null;}}
+async function liveStart(){
+ if(LT.pc)return;LT.muted=false;jarvisState('starting');$('jarvis-caption').textContent='';
+ try{
+  const stream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true,noiseSuppression:true,autoGainControl:true}});LT.stream=stream;
+  const r=await fetch('/api/jarvis/talk',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'}),j=await r.json().catch(()=>({}));
+  if(!r.ok)throw new Error(j.error||'Джарвис не открыл голосовую сессию');
+  LT.id=j.id;const pc=new RTCPeerConnection();LT.pc=pc;
+  stream.getTracks().forEach(t=>pc.addTrack(t,stream));
+  pc.ontrack=e=>{const remote=e.streams[0]||new MediaStream([e.track]);LT.audio.srcObject=remote;LT.audio.play().catch(()=>{});LT.remote=liveMeter(remote);};
+  pc.onconnectionstatechange=()=>{if(LT.pc!==pc)return;const st=pc.connectionState;if(st==='connected')jarvisState('listening');else if(st==='failed'||st==='closed')liveStop(st==='failed'?'Связь с голосом потеряна. Нажмите на сферу, чтобы подключиться снова.':'');};
+  const offer=await pc.createOffer();await pc.setLocalDescription(offer);
+  const a=await fetch('/api/jarvis/offer?id='+encodeURIComponent(j.id),{method:'POST',headers:{'Content-Type':'application/sdp'},body:offer.sdp});
+  if(!a.ok)throw new Error((await a.json().catch(()=>({}))).error||'Голос не подключился');
+  if(LT.pc!==pc)return;
+  await pc.setRemoteDescription({type:'answer',sdp:await a.text()});
+  LT.mic=liveMeter(stream);
+  $('jarvis-caption').textContent=j.model?'Живой голос · '+j.model:'';
+ }catch(e){liveStop(e.name==='NotAllowedError'?'Доступ к микрофону запрещён: разрешите его в настройках Safari':e.message||'Голос не подключился');}
+}
+function liveStop(message){
+ const pc=LT.pc,id=LT.id;LT.pc=null;LT.id='';try{pc?.close();}catch{}
+ if(id)fetch('/api/jarvis/end?id='+encodeURIComponent(id),{method:'POST',keepalive:true}).catch(()=>{});
+ LT.stream?.getTracks().forEach(t=>t.stop());LT.stream=null;LT.mic=LT.remote=null;
+ if(LT.audio){LT.audio.pause();LT.audio.srcObject=null;}
+ jarvisState(message?'error':'idle',message||'Нажмите на сферу, чтобы поговорить');
+}
+addEventListener('pagehide',()=>{if(LT.pc)liveStop();});
+function liveTick(){
+ // The sphere follows real audio: Jarvis speaking, you speaking, or quiet listening.
+ if(!LT.pc||LT.pc.connectionState!=='connected')return;
+ const you=LT.muted?0:liveLevel(LT.mic),him=liveLevel(LT.remote);V.level=him>.02?him*1.4:you;
+ const state=LT.muted?'paused':him>.02?'speaking':you>.03?'hearing':'listening',now=performance.now();
+ if(state!==LT.shown&&(now-LT.since>350||state==='speaking')){LT.shown=state;LT.since=now;jarvisState(state);}
+}
 function jarvisState(state,message){
  const box=$('jarvis');if(!box)return;box.dataset.state=state;
  $('jarvis-state').textContent=['idle','error','paused','offline'].includes(state)&&message?message:JARVIS_TEXT[state]||'';
  if(state==='hearing'||state==='listening')$('jarvis-caption').textContent=state==='listening'&&!V.speech?$('jarvis-caption').textContent:'';
- $('jarvis-mute').setAttribute('aria-pressed',String(!!V.paused));$('jarvis-mute').setAttribute('aria-label',V.paused?'Включить микрофон':'Выключить микрофон');$('jarvis-mute').disabled=!V.session;
- const vb=$('voice-btn'),live=!!(V.session&&box.hidden);vb.className=String(vb.className||'').replace(/\s*\blive\b/g,'')+(live?' live':'');
+ const paused=LT.pc?LT.muted:!!V.paused;$('jarvis-mute').setAttribute('aria-pressed',String(paused));$('jarvis-mute').setAttribute('aria-label',paused?'Включить микрофон':'Выключить микрофон');$('jarvis-mute').disabled=!(LT.pc||V.session);
+ const vb=$('voice-btn'),live=!!((V.session||LT.pc)&&box.hidden);vb.className=String(vb.className||'').replace(/\s*\blive\b/g,'')+(live?' live':'');
 }
 function jarvisUnlock(){
+ // Created inside the tap so iOS allows the live voice to play and the meters to run.
+ if(!LT.audio){LT.audio=new Audio();LT.audio.autoplay=true;LT.audio.setAttribute('playsinline','');}
+ try{if(!LT.ac){const A=window.AudioContext||window.webkitAudioContext;if(A)LT.ac=new A();}LT.ac?.resume();}catch{}
+ LT.audio.play().catch(()=>{});
  // iOS lets a page play audio only after it started playback inside a tap.
  if(!V.audio){V.audio=new Audio();V.audio.setAttribute('playsinline','');}
  try{V.audio.muted=true;V.audio.src='data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=';V.audio.play().catch(()=>{}).finally(()=>{V.audio.muted=false;});}catch{}
@@ -2944,7 +2988,7 @@ function jarvisDraw(now){
  J.frame=0;const box=$('jarvis');if(box.hidden||document.hidden)return;
  const c=$('jarvis-orb'),dpr=Math.min(2,window.devicePixelRatio||1),w=c.clientWidth,h=c.clientHeight;if(c.width!==Math.round(w*dpr)){c.width=Math.round(w*dpr);c.height=Math.round(h*dpr);}
  const g=c.getContext('2d'),state=box.dataset.state,t=now/1000,still=RM.matches;
- const target=['listening','hearing'].includes(state)?Math.min(1,(V.level||0)*9):state==='speaking'?.35+.25*Math.abs(Math.sin(t*5.3))*Math.abs(Math.sin(t*2.1)):0;
+ liveTick();const target=LT.pc&&['listening','hearing','speaking'].includes(state)?Math.min(1,(V.level||0)*9):['listening','hearing'].includes(state)?Math.min(1,(V.level||0)*9):state==='speaking'?.35+.25*Math.abs(Math.sin(t*5.3))*Math.abs(Math.sin(t*2.1)):0;
  J.level+=(target-J.level)*.18;
  const [light,base]=JARVIS_COLORS[state]||JARVIS_COLORS.idle,R=Math.min(c.width,c.height)*.32*(1+J.level*.12),cx=c.width/2,cy=c.height/2;
  g.clearRect(0,0,c.width,c.height);
@@ -2955,10 +2999,10 @@ function jarvisDraw(now){
  g.globalAlpha=.35;g.beginPath();g.ellipse(cx-R*.3,cy-R*.42,R*.32,R*.16,-.5,0,Math.PI*2);g.fillStyle='#fff';g.fill();g.globalAlpha=1;
  J.frame=requestAnimationFrame(jarvisDraw);
 }
-$('jarvis-orb').onclick=()=>{if(V.speech||V.queue.length)voiceInterrupt();else if(!V.session&&!V.starting){jarvisUnlock();voiceStart();}};
-$('jarvis-mute').onclick=()=>{voicePause();jarvisState(V.panel.dataset.state||'idle');};
+$('jarvis-orb').onclick=()=>{if(liveSupported()){if(!LT.pc){jarvisUnlock();liveStart();}return;}if(V.speech||V.queue.length)voiceInterrupt();else if(!V.session&&!V.starting){jarvisUnlock();voiceStart();}};
+$('jarvis-mute').onclick=()=>{if(LT.pc){LT.muted=!LT.muted;LT.stream?.getAudioTracks().forEach(t=>t.enabled=!LT.muted);LT.shown='';jarvisState(LT.muted?'paused':'listening');return;}voicePause();jarvisState(V.panel.dataset.state||'idle');};
 $('jarvis-min').onclick=()=>{jarvisClose();V.opener?.focus?.();};
-$('jarvis-end').onclick=()=>{voiceStop('Разговор завершён');jarvisClose();$('voice-btn').focus();};
+$('jarvis-end').onclick=()=>{if(LT.pc)liveStop();else voiceStop('Разговор завершён');jarvisClose();$('voice-btn').focus();};
 $('jarvis-history').onclick=()=>{jarvisClose();voiceOpen();};
 $('jarvis').addEventListener('keydown',e=>{if(e.key==='Escape')$('jarvis-min').click();});
 $('voice-btn').onclick=voiceToggle;

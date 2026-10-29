@@ -58,6 +58,7 @@ import io
 import json
 import math
 import os
+import queue
 import re
 import secrets
 import shutil
@@ -402,6 +403,48 @@ CONF = Path.home() / ".config/jarvis"
 ELEVEN_FILE = CONF / "elevenlabs.env"   # ELEVENLABS_API_KEY=..., optional ELEVENLABS_VOICE_ID / ELEVENLABS_MODEL
 ELEVEN_VOICE = "JBFqnCBsd6RMkjVDRZzb"   # premade multilingual male voice; speaks Russian with flash v2.5
 eleven_pause = {"until": 0.0, "reason": ""}
+# Live voice: one OpenClaw Talk realtime call at a time, held open by talk_helper.mjs.
+# The Gateway client secret never reaches the browser; only the SDP offer and answer pass through.
+talk_calls = {}
+talk_lock = threading.Lock()
+TALK_HELPER = Path(__file__).resolve().parent / "talk_helper.mjs"
+
+
+def talk_reader(proc, lines):
+    for line in proc.stdout:
+        lines.put(line)
+    lines.put(None)
+
+
+def talk_next(call, timeout):
+    """Next JSON message from a call helper, or None when it ended or went quiet."""
+    deadline = time.monotonic() + timeout
+    while True:
+        try:
+            line = call["lines"].get(timeout=max(0.05, deadline - time.monotonic()))
+        except queue.Empty:
+            return None
+        if line is None:
+            return None
+        try:
+            msg = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(msg, dict):
+            return msg
+
+
+def talk_end(sid=None):
+    with talk_lock:
+        ended = [talk_calls.pop(k) for k in list(talk_calls) if sid is None or k == sid]
+    for call in ended:
+        proc = call["proc"]
+        try:
+            proc.stdin.write(b'{"close":true}\n')
+            proc.stdin.close()
+            proc.wait(timeout=4)
+        except (OSError, ValueError, subprocess.TimeoutExpired):
+            proc.kill()
 tts_semaphore = threading.Semaphore(2)
 
 
@@ -419,6 +462,10 @@ def eleven_config():
     if not re.fullmatch(r"[A-Za-z0-9]{10,40}", voice) or not re.fullmatch(r"[a-z0-9_]{3,40}", model):
         return "", ELEVEN_VOICE, "eleven_flash_v2_5"
     return key.strip(), voice, model
+
+
+def model_name_safe(value):
+    return value if isinstance(value, str) and re.fullmatch(r"[A-Za-z0-9._:/-]{1,80}", value) else None
 
 
 def tts_status():
@@ -1143,6 +1190,82 @@ class Handler(BaseHTTPRequestHandler):
         except ValueError:
             return False
 
+    def talk_start(self):
+        def fail(code, msg):
+            self.send_json(code, {'error': msg})
+        if not self.same_origin(required=True):
+            return fail(403, 'Источник запроса не совпадает с панелью')
+        if not self.agent_protected():
+            return fail(503, 'Голос запрещён: требуется защита панели')
+        node = shutil.which('node') or '/usr/bin/node'
+        sdk = os.environ.get('SVODKA_OPENCLAW_SDK') or str(Path.home() / '.npm-global/lib/node_modules/openclaw/dist/plugin-sdk/gateway-runtime.js')
+        token = os.environ.get('SVODKA_AGENT_TOKEN_FILE', '')
+        if not (Path(node).is_file() and Path(sdk).is_file() and token and TALK_HELPER.is_file()):
+            return fail(503, 'Живой голос не настроен на сервере')
+        try:
+            key = agent_service.canonical() or 'main'
+        except Unavailable:
+            key = 'main'
+        talk_end()  # one call at a time: a new tap replaces an abandoned call
+        env = {'PATH': os.environ.get('PATH', '/usr/bin:/bin'), 'HOME': str(Path.home()), 'TOKEN_FILE': token, 'OPENCLAW_SDK': sdk,
+               'SESSION_KEY': key, 'GATEWAY_URL': os.environ.get('SVODKA_AGENT_URL', 'http://127.0.0.1:18789/')}
+        try:
+            proc = subprocess.Popen([node, str(TALK_HELPER)], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, env=env, cwd=str(TALK_HELPER.parent))
+        except OSError:
+            return fail(503, 'Не удалось запустить живой голос')
+        call = {'proc': proc, 'lines': queue.Queue()}
+        threading.Thread(target=talk_reader, args=(proc, call['lines']), daemon=True).start()
+        msg = talk_next(call, 20)
+        if not msg or not msg.get('ready'):
+            proc.kill()
+            return fail(502, (msg or {}).get('error') or 'Джарвис не открыл голосовую сессию')
+        sid = secrets.token_hex(12)
+        with talk_lock:
+            talk_calls[sid] = call
+        self.send_json(200, {'id': sid, 'model': model_name_safe(msg.get('model')), 'voice': model_name_safe(msg.get('voice'))})
+
+    def talk_offer(self):
+        def fail(code, msg):
+            self.send_json(code, {'error': msg})
+        if not self.same_origin(required=True):
+            return fail(403, 'Источник запроса не совпадает с панелью')
+        if self.headers.get('Content-Type', '').split(';', 1)[0].strip().lower() != 'application/sdp':
+            return fail(415, 'Требуется application/sdp')
+        sid = parse_qs(urlsplit(self.path).query).get('id', [''])[0]
+        with talk_lock:
+            call = talk_calls.get(sid)
+        if not call or call['proc'].poll() is not None:
+            return fail(410, 'Голосовая сессия устарела, начните заново')
+        try:
+            n = int(self.headers.get('Content-Length', ''))
+        except ValueError:
+            return fail(400, 'Неверная длина')
+        if not 10 <= n <= 64 * 1024:
+            return fail(413, 'Неверный размер SDP')
+        sdp = self.rfile.read(n).decode('utf-8', 'replace')
+        try:
+            call['proc'].stdin.write((json.dumps({'offer': sdp}) + '\n').encode())
+            call['proc'].stdin.flush()
+        except (OSError, ValueError):
+            return fail(502, 'Голосовая сессия закрылась')
+        msg = talk_next(call, 25)
+        if not msg or not isinstance(msg.get('answer'), str):
+            talk_end(sid)
+            return fail(502, (msg or {}).get('error') or 'Голосовой сервер не ответил')
+        answer = msg['answer'].encode()
+        self.send_response(200)
+        self.send_header('Content-Type', 'application/sdp')
+        self.send_header('Cache-Control', 'no-store')
+        self.send_header('Content-Length', str(len(answer)))
+        self.end_headers()
+        self.wfile.write(answer)
+
+    def talk_stop(self):
+        if not self.same_origin(required=True):
+            return self.send_json(403, {'error': 'Источник запроса не совпадает с панелью'})
+        talk_end(parse_qs(urlsplit(self.path).query).get('id', [''])[0] or None)
+        self.send_json(200, {'ok': True})
+
     def voice_status(self):
         limits = dict(max_bytes=VOICE_MAX_BYTES, max_seconds=60, vad=True, max_utterance_seconds=30, session_max_minutes=15,
                       realtime=False, realtime_reason='Нативный realtime speech-to-speech не подключён: нужен платный провайдер')
@@ -1610,6 +1733,15 @@ class Handler(BaseHTTPRequestHandler):
             return
         if urlsplit(self.path).path == "/api/voice/speak":
             self.speak()
+            return
+        if urlsplit(self.path).path == "/api/jarvis/talk":
+            self.talk_start()
+            return
+        if urlsplit(self.path).path == "/api/jarvis/offer":
+            self.talk_offer()
+            return
+        if urlsplit(self.path).path == "/api/jarvis/end":
+            self.talk_stop()
             return
         if urlsplit(self.path).path == "/api/agent/send":
             if self.headers.get("Content-Type", "").split(";", 1)[0].strip().lower() != "application/json":
