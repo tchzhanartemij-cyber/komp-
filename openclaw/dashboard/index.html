@@ -864,8 +864,7 @@ dialog[open] { animation: pop .4s var(--spring); }
 #voice[data-state="transcribing"] #voice-level,#voice[data-state="thinking"] #voice-level,#voice[data-state="starting"] #voice-level { background:var(--warn); }
 #voice[data-state="speaking"] #voice-level { background:var(--accent); } #voice[data-state="error"] #voice-level { background:var(--bad); }
 #voice-main { min-width:92px; }
-@media (max-width:760px) { #voice[data-collapsed="true"] { left:50%; right:auto; transform:translateX(-50%); bottom:calc(88px + env(safe-area-inset-bottom,0px)); }
- body[data-typing="true"] #voice[data-collapsed="true"] { display:none; } }
+@media (max-width:760px) { body[data-typing="true"] #voice[data-collapsed="true"] { display:none; } }
 @media (prefers-reduced-motion:reduce) { #voice-level { transition:none; transform:none; } }
 #voice h2 { font-size:17px; margin:0; } #voice h3 { font-size:14px; }
 .voice-head { display:flex; align-items:center; justify-content:space-between; gap:12px; }
@@ -875,16 +874,16 @@ dialog[open] { animation: pop .4s var(--spring); }
 #voice-history { max-height:30vh; overflow:auto; overflow-wrap:anywhere; } #voice-history article { border-top:1px solid var(--rule); padding:10px 0; }
 #voice-history .voice-output,#voice-history .voice-input { white-space:pre-wrap; font-size:13px; margin:6px 0; }
 #voice-history .voice-input { font-weight:600; } #voice-notice { overflow-wrap:anywhere; }
-@media(max-width:700px){#voice{right:8px;left:8px;bottom:calc(78px + env(safe-area-inset-bottom,0px));width:auto;max-height:70vh;max-height:70dvh;border-radius:20px;}#voice[data-collapsed="true"]{left:auto;}#voice-history{max-height:22vh;}}
+@media(max-width:700px){#voice{right:8px;left:8px;bottom:calc(78px + env(safe-area-inset-bottom,0px));width:auto;max-height:70vh;max-height:70dvh;border-radius:20px;}#voice[data-collapsed="true"]{left:10px;right:10px;bottom:calc(88px + env(safe-area-inset-bottom,0px));}#voice[data-collapsed="true"] #voice-status{flex:1;max-width:none;}#voice-history{max-height:22vh;}}
 @media(min-width:1100px){body[data-voice-dock="true"] .main{margin-right:440px;}}
 @media(prefers-reduced-motion:reduce){#voice,#voice *{animation:none!important;transition:none!important;scroll-behavior:auto!important;}}
 </style>
 <aside id="voice" role="complementary" data-state="idle" data-collapsed="false" aria-labelledby="voice-title" hidden>
  <div class="voice-head"><h2 id="voice-title">Разговор с агентом</h2><button id="voice-collapse" class="pill soft" aria-label="Свернуть подробности" aria-expanded="true" aria-controls="voice-body">Свернуть</button><button id="voice-close" class="pill soft" aria-label="Закрыть панель и остановить разговор">×</button></div>
- <div class="voice-quick"><span id="voice-level" aria-hidden="true"></span><p id="voice-status" role="status" aria-live="polite">Готов</p><button id="voice-main" class="pill" type="button">Говорить</button></div>
+ <div class="voice-quick"><span id="voice-level" aria-hidden="true"></span><p id="voice-status" role="status" aria-live="polite">Готов</p><button id="voice-main" class="pill dark small" type="button">Говорить</button></div>
  <p id="voice-mic-live" hidden>● Микрофон включён</p>
  <div id="voice-body">
- <div class="voice-controls"><button id="voice-start" class="pill">Начать разговор</button><button id="voice-stop" class="pill soft">Стоп разговор</button><button id="voice-pause" class="pill soft" aria-pressed="false" hidden>Выключить микрофон</button><button id="voice-mute" class="pill soft" aria-pressed="false">Без звука</button><button id="voice-interrupt" class="pill soft">Перебить</button><button id="voice-resume" class="pill soft" hidden>Продолжить аудио</button></div>
+ <div class="voice-controls"><button id="voice-start" class="pill" hidden>Начать разговор</button><button id="voice-stop" class="pill soft" hidden>Стоп разговор</button><button id="voice-pause" class="pill soft" aria-pressed="false" hidden>Выключить микрофон</button><button id="voice-mute" class="pill soft" aria-pressed="false">Без звука</button><button id="voice-interrupt" class="pill soft">Перебить</button><button id="voice-resume" class="pill soft" hidden>Продолжить аудио</button></div>
  <p id="voice-reason" class="meta"></p>
  <p id="voice-notice" class="meta" role="status"></p><button id="voice-retry" class="pill soft" hidden>Повторить</button>
  <div id="voice-history" aria-label="Общая история с агентом" tabindex="0"></div>
@@ -2700,7 +2699,7 @@ async function voiceJSON(url,options={},timeout=15000){
 }
 function voiceCollapse(value){V.panel.dataset.collapsed=String(value);$('voice-body').hidden=value;document.body.dataset.voiceDock=String(!V.panel.hidden&&!value);$('voice-collapse').textContent=value?'Подробнее':'Свернуть';$('voice-collapse').setAttribute('aria-label',value?'Показать историю и настройки':'Свернуть подробности');$('voice-collapse').setAttribute('aria-expanded',String(!value));if(typeof resizeCanvas==='function')requestAnimationFrame(()=>{resizeCanvas();redraw();});}
 async function voiceCheck(){
- try{const v=await voiceJSON('/api/voice');V.checked=true;V.stt=!!(v.stt&&window.isSecureContext&&navigator.mediaDevices&&navigator.mediaDevices.getUserMedia&&window.MediaRecorder&&(window.AudioContext||window.webkitAudioContext));$('voice-reason').textContent=v.reason+(V.stt?'':' · Микрофон недоступен: используйте текст.')+' · '+(v.realtime_reason||'');voiceRest();}catch(e){V.offline=!!e.network;voiceNotice(e.message,true);voiceRest();}
+ try{const v=await voiceJSON('/api/voice');V.checked=true;V.stt=!!(v.stt&&window.isSecureContext&&navigator.mediaDevices&&navigator.mediaDevices.getUserMedia&&window.MediaRecorder&&(window.AudioContext||window.webkitAudioContext));$('voice-reason').textContent=v.reason+(V.stt?'':' · Микрофон недоступен: используйте текст.');voiceRest();}catch(e){V.offline=!!e.network;voiceNotice(e.message,true);voiceRest();}
 }
 async function voiceOpen(){
  V.opener=document.activeElement;V.panel.hidden=false;$('voice-btn').setAttribute('aria-expanded','true');voiceCollapse(false);$('voice-start').focus();voiceRest();voicePoll();const other=voiceLockRead();if(other&&other.id!==V.lockId&&other.until>Date.now())voiceNotice('Разговор уже идёт в другой вкладке');
