@@ -1,0 +1,29 @@
+{
+  "engine": "webkit",
+  "environment": "EMULATION, not physical devices",
+  "tts": "MOCKED TTS",
+  "latencyLabel": "mock pipeline latency; synthetic microphone, fake STT/Gateway, MOCKED TTS",
+  "checks": [
+    {
+      "name": "setup / suite",
+      "status": "fail",
+      "details": "browserType.launch: \n╔══════════════════════════════════════════════════════╗\n║ Host system is missing dependencies to run browsers. ║\n║ Missing libraries:                                   ║\n║     libgtk-4.so.1                                    ║\n║     libgraphene-1.0.so.0                             ║\n║     libevent-2.1.so.7                                ║\n║     libgstallocators-1.0.so.0                        ║\n║     libgstapp-1.0.so.0                               ║\n║     libgstpbutils-1.0.so.0                           ║\n║     libgstaudio-1.0.so.0                             ║\n║     libgsttag-1.0.so.0                               ║\n║     libgstvideo-1.0.so.0                             ║\n║     libgstgl-1.0.so.0                                ║\n║     libgstcodecparsers-1.0.so.0                      ║\n║     libgstfft-1.0.so.0                               ║\n║     libavif.so.16                                    ║\n║     libharfbuzz-icu.so.0                             ║\n║     libwayland-server.so.0                           ║\n║     libmanette-0.2.so.0                              ║\n║     libenchant-2.so.2                                ║\n║     libhyphen.so.0                                   ║\n║     libsecret-1.so.0                                 ║\n╚══════════════════════════════════════════════════════╝\n    at run (/home/jarvis/work/komp-/openclaw/dashboard/tests/browser_voice.cjs:189:32)\n    at async /home/jarvis/work/komp-/openclaw/dashboard/tests/browser_voice.cjs:370:39",
+      "ms": 0
+    },
+    {
+      "name": "cleanup",
+      "status": "pass",
+      "details": {},
+      "ms": 3
+    }
+  ],
+  "consoleErrors": [],
+  "pageErrors": [],
+  "screenshots": [],
+  "gateway": {
+    "count": 0,
+    "requests": []
+  },
+  "stt": [],
+  "ok": false
+}

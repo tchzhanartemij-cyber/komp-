@@ -1,0 +1,10 @@
+const fs=require('fs'),vm=require('vm'),assert=require('assert');
+const html=fs.readFileSync(__dirname+'/../index.html','utf8');
+const start=html.indexOf('// ----- workspace pure logic -----'),end=html.indexOf('// ----- workspace UI -----',start);
+const ctx=vm.createContext({Map});vm.runInContext(html.slice(start,end),ctx);
+const merge=ctx.workspaceMerge;
+const a={id:'a',ts:2,text:'old'},b={id:'b',ts:1},c={id:'a',ts:2,text:'edited'};
+assert.deepEqual(Array.from(merge([a],[b,c]),x=>x.id),['b','a']);assert.equal(merge([a],[c])[0].text,'edited');
+assert.deepEqual(Array.from(merge([{id:'x',ts:null}],[{id:'y',ts:null}]),x=>x.id),['x','y']);
+assert.deepEqual(Array.from(merge([b],[a,b]),x=>x.id),['b','a']);
+console.log('Workspace merge/dedupe/order passed');
