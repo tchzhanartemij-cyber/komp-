@@ -74,6 +74,34 @@ class OfficeTests(unittest.TestCase):
             self.assertNotIn('private', json.dumps(parsed))
         self.assertIsNone(parse_coder_log(message('assistant', {'type': 'text', 'text': ''}), 120)['activity'])
 
+    def test_activity_detail_is_file_name_or_program_only(self):
+        cases = [(tool('Edit', file_path='/home/private/repo/index.html'), 'index.html'),
+                 (tool('Read', file_path='/srv/x/server.py'), 'server.py'),
+                 (tool('Bash', command='cd /private/repo && FLAG=secret python3 -m unittest'), 'python3'),
+                 (tool('Bash', command='/usr/bin/git status'), 'git'),
+                 (tool('Edit', file_path='/x/' + 'A9_' * 12), None),
+                 (tool('Grep', pattern='private'), None),
+                 (tool('Bash', command='codex "unterminated'), None),
+                 (tool('Edit', file_path='/x/index.html') + message('assistant', {'type': 'text', 'text': 'private'}), None)]
+        for data, detail in cases:
+            with self.subTest(detail=detail):
+                parsed = parse_coder_log(data, 1)
+                self.assertEqual(parsed['detail'], detail)
+                self.assertNotIn('private', json.dumps(parsed))
+                self.assertNotIn('secret', json.dumps(parsed))
+        rows = office_sessions({}, {'jobs': [{'id': 1, 'status': 'running', 'detail': 'index.html'},
+                                             {'id': 2, 'status': 'done', 'detail': 'index.html'}]}, {})
+        self.assertEqual([r['detail'] for r in rows], ['index.html', None])
+
+    def test_task_title_drops_labels_paths_and_tail(self):
+        from office import task_title
+        self.assertEqual(task_title('ЗАДАЧА: превратить вкладку «Офис» в живой офис. Дальше длинное описание'),
+                         'Превратить вкладку «Офис» в живой офис')
+        self.assertEqual(task_title('В дашборде «Сводка» (openclaw/dashboard) добавить кнопку'),
+                         'В дашборде «Сводка» добавить кнопку')
+        long = task_title('Сделать ' + 'очень ' * 20)
+        self.assertTrue(len(long) <= 60 and long.endswith('…'))
+
     def test_pending_tool_and_local_coder_time(self):
         self.assertTrue(parse_coder_log(tool('Bash', 'a', command='npm test'), 1)['tool_pending'])
         self.assertFalse(parse_coder_log(tool('Bash', 'a', command='npm test') + result('a'), 1)['tool_pending'])

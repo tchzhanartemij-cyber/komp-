@@ -28,7 +28,47 @@ def redact(value):
 
 
 def task_title(value):
-    return redact(value.splitlines()[0] if isinstance(value, str) and value else '')[:60]
+    text = value.splitlines()[0] if isinstance(value, str) and value else ''
+    # Queue texts are long prompts: keep the first sentence without labels and code paths.
+    text = re.sub(r'^\s*(?:ЗАДАЧА|Задача)\s*(?:№?\d+)?\s*[:.]\s*', '', text)
+    text = re.sub(r'\s*\([^()]*[/_][^()]*\)', '', text)
+    text = re.split(r'(?<=[^\s.]{3})[.!?](?:\s|$)', text, maxsplit=1)[0]
+    text = redact(text)
+    text = text[:1].upper() + text[1:]
+    return text if len(text) <= 60 else text[:59].rstrip(' ,;:-') + '…'
+
+
+def program_name(command):
+    """Leading program of a shell command (after cd/env/assignments), never its arguments."""
+    if not isinstance(command, str):
+        return None
+    try:
+        lexer = shlex.shlex(command, posix=True, punctuation_chars=';&|')
+        lexer.whitespace_split = True
+        args = list(lexer)
+    except ValueError:
+        return None
+    while args[:1] == ['cd']:
+        end = next((i for i, a in enumerate(args) if a in ('&&', ';')), len(args))
+        args = args[end + 1:]
+    if args[:1] == ['env']:
+        args = args[1:]
+    while args and re.match(r'^[A-Za-z_][A-Za-z0-9_]*=', args[0]):
+        args = args[1:]
+    name = os.path.basename(args[0]) if args else ''
+    return name if re.fullmatch(r'[A-Za-z0-9._+-]{1,24}', name) else None
+
+
+def tool_detail(name, inp):
+    if not isinstance(inp, dict):
+        return None
+    if name in ('Edit', 'Write', 'MultiEdit', 'Read', 'NotebookEdit'):
+        path = inp.get('file_path') or inp.get('notebook_path')
+        base = os.path.basename(path) if isinstance(path, str) else ''
+        return base if re.fullmatch(r'[\w.+-]{1,48}', base) and redact(base) == base else None
+    if name == 'Bash':
+        return program_name(inp.get('command'))
+    return None
 
 
 def timestamp(value):
@@ -76,7 +116,7 @@ def codex_command(command):
 
 
 def parse_coder_log(data, at):
-    activity, pending, open_tools = None, {}, set()
+    activity, detail, pending, open_tools = None, None, {}, set()
     for line in data.splitlines():
         try:
             obj = json.loads(line)
@@ -96,6 +136,7 @@ def parse_coder_log(data, at):
                 name = item.get('name')
                 activity = TOOLS.get(name, 'tool') if isinstance(name, str) else 'tool'
                 inp, tid = item.get('input'), item.get('id')
+                detail = tool_detail(name, inp)
                 if isinstance(tid, str):
                     open_tools.add(tid)
                 child = codex_command(inp.get('command')) if name == 'Bash' and isinstance(inp, dict) else None
@@ -103,19 +144,19 @@ def parse_coder_log(data, at):
                     pending[tid] = child
             elif obj['type'] == 'assistant' and kind in ('text', 'thinking'):
                 if item.get(kind):
-                    activity = 'thinking'
+                    activity, detail = 'thinking', None
             elif obj['type'] == 'user' and kind == 'tool_result':
                 tid = item.get('tool_use_id')
                 if isinstance(tid, str):
                     pending.pop(tid, None)
                     open_tools.discard(tid)
     # An unanswered tool call (e.g. a long codex exec) is confirmed ongoing work.
-    return {'activity': activity, 'activity_at': timestamp(at), 'tool_pending': bool(open_tools),
+    return {'activity': activity, 'detail': detail, 'activity_at': timestamp(at), 'tool_pending': bool(open_tools),
             'codex': next(reversed(pending.values())) if pending else None}
 
 
 def coder_metadata(row, logs_dir):
-    result = {'title': task_title(row.get('text')), 'activity': None, 'activity_at': None, 'tool_pending': False, 'codex': None}
+    result = {'title': task_title(row.get('text')), 'activity': None, 'detail': None, 'activity_at': None, 'tool_pending': False, 'codex': None}
     rid = str(row.get('id', ''))
     if row.get('status') != 'running' or not re.fullmatch(r'[A-Za-z0-9_-]{1,64}', rid):
         return result
@@ -139,10 +180,10 @@ def coder_metadata(row, logs_dir):
 
 def office_sessions(agent, queue, chats):
     sessions = []
-    def session(key, kind, label, title, provider, row, activity=None, at=None, parent=None):
+    def session(key, kind, label, title, provider, row, activity=None, at=None, parent=None, detail=None):
         return dict(key=key, kind=kind, label=label, title=title, provider=provider,
                     model=model_name(row.get('model')), status=row.get('status', 'unknown'),
-                    activity=activity, activity_at=timestamp(at), tool_pending=row.get('tool_pending') is True,
+                    activity=activity, detail=detail, activity_at=timestamp(at), tool_pending=row.get('tool_pending') is True,
                     started=timestamp(row.get('started', row.get('created'))),
                     updated=timestamp(row.get('updated')), parent=parent)
     for row in agent.get('runs', []):
@@ -162,12 +203,12 @@ def office_sessions(agent, queue, chats):
         observed = {**row, 'model': None}
         if running and timestamp(at) is not None:
             observed['updated'] = max(timestamp(at), timestamp(row.get('updated')) or 0)
-        sessions.append(session(key, 'coder', 'Кодер #' + rid, task_title(row.get('title', row.get('text'))),
-                                'Claude Code', observed, activity, at))
+        sessions.append(session(key, 'coder', 'Кодер #' + rid, row.get('title') or task_title(row.get('text')),
+                                'Claude Code', observed, activity, at, detail=row.get('detail') if running else None))
         child = row.get('codex')
         if running and isinstance(child, dict):
             sessions.append(session(key + ':codex', 'codex', 'Codex · кодер #' + rid,
-                                    task_title(row.get('title', row.get('text'))), 'Codex',
+                                    row.get('title') or task_title(row.get('text')), 'Codex',
                                     {**observed, 'model': child.get('model')}, 'code', at, key))
     for rid, row in chats.items():
         provider = row.get('provider')

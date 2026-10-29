@@ -686,7 +686,7 @@ dialog[open] { animation: pop .4s var(--spring); }
         <div id="office-viewport"><canvas id="office-canvas" aria-hidden="true"></canvas><p id="office-notice">Ожидаем данные сервера</p></div>
         <p class="meta office-hint">Перетащите сцену, чтобы осмотреть офис. Выберите персонажа или задачу.</p>
       </div>
-      <div class="office-tasks"><h3 id="office-list-title">Работают: 0</h3><ul id="office-list" aria-labelledby="office-list-title"></ul><p id="office-empty" class="meta"></p></div>
+      <div class="office-tasks"><h3 id="office-list-title">Задачи</h3><ul id="office-list" aria-labelledby="office-list-title"></ul><p id="office-empty" class="meta"></p></div>
     </div>
     <p id="office-sources" class="meta"></p>
     <aside id="office-drawer" role="dialog" aria-modal="false" aria-labelledby="office-detail-label" tabindex="-1" hidden>
@@ -2105,7 +2105,7 @@ function officeView(s,now,missing){
    // A coder waiting on an unanswered tool call stays fresh up to the coder's 2 h hard limit.
    const limit=coder?(s.tool_pending===true?7200:120):90;
    place='desk';stale=!Number.isFinite(s.updated)||now-s.updated>limit||(coder&&Number.isFinite(s.activity_at)&&now-s.activity_at>limit);
-   text=stale?'нет свежих данных':(OFFICE_ACTIONS[s.activity] || 'нет данных о действии')+(coder&&s.tool_pending===true&&now-s.activity_at>120?' · ждёт результата':'');
+   text=stale?'нет свежих данных':(OFFICE_ACTIONS[s.activity] || 'нет данных о действии')+(OFFICE_ACTIONS[s.activity]&&typeof s.detail==='string'&&s.detail?' · '+s.detail:'')+(coder&&s.tool_pending===true&&now-s.activity_at>120?' · ждёт результата':'');
    working=!stale&&!!OFFICE_ACTIONS[s.activity];tone=working?'good':'muted';
   }else if(s.status==='question'&&s.kind==='coder'){place='desk';text='ждёт решения';badge='?';tone='warn';}
   else if(s.status==='waiting_limit'){place='desk';text='ждёт лимит';}
@@ -2334,7 +2334,7 @@ function officeClose(){
 function officeRender(){
  const chars=Object.values(officeState.chars),work=chars.filter(c=>c.working).length,questions=chars.filter(c=>c.text==='ждёт решения').length,rest=officeState.online?chars.filter(c=>c.place==='lounge').length:0;
  $('office-state').textContent=officeState.online?'Работают: '+work+' · Ждут решения: '+questions+' · Отдыхают: '+rest:'Нет связи с сервером · состояние неизвестно';
- $('office-list-title').textContent='Работают: '+work;
+ $('office-list-title').textContent=chars.length?'Задачи: '+chars.length:'Задачи';
  const empty=officeState.server_time===null?'Ожидаем данные сервера':'Сейчас нет наблюдаемых запусков.';
  const at=officeState.server_time===null?'неизвестного времени':new Date(officeState.server_time*1000).toLocaleTimeString('ru-RU',{hour:'2-digit',minute:'2-digit'});
  $('office-notice').hidden=officeState.online&&chars.length>0;
@@ -2352,6 +2352,10 @@ function officeRender(){
   row.meta.textContent=c.source.label+' · '+c.source.provider+' · '+officeElapsed(c);
   row.action.textContent=(c.badge?c.badge+' ':'')+c.text+(c.place==='aisle'?' · в проходе':'');row.button.setAttribute('aria-pressed',String(key===officeSelected));
  }
+ // Working first, then waiting for a decision, queued, failed and finished; newest first inside a group.
+ const rank=c=>c.working?0:c.source.status==='running'||c.text==='ждёт решения'||c.source.status==='waiting_limit'?1:c.place==='queue'?2:c.tone==='bad'?3:4;
+ const order=Object.entries(officeState.chars).sort(([ka,a],[kb,b])=>rank(a)-rank(b)||(b.source.updated||0)-(a.source.updated||0)||ka.localeCompare(kb));
+ order.forEach(([key],i)=>{const li=officeRows.get(key).li;if($('office-list').children[i]!==li)$('office-list').insertBefore(li,$('office-list').children[i] || null);});
  if(officeSelected&&!officeState.chars[officeSelected]){officeClose();return;}
  if(officeSelected)officeDetails();officeWake();
 }
