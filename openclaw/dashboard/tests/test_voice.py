@@ -63,6 +63,15 @@ print(os.environ.get('VOICE_JSON','{}'))
         seen=json.loads(self.side.read_text());self.assertTrue(seen['exists']);self.assertEqual(seen['mode'],0o600);self.assertEqual(seen['dirmode'],0o700)
         self.assertEqual(seen['argv'][:3],['infer','audio','transcribe']);self.assertEqual(seen['argv'][-3:],['--language','ru','--json'])
         self.assertFalse(Path(seen['path']).parent.exists())
+    def test_webm_is_converted_to_wav(self):
+        import shutil, subprocess
+        ffmpeg=shutil.which('ffmpeg')
+        if not ffmpeg:self.skipTest('ffmpeg unavailable')
+        webm=self.root/'tone.webm'
+        subprocess.run([ffmpeg,'-loglevel','error','-f','lavfi','-i','sine=frequency=440:duration=1','-c:a','libopus',str(webm)],check=True)
+        data=webm.read_bytes();self.h.headers['Content-Length']=str(len(data));self.h.rfile=io.BytesIO(data);self.h.do_POST()
+        self.assertEqual(self.sent[-1][0],200)
+        self.assertTrue(json.loads(self.side.read_text())['path'].endswith('audio.wav'))
     def test_errors(self):
         os.environ['VOICE_JSON']='{}';os.environ['VOICE_ERROR']='No audio transcription provider';self.assertIn('не настроен',self.post()[1]['error'])
         os.environ['VOICE_ERROR']='gsk_ABCDEFGHIJKLMNOP Bearer supersecret'

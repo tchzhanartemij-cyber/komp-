@@ -1149,6 +1149,16 @@ class Handler(BaseHTTPRequestHandler):
                 fd = os.open(f, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
                 with os.fdopen(fd, 'wb') as out:
                     out.write(audio)
+                # OpenClaw returns no transcript for WebM/Ogg (Chrome, Android): hand it WAV instead.
+                ffmpeg = shutil.which('ffmpeg')
+                if extensions[mime] in ('webm', 'ogg') and ffmpeg:
+                    wav = Path(directory) / 'audio.wav'
+                    try:
+                        subprocess.run([ffmpeg, '-loglevel', 'error', '-nostdin', '-i', str(f), '-ac', '1', '-ar', '16000', str(wav)],
+                                       stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, cwd=directory, timeout=30, check=True)
+                        f = wav
+                    except (subprocess.SubprocessError, OSError):
+                        pass
                 try:
                     result = subprocess.run([binary, 'infer', 'audio', 'transcribe', '--file', str(f), '--language', 'ru', '--json'], stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, cwd=directory, timeout=VOICE_TIMEOUT)
                 except subprocess.TimeoutExpired:

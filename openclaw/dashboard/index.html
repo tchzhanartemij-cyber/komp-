@@ -366,8 +366,14 @@ body[data-page="ai"] .main { padding-bottom:20px; }
 .ai-empty { margin-top:auto; padding:16px 0; color:var(--muted); font-size:14px; }
 .ai-msgs > :first-child { margin-top:auto; }
 .ai-composer { padding:12px 20px 18px; width:100%; max-width:800px; margin:auto; position:sticky; bottom:0; background:var(--card); }
-.ai-input { background:var(--field); border-radius:22px; padding:8px; display:grid; grid-template-columns:40px minmax(0,1fr) auto auto; grid-template-areas:'text text text text' 'attach . model send'; align-items:center; gap:6px; }
+.ai-input { background:var(--field); border-radius:22px; padding:8px; display:grid; grid-template-columns:40px auto minmax(0,1fr) auto auto; grid-template-areas:'text text text text text' 'attach mic . model send'; align-items:center; gap:6px; }
 .ai-input textarea { grid-area:text; } .ai-model-wrap { grid-area:model; } #ai-send { grid-area:send; }
+#ai-mic { grid-area:mic; display:flex; align-items:center; gap:6px; height:40px; min-width:40px; padding:0 9px; border:1px solid var(--rule); border-radius:999px; background:var(--card); color:var(--ink); cursor:pointer; }
+#ai-mic .i { width:20px; height:20px; } #ai-mic-time:empty { display:none; } #ai-mic-time { font-size:13px; font-variant-numeric:tabular-nums; }
+#ai-mic[aria-pressed="true"] { background:var(--bad); border-color:var(--bad); color:#fff; } #ai-mic.busy { opacity:.6; }
+.ai-table { overflow-x:auto; margin:8px 0; } .ai-table table { border-collapse:collapse; font-size:14px; min-width:100%; }
+.ai-table th,.ai-table td { border-bottom:1px solid var(--rule); padding:7px 10px; text-align:left; vertical-align:top; overflow-wrap:normal; word-break:normal; min-width:7em; } .ai-table th { white-space:nowrap; } .ai-table th { font-weight:700; background:var(--field); }
+@media (min-width:900px) { .ai-layout.collapsed { grid-template-columns:0 minmax(0,1fr); } .ai-layout.collapsed .ai-list { visibility:hidden; overflow:hidden; } .ai-header #ai-chats-btn { display:block; } }
 #ai-attach { grid-area:attach; width:40px; height:40px; border-radius:50%; border:1px solid var(--rule); background:var(--card); color:var(--ink); font-size:20px; line-height:1; padding:0; cursor:pointer; }
 .ai-retry { justify-self:start; align-self:flex-start; width:auto; }
 .ai-input textarea { width:100%; resize:none; border:0; background:transparent; font-size:16px; max-height:180px; padding:8px; box-shadow:none; }
@@ -687,6 +693,7 @@ dialog[open] { animation: pop .4s var(--spring); }
             <input id="ai-files" type="file" multiple accept="image/*,application/pdf,text/plain,.md,.csv,.json,.txt,.log" hidden>
             <form class="ai-input" id="ai-form">
               <button class="icon-btn" id="ai-attach" type="button" aria-label="Прикрепить файлы">＋</button>
+              <button class="icon-btn" id="ai-mic" type="button" aria-label="Надиктовать сообщение" aria-pressed="false"><svg class="i" viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="12" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg><span id="ai-mic-time"></span></button>
               <textarea id="ai-text" maxlength="20000" rows="1" placeholder="Сообщение" aria-label="Сообщение"></textarea>
               <div class="ai-model-wrap"><span id="ai-session-model" class="meta" hidden>модель сессии агента</span><button class="pill soft small" id="ai-model" type="button" aria-expanded="false">Авто</button><div class="ai-picker" id="ai-picker" role="group" aria-label="Модель" hidden></div></div>
               <button class="pill dark small" type="submit" id="ai-send">Отправить</button>
@@ -2033,7 +2040,12 @@ function aiMarkdown(text) {
  if(line.startsWith('```')){const lang=line.slice(3).trim(),code=[];i++;while(i<lines.length&&!lines[i].startsWith('```'))code.push(lines[i++]);if(i<lines.length)i++;const value=code.join('\n'),button=el('button',{type:'button',text:'Копировать',onclick:()=>aiCopy(value,button)});box.append(el('div',{class:'ai-code'},el('div',{class:'ai-code-head'},el('span',{text:lang || 'Код'}),button),el('pre',{},el('code',{text:value}))));continue;}
  const heading=line.match(/^(#{1,3})\s+(.*)/);if(heading){box.append(aiInline(heading[2],el('h'+heading[1].length)));i++;continue;}
  const list=line.match(/^\s*(?:[-*]|\d+\.)\s+/);if(list){const ordered=/^\s*\d/.test(line),ul=el(ordered?'ol':'ul');while(i<lines.length&& (ordered?/^\s*\d+\.\s+/:/^\s*[-*]\s+/).test(lines[i]))ul.append(aiInline(lines[i++].replace(/^\s*(?:[-*]|\d+\.)\s+/,''),el('li')));box.append(ul);continue;}
- const para=[line];i++;while(i<lines.length&&lines[i].trim()&&!/^(?:```|#{1,3}\s|\s*[-*]\s|\s*\d+\.\s)/.test(lines[i]))para.push(lines[i++]);box.append(aiInline(para.join('\n'),el('p')));
+ if(/^\s*\|/.test(line)&&/^\s*\|?\s*:?-{2,}/.test(lines[i+1]||'')){
+  // Markdown table: header, separator, then rows while lines keep starting with "|".
+  const cells=row=>row.trim().replace(/^\||\|$/g,'').split('|').map(c=>c.trim()),head=cells(line),rows=[];i+=2;
+  while(i<lines.length&&/^\s*\|/.test(lines[i]))rows.push(cells(lines[i++]));
+  box.append(el('div',{class:'ai-table'},el('table',{},el('thead',{},el('tr',{},...head.map(c=>aiInline(c,el('th'))))),el('tbody',{},...rows.map(r=>el('tr',{},...head.map((_,k)=>aiInline(r[k]||'',el('td')))))))));continue;}
+ const para=[line];i++;while(i<lines.length&&lines[i].trim()&&!/^(?:```|#{1,3}\s|\s*[-*]\s|\s*\d+\.\s|\s*\|)/.test(lines[i]))para.push(lines[i++]);box.append(aiInline(para.join('\n'),el('p')));
  }return box;
 }
 function aiAttachmentLinks(files){return el('div',{class:'ai-chips'},...(files||[]).map(a=>{const valid=/^[0-9a-f]{24}$/.test(a.id||'');if(!valid)return el('span',{class:'ai-chip',text:'['+a.kind+(a.name?': '+a.name:'')+']'});const href='/api/ai/file?id='+encodeURIComponent(a.id);return el('a',{class:'ai-chip',href,download:a.name,target:'_blank',rel:'noopener noreferrer'},a.kind==='image'?el('img',{src:href,alt:a.name}):el('span',{text:a.kind==='pdf'?'▤ PDF':'▤'}),el('span',{text:a.name}));}));}
@@ -2134,7 +2146,37 @@ $('ai-model').addEventListener('click',()=>{const open=$('ai-picker').hidden;$('
 $('ai-attach').addEventListener('click',()=>{if(!aiCanonical())$('ai-files').click();});
 $('ai-files').addEventListener('change',()=>{const files=[...$('ai-files').files];$('ai-files').value='';if(aiCanonical()||AI.busy)return;for(const file of files){if(aiFiles().length>=5){aiErr('Можно прикрепить до 5 файлов');break;}aiUpload(file);}if(aiFiles().reduce((n,f)=>n+f.size,0)>20*1024*1024)aiErr('Вложения сообщения больше 20 МБ');});
 $('ai-new').addEventListener('click',()=>aiNew());$('ai-search').addEventListener('input',aiSidebar);
-$('ai-chats-btn').addEventListener('click',()=>aiLists(!$('ai-layout').classList.contains('lists')));$('ai-backdrop').addEventListener('click',()=>aiLists(false));
+$('ai-chats-btn').addEventListener('click',()=>{
+ if(matchMedia('(max-width:899px)').matches){aiLists(!$('ai-layout').classList.contains('lists'));return;}
+ const collapsed=$('ai-layout').classList.toggle('collapsed');$('ai-chats-btn').setAttribute('aria-expanded',String(!collapsed));try{localStorage.setItem('svodka-ai-list',collapsed?'0':'1');}catch{}
+});
+try{if(localStorage.getItem('svodka-ai-list')==='0')$('ai-layout').classList.add('collapsed');}catch{}
+// Dictation: record one message, recognize it with the voice service, put the text into the composer.
+const AID={rec:null,timer:0};
+function aiMicState(on,busy){$('ai-mic').setAttribute('aria-pressed',String(on));$('ai-mic').classList.toggle('busy',!!busy);$('ai-mic').setAttribute('aria-label',on?'Остановить запись':busy?'Распознаю…':'Надиктовать сообщение');if(!on)$('ai-mic-time').textContent=busy?'…':'';}
+async function aiDictate(){
+ if(AID.rec){AID.rec.stop();return;}
+ if($('ai-mic').classList.contains('busy'))return;
+ if(!navigator.mediaDevices?.getUserMedia||!window.MediaRecorder){aiErr('Голосовой ввод в этом браузере недоступен','warn');return;}
+ let stream;try{stream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true,noiseSuppression:true,autoGainControl:true}});}
+ catch(e){aiErr(e.name==='NotAllowedError'?'Доступ к микрофону запрещён: разрешите его в настройках браузера':'Микрофон недоступен','warn');return;}
+ const mime=['audio/webm;codecs=opus','audio/webm','audio/mp4','audio/ogg;codecs=opus'].find(t=>MediaRecorder.isTypeSupported(t)),rec=new MediaRecorder(stream,mime?{mimeType:mime}:{}),chunks=[],started=Date.now();
+ AID.rec=rec;aiMicState(true);aiErr('');
+ AID.timer=setInterval(()=>{const s=Math.floor((Date.now()-started)/1000);$('ai-mic-time').textContent=Math.floor(s/60)+':'+String(s%60).padStart(2,'0');if(s>=120)rec.stop();},250);
+ rec.ondataavailable=e=>{if(e.data.size)chunks.push(e.data);};
+ rec.onstop=async()=>{
+  clearInterval(AID.timer);AID.rec=null;stream.getTracks().forEach(t=>t.stop());
+  const blob=new Blob(chunks,{type:(rec.mimeType||chunks[0]?.type||'audio/mp4').split(';')[0]});
+  if(blob.size<1024){aiMicState(false);aiErr('Слишком короткая запись','warn');return;}
+  aiMicState(false,true);
+  try{const r=await fetch('/api/voice/transcribe',{method:'POST',headers:{'Content-Type':blob.type,'X-Svodka-Voice':'1'},body:blob}),j=await r.json();if(!r.ok)throw new Error(j.error||'Ошибка распознавания');
+   const t=$('ai-text'),said=String(j.text||'').trim();if(!said)throw new Error('Речь не распознана');t.value=(t.value.trim()?t.value.trim()+' ':'')+said;aiDraftSave();aiGrow();t.focus();}
+  catch(e){aiErr('Голосовое сообщение: '+e.message,'warn');}
+  finally{aiMicState(false);}
+ };
+ rec.start(250);
+}
+$('ai-mic').addEventListener('click',aiDictate);$('ai-backdrop').addEventListener('click',()=>aiLists(false));
 document.addEventListener('keydown',ev=>{if(ev.key==='Escape'){aiLists(false);$('ai-picker').hidden=true;$('ai-model').setAttribute('aria-expanded','false');}});
 document.addEventListener('click',ev=>{if(!ev.target.closest('.ai-model-wrap')){$('ai-picker').hidden=true;$('ai-model').setAttribute('aria-expanded','false');}});
 async function aiShown(){

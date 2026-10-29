@@ -68,6 +68,8 @@ let completed=false;process.on('beforeExit',()=>{if(!completed){console.error('C
  const probe=descendants($('ai-picker')).find(n=>n.tagName==='BUTTON'&&n.textContent==='Проверить');await probe.click();assert.equal(requests.filter(r=>r.url==='/api/ai/probe').length,1);assert($('ai-picker').textContent.includes('проверено: фактически reported-model'));
  const md=run('aiMarkdown("[ok](https://example.test) [bad](javascript:alert) <img onerror=x> `code`\\n```js\\nhello\\n```")');const links=descendants(md).filter(n=>n.tagName==='A');assert.equal(links.length,1);assert.equal(links[0].attributes.rel,'noopener noreferrer');assert.equal(links[0].attributes.target,'_blank');assert(!descendants(md).some(n=>n.tagName==='IMG'));
  ctx.aborted=false;await run("AI.controller={abort(){aborted=true}};AI.run='run';aiStop()");assert(ctx.aborted);assert(requests.some(r=>r.url==='/api/ai/stop'&&r.body.run==='run'));
+ const table=run('aiMarkdown("Итог:\\n| Модель | Цена |\\n|---|---:|\\n| **Opus** | 1 |\\n| Haiku |\\nпосле")'),cellsText=descendants(table).filter(n=>n.tagName==='TD'||n.tagName==='TH').map(n=>descendants(n).map(c=>c.textContent||'').join('')||n.textContent);
+ assert.equal(descendants(table).filter(n=>n.tagName==='TABLE').length,1);assert.equal(descendants(table).filter(n=>n.tagName==='TD').length,4);assert.equal(descendants(table).filter(n=>n.tagName==='P').length,2);
  assert(!html.includes('id="tab-chat"'));assert(!html.includes('agent-toolbar'));assert(html.includes('--kb'));
  console.log('Unified chat drafts, canonical routing, upload lifecycle, model probes and message actions passed');
 })().then(()=>{completed=true},e=>{completed=true;console.error(e);process.exitCode=1});
