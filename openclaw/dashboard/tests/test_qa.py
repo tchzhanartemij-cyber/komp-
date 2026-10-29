@@ -42,10 +42,21 @@ class QA(unittest.TestCase):
         loader = source[source.index('import importlib.util'):source.index('\nimport csv')]
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
+            (root/'workspace.py').write_text((ROOT/'workspace.py').read_text())
             sibling = root/'agent.py'
             sibling.write_text('from dataclasses import dataclass\n@dataclass\nclass Agent: value: int = 1\nclass Unavailable(Exception): pass\ndef queue_snapshot(): pass\n')
             script = "import sys\nbefore=list(sys.path)\n__file__=" + repr(str(root/'server.py')) + "\n" + loader + "\nassert sys.path == before\nassert Agent().value == 1\nassert sys.modules['agent'].Agent is Agent\n"
             subprocess.run(['python3','-I','-c',script],cwd=root,check=True,capture_output=True)
+            workspace = root/'workspace.py'
+            workspace.unlink()
+            (root/'untrusted').mkdir()
+            (root/'untrusted'/'workspace.py').write_text('raise AssertionError("outside trusted directory")')
+            workspace.symlink_to(root/'untrusted'/'workspace.py')
+            result = subprocess.run(['python3','-I','-c',script],cwd=root,capture_output=True,text=True)
+            self.assertNotEqual(result.returncode,0)
+            self.assertIn('trusted dashboard sibling', result.stderr)
+            self.assertNotIn('AssertionError', result.stderr)
+            workspace.unlink(); workspace.write_text((ROOT/'workspace.py').read_text())
             outside = root/'outside'; outside.mkdir()
             (outside/'agent.py').write_text('raise AssertionError("outside trusted directory")')
             sibling.unlink(); sibling.symlink_to(outside/'agent.py')
