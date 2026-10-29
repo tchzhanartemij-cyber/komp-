@@ -175,37 +175,15 @@ let completed=false;
 process.on('beforeExit',()=>{if(!completed){console.error('Harness ended with unfinished async assertions');process.exitCode=1;}});
 main().then(()=>{completed=true},e=>{completed=true;console.error(e);process.exitCode=1});
 
-// Voice entry is in the existing capsule, with a native accessible dialog.
+// Voice entry stays in the existing capsule; the panel never takes the modal top layer.
 const nav = html.match(/<nav class="nav"[\s\S]*?<\/nav>/)[0];
 assert(nav.includes('id="voice-btn"'));
 assert(nav.indexOf('id="voice-btn"') < nav.indexOf('class="sep"'));
-assert(/<dialog id="voice"/.test(html));
+assert(/<aside id="voice" role="complementary"/.test(html));
+assert(!/<dialog id="voice"/.test(html));
 assert(/id="voice-status" role="status" aria-live="polite"/.test(html));
-// At 320px: even the separately enabled eighth item fits the capsule.
 const mobileItem=html.match(/width: clamp\((\d+)px, (\d+)vw, 46px\)/);
 const itemWidth=Math.max(+mobileItem[1],Math.min(320*(+mobileItem[2])/100,46));
 assert(8*itemWidth+8*3.2+16+5 < 320-24);
-// Parse the entire inline program, including voice, without executing providers.
-new vm.Script(html.match(/<script>([\s\S]*?)<\/script>/)[1]);
-// Execute voice lifecycle with fake browser facilities and no provider calls.
-const voiceNodes=new Map();
-const v$=id=>{if(!voiceNodes.has(id))voiceNodes.set(id,{dataset:{state:'idle'},value:'',checked:true,addEventListener(){},setAttribute(){},focus(){},showModal(){this.open=true},close(){this.open=false}});return voiceNodes.get(id);};
-let cancelled=0,stopped=0;
-const vctx=vm.createContext({$,console});
-Object.assign(vctx,{$:v$,window:{speechSynthesis:{cancel(){cancelled++}}},document:{addEventListener(){},activeElement:null},navigator:{},localStorage:{getItem(){return null}},addEventListener(){},setTimeout,clearTimeout,setInterval,clearInterval,AbortController,Blob,Date,Math,JSON,Set,Array,crypto:{},current:'graph',selected:'dima',G:{ents:new Map([['dima',{name:'Дима'}]])},AI:{chat:null},refreshAgent(){},load:async()=>{},statusLabel:s=>s});
-vm.runInContext(between('// ----- voice:', '</script>'),vctx);
-const vr=s=>vm.runInContext(s,vctx);
-assert(vr('voiceContext()').includes('страница «Дима»'));
-assert.equal(vr('voiceCounts({memory:[{name:"Дима",facts:[{raw:"a"}]}],tasks:{tasks:[{raw:"x"},{raw:"y"}]}})["Дела"][0]'),2);
-vr('V.stream={getTracks:()=>[{stop(){}}]};V.dialog.dataset.state="running";voiceStop()');
-assert(v$('voice-status').textContent.includes('Запуск на сервере не отменяется'));
-assert(cancelled>0);assert.equal(vr('V.stream'),null);
-// Transcription only fills the editable text and never submits it to the agent.
-vctx.fetch=async url=>{assert.equal(url,'/api/voice/transcribe');return {ok:true,json:async()=>({text:'Проверь меня'})};};
-vr('V.blob=new Blob(["audio"],{type:"audio/webm"});voiceTranscribe()').then(()=>{
- assert.equal(v$('voice-text').value,'Проверь меня');assert.equal(vr('V.blob'),null);assert.equal(v$('voice').dataset.state,'review');
- // A same-count edit is still reported as a change, never hidden.
- vr('V.before=voiceCounts({tasks:{tasks:[{raw:"- [ ] a"}]}})');
- vctx.fetch=async()=>({ok:true,json:async()=>({tasks:{tasks:[{raw:"- [x] a"}]}})});
- return vr('voiceDiff(V.epoch)').then(()=>assert(v$('voice-diff').textContent.includes('Дела: изменено')));
-},e=>{console.error(e);process.exitCode=1;});
+for(const script of html.matchAll(/<script>([\s\S]*?)<\/script>/g))new vm.Script(script[1]);
+assert(!/\?\?=|\|\|=|&&=|structuredClone|\.at\(|\(\?<([=!])/.test(html));

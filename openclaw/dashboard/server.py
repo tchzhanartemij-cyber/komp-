@@ -39,6 +39,7 @@ import hashlib
 import hmac
 import io
 import json
+import math
 import os
 import re
 import secrets
@@ -68,6 +69,48 @@ agent_service = Agent(LIFE_DIR / "dashboard-agent")
 VOICE_MAX_BYTES = 10 * 1024 * 1024
 VOICE_TIMEOUT = 90
 voice_semaphore = threading.Semaphore(1)
+VOICE_STAGES = ('t_speech_end', 't_transcript', 't_run_accepted', 't_first_text', 't_first_audio', 't_done')
+SECRET_RE = re.compile(r'(sk|gsk|xai|key)[-_][A-Za-z0-9_-]{8,}|Bearer \S+', re.I)
+client_log_lock = threading.Lock()
+client_log_times = []
+
+
+def diagnostic_text(value, limit):
+    value = SECRET_RE.sub('***', value)
+    # Never journal URL credentials, query strings (including access links), or fragments.
+    def clean_url(match):
+        try:
+            u = urlsplit(match[0])
+            return (u.scheme + '://' if u.scheme else '//') + (u.netloc.rsplit('@', 1)[-1]) + u.path
+        except ValueError:
+            return '<url>'
+    value = re.sub(r'(?:[a-z][a-z0-9+.-]*:)?//[^\s<>"\']+', clean_url, value, flags=re.I)
+    value = re.sub(r'[?#][^\s<>"\']*', '', value)
+    value = re.sub(r'\b(?:token|api[_-]?key|authorization|k)\s*[=:]\s*[^\s,;]+', 'token=***', value, flags=re.I)
+    return one_line(value, limit)
+
+
+def voice_metrics(body=None):
+    if body is not None:
+        if not isinstance(body, dict) or set(body) - set(VOICE_STAGES) - {'mode'} or body.get('mode') not in ('voice', 'text'):
+            raise ValueError()
+        for key in VOICE_STAGES:
+            n = body.get(key)
+            if n is not None and (type(n) not in (int, float) or not 0 <= n <= 600000 or not math.isfinite(n)):
+                raise ValueError()
+    with agent_service.lock, agent_service.db() as c:
+        c.execute('CREATE TABLE IF NOT EXISTS voice_metrics (id INTEGER PRIMARY KEY, mode TEXT, ' + ','.join(k+' REAL' for k in VOICE_STAGES) + ')')
+        if body is not None:
+            c.execute('INSERT INTO voice_metrics (mode,' + ','.join(VOICE_STAGES) + ') VALUES (?,?,?,?,?,?,?)', [body['mode']] + [body.get(k) for k in VOICE_STAGES])
+            c.execute('DELETE FROM voice_metrics WHERE id NOT IN (SELECT id FROM voice_metrics ORDER BY id DESC LIMIT 1000)')
+            return {'ok': True}
+        rows = c.execute('SELECT * FROM voice_metrics').fetchall()
+    stages = {}
+    for key in VOICE_STAGES:
+        values = sorted(r[key] for r in rows if r[key] is not None)
+        stages[key] = dict(n=len(values), p50=values[math.ceil(len(values)*.5)-1] if values else None,
+                          p95=values[math.ceil(len(values)*.95)-1] if values else None)
+    return dict(count=len(rows), stages=stages)
 
 HOST = os.environ.get("DASHBOARD_HOST", "127.0.0.1")
 PORT = int(os.environ.get("DASHBOARD_PORT", "8787"))
@@ -800,6 +843,8 @@ class Handler(BaseHTTPRequestHandler):
             return False
 
     def voice_status(self):
+        limits = dict(max_bytes=VOICE_MAX_BYTES, max_seconds=60, vad=True, max_utterance_seconds=30, session_max_minutes=15,
+                      realtime=False, realtime_reason='Нативный realtime speech-to-speech не подключён: нужен платный провайдер (см. docs/TASK11-voice-architecture.md)')
         binary = None
         candidate = os.environ.get('SVODKA_OPENCLAW_BIN', '')
         if candidate and Path(candidate).is_absolute() and Path(candidate).is_file() and os.access(candidate, os.X_OK):
@@ -816,8 +861,8 @@ class Handler(BaseHTTPRequestHandler):
         elif not binary:
             reason = 'Исполняемый файл OpenClaw не найден'
         else:
-            return dict(stt=True, reason='Распознавание через OpenClaw (провайдер из его настроек); живой вызов не проверялся этим экраном', max_bytes=VOICE_MAX_BYTES, max_seconds=60), binary
-        return dict(stt=False, reason=reason, max_bytes=VOICE_MAX_BYTES, max_seconds=60), binary
+            return dict(stt=True, reason='Распознавание через OpenClaw; ответы озвучивает браузер', **limits), binary
+        return dict(stt=False, reason=reason, **limits), binary
 
     def transcribe(self):
         def fail(code, msg):
@@ -874,13 +919,61 @@ class Handler(BaseHTTPRequestHandler):
                 lines = [line for line in stderr.splitlines() if line.strip()]
                 detail = lines[-1] if lines else str(obj.get('error') or 'Некорректный ответ OpenClaw')
                 detail = detail.replace(directory, '<аудио>')
-                detail = re.sub(r'(sk|gsk|xai|key)[-_][A-Za-z0-9_-]{8,}|Bearer \S+', '***', detail)
+                detail = SECRET_RE.sub('***', detail)
                 return fail(502, 'Ошибка распознавания: ' + one_line(detail, 200))
         finally:
             voice_semaphore.release()
 
     def agent_protected(self):
         return bool(load_token()) or os.environ.get("SVODKA_AGENT_TRUSTED_PROXY") == "1"
+
+    def voice_diagnostic(self, route):
+        if not self.same_origin(required=True):
+            return self.send_json(403, {'error': 'Источник запроса не совпадает с панелью'})
+        if route == '/api/voice/metrics' and self.headers.get('X-Svodka-Voice') != '1':
+            return self.send_json(403, {'error': 'Требуется X-Svodka-Voice: 1'})
+        if not self.agent_protected():
+            return self.send_json(503, {'error': 'Требуется защита панели токеном или доверенным прокси'})
+        try:
+            length = int(self.headers.get('Content-Length', ''))
+            if not 0 < length <= 2048:
+                return self.send_json(413, {'error': 'Допустимо не более 2 КиБ'})
+            b = self.body()
+            if route == '/api/voice/metrics':
+                if not isinstance(b, dict):
+                    raise ValueError()
+                return self.send_json(200, voice_metrics(b))
+            if not isinstance(b, dict) or set(b) - {'stage', 'message', 'ua', 't'} or any(not isinstance(b.get(k, ''), str) for k in ('stage', 'message', 'ua')):
+                raise ValueError()
+            t = b.get('t', 0)
+            if type(t) not in (int, float) or not 0 <= t <= 1e15 or not math.isfinite(t):
+                raise ValueError()
+            row = {k: diagnostic_text(b.get(k, ''), n) for k, n in [('stage', 60), ('message', 300), ('ua', 200)]}
+            row['t'] = t
+            line = json.dumps(row, ensure_ascii=False)
+            with client_log_lock:
+                now = time.monotonic()
+                client_log_times[:] = [t for t in client_log_times if now-t < 60]
+                if len(client_log_times) >= 20:
+                    return self.send_json(429, {'error': 'Не более 20 сообщений в минуту'})
+                client_log_times.append(now)
+                agent_service.root.mkdir(parents=True, exist_ok=True)
+                target = agent_service.root / 'client-log.jsonl'
+                old = target.read_text(encoding='utf-8').splitlines()[-199:] if target.exists() else []
+                fd, temporary = tempfile.mkstemp(dir=agent_service.root, prefix='.client-log-')
+                try:
+                    with os.fdopen(fd, 'w', encoding='utf-8') as f:
+                        f.write('\n'.join(old + [line]) + '\n')
+                    os.replace(temporary, target)
+                finally:
+                    if os.path.exists(temporary):
+                        os.unlink(temporary)
+                print('svodka client-log ' + line, file=sys.stderr, flush=True)
+            self.send_json(200, {'ok': True})
+        except (ValueError, TypeError):
+            self.send_json(400, {'error': 'Неверные данные'})
+        except OSError:
+            self.send_json(503, {'error': 'Диагностика временно недоступна'})
 
     def agent_snapshot(self):
         state = agent_service.snapshot()
@@ -993,6 +1086,8 @@ class Handler(BaseHTTPRequestHandler):
             self.send_json(200, payload)
         elif route == "/api/voice":
             self.send_json(200, self.voice_status()[0])
+        elif route == "/api/voice/metrics":
+            self.send_json(200, voice_metrics())
         elif route == "/api/agent":
             self.send_json(200, self.agent_snapshot())
         elif route == "/api/office":
@@ -1028,6 +1123,9 @@ class Handler(BaseHTTPRequestHandler):
         allowed, _ = self.authorize()
         if not allowed:
             self.deny()
+            return
+        if urlsplit(self.path).path in ('/api/voice/metrics', '/api/client-log'):
+            self.voice_diagnostic(urlsplit(self.path).path)
             return
         if urlsplit(self.path).path == "/api/voice/transcribe":
             self.transcribe()
