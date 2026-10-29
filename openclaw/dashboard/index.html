@@ -289,6 +289,8 @@ a.tile span { font-size: 12px; color: color-mix(in srgb, var(--ink) 55%, transpa
 .links { grid-template-columns: 1fr; gap: 10px; }
 
 /* ----- memory graph ----- */
+#mem-status { margin: 8px 18px; font-size: 12px; }
+#mem-status p { margin: 6px 0; }
 .g-card { padding: 18px; gap: 12px; }
 .g-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
 .search { position: relative; flex: 1 1 220px; max-width: 360px; }
@@ -616,6 +618,7 @@ dialog[open] { animation: pop .4s var(--spring); }
         <button class="pill soft small" type="button" onclick="selectNode('', false)">Новая страница</button>
         <label class="search"><svg class="i" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4 4"/></svg><input id="g-search" type="search" placeholder="Найти страницу" aria-label="Поиск по памяти"></label>
       </div>
+      <details id="mem-status"><summary>Как агент видит память</summary><div id="mem-status-body" aria-live="polite"></div><button class="pill soft small" type="button" onclick="loadMemoryStatus(true)">Проверить инструменты</button><p id="mem-tools" aria-live="polite"></p></details>
       <div class="kinds" id="g-kinds" role="group" aria-label="Фильтр по типам"></div>
       <div class="g-layout">
         <div class="g-box" id="g-box">
@@ -1000,8 +1003,9 @@ async function post(path, body) {
     return {ok:false, error, key};
   }
   mutationStatus('', null, key);
+  const result = path === '/api/memory/add' ? await r.json() : {};
   scheduleRefresh();
-  return {ok:true};
+  return {...result, ok:true};
 }
 
 // ----- pages: fade out the old one, cascade the new one in -----
@@ -1445,7 +1449,27 @@ function resizeCanvas() {
   }
   return true;
 }
+let memoryStatusFlight = false;
+async function loadMemoryStatus(probe = false) {
+  if (memoryStatusFlight) return;
+  memoryStatusFlight = true;
+  try {
+    const r = await fetch('/api/memory/status' + (probe ? '?probe=1' : ''));
+    if (!r.ok) throw new Error('Не удалось прочитать состояние памяти');
+    const s = await r.json(), last = s.audit.last;
+    $('mem-status-body').replaceChildren(
+      el('p', {text:'Поиск: ' + s.search.mode + ' · семантический не подтверждён. ' + s.search.reason}),
+      el('p', {text:'Страниц: ' + s.store.pages + ' · фактов: ' + s.store.facts}),
+      el('p', {text:'Последняя запись: ' + (last ? last.ts + ' · ' + last.source : 'пока нет')}),
+      ...s.contract.map(row => el('p', {text:row.data + ' → ' + row.authority + ' · ' + row.writers + ' · ' + row.agent_access})));
+    if (probe) $('mem-tools').textContent = s.tools.probe
+      ? ['memory_get', 'sessions_history'].map(name => name + ': ' + (s.tools[name].ok ? 'ok' : 'ошибка: ' + s.tools[name].error) + ' · ' + s.tools[name].ms + ' мс').join(' · ')
+      : s.tools.reason;
+  } catch (e) { $('mem-tools').textContent = e.message; }
+  finally { memoryStatusFlight = false; }
+}
 function graphShown() {
+  loadMemoryStatus();
   readColors();
   if (!resizeCanvas()) return;
   if (!G.fitted) fit(false);
@@ -1774,7 +1798,8 @@ document.addEventListener('submit', async ev => {
   } else if (type === 'memory') {
     const name = v('name'), text = v('text');
     if (!name || !text) return;
-    req = ['/api/memory/add', { name, text, kind: v('kind') }];
+    const request = btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(16)))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+    req = ['/api/memory/add', { name, text, kind: v('kind'), request, source: 'dashboard' }];
   }
   if (!req) return;
   const snapshot = [...f.elements].filter(x => x.name).map(x => [x.name, x.value]);
@@ -1794,7 +1819,7 @@ document.addEventListener('submit', async ev => {
       if (visible && visible !== f && visible.dataset.draftKey === draftKey) renderFormFeedback(visible);
       return;
     }
-    formFeedback(f);
+    formFeedback(f, result.duplicate ? 'Такой факт уже есть — не дублирую' : '');
     if (type === 'memory' && (!draftKey || draftKey === '__new__')) {
       pendingMemory = entKey(req[1].name); pendingMemoryRevision = dataRevision;
     }
