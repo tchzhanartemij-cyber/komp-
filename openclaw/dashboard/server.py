@@ -33,6 +33,14 @@ _agent_module = importlib.util.module_from_spec(_agent_spec)
 sys.modules[_agent_spec.name] = _agent_module  # decorators may inspect their module
 _agent_spec.loader.exec_module(_agent_module)
 Agent, Unavailable, queue_snapshot = _agent_module.Agent, _agent_module.Unavailable, _agent_module.queue_snapshot
+_workspace_path = (_dashboard_dir / 'workspace.py').resolve(strict=True)
+if _workspace_path.parent != _dashboard_dir:
+    raise ImportError('workspace.py must resolve to a trusted dashboard sibling')
+_workspace_spec = importlib.util.spec_from_file_location('svodka_workspace', _workspace_path)
+_workspace_module = importlib.util.module_from_spec(_workspace_spec)
+sys.modules[_workspace_spec.name] = _workspace_module
+_workspace_spec.loader.exec_module(_workspace_module)
+
 
 import csv
 import hashlib
@@ -65,12 +73,13 @@ office_sessions, coder_metadata = _office_module.office_sessions, _office_module
 
 LIFE_DIR = Path(os.environ.get("LIFE_DIR", Path.home() / ".openclaw/workspace/life")).expanduser()
 agent_service = Agent(LIFE_DIR / "dashboard-agent")
+workspace_service = None
 
 VOICE_MAX_BYTES = 10 * 1024 * 1024
 VOICE_TIMEOUT = 90
 voice_semaphore = threading.Semaphore(1)
 VOICE_STAGES = ('t_speech_end', 't_transcript', 't_run_accepted', 't_first_text', 't_first_audio', 't_done')
-SECRET_RE = re.compile(r'(sk|gsk|xai|key)[-_][A-Za-z0-9_-]{8,}|Bearer \S+', re.I)
+SECRET_RE = re.compile(r'(sk|gsk|xai|key)[-_][\w-]{8,}|Bearer \S+', re.I)
 client_log_lock = threading.Lock()
 client_log_times = []
 
@@ -1017,7 +1026,8 @@ class Handler(BaseHTTPRequestHandler):
 
     def body(self):
         length = int(self.headers.get("Content-Length") or 0)
-        if not 0 <= length <= 64 * 1024:
+        maximum = 512 * 1024 if urlsplit(getattr(self,'path','')).path.startswith('/api/workspace/') else 64 * 1024
+        if not 0 <= length <= maximum:
             raise ValueError("too large")
         def unique_object(pairs):
             result = {}
@@ -1030,6 +1040,69 @@ class Handler(BaseHTTPRequestHandler):
             raise ValueError("invalid JSON constant")
         return json.loads(self.rfile.read(length) or b"{}", object_pairs_hook=unique_object,
                           parse_constant=invalid_constant)
+
+    def workspace_route(self, route, post=False):
+        if not self.agent_protected():
+            return self.send_json(503, {'error':'Требуется защита панели токеном или доверенным прокси'})
+        workspace = _workspace_module.Workspace(agent_service, SECRET_RE)
+        # Persistent adapter owns the shared tail cache and revision lock.
+        global workspace_service
+        with lock:
+            if workspace_service is None or workspace_service.agent is not agent_service:
+                workspace_service = workspace
+            workspace = workspace_service
+        if post:
+            if self.headers.get('Content-Type','').split(';',1)[0].strip().lower() != 'application/json':
+                return self.send_json(415, {'error':'Требуется application/json'})
+            if not self.same_origin(required=True):
+                return self.send_json(403, {'error':'Источник запроса не совпадает с панелью'})
+        status = workspace.status()
+        if route == '/api/workspace' and not post:
+            sessions, tasks, error = [], [], None
+            if status['available']:
+                state = self.agent_snapshot()
+                queue = queue_snapshot(os.environ.get('SVODKA_CODER_QUEUE_FILE'))
+                try:
+                    sessions = workspace.sessions()
+                except ValueError as e:
+                    error = str(e)  # dashboard runs and coder queue stay visible without Gateway sessions
+                tasks = workspace.tasks(state, queue, sessions)
+            try:
+                key = agent_service.canonical()
+            except Unavailable:
+                key = None
+            payload = dict(status=status, session={'canonical':key is not None,'key':key}, sessions=sessions, tasks=tasks)
+            if error:
+                payload['error'] = error
+            return self.send_json(200,payload)
+        if not status['available']:
+            return self.send_json(503, {'error':status['reason']})
+        try:
+            if not post and route == '/api/workspace/history':
+                q = parse_qs(urlsplit(self.path).query)
+                return self.send_json(200, workspace.history(int(q.get('offset',['0'])[0]), int(q.get('limit',['30'])[0])))
+            b = self.body() if post else {}
+            if not isinstance(b,dict):
+                raise ValueError('Неверные данные')
+            if route == '/api/workspace/send' and post:
+                text, request = b.get('text'), b.get('request')
+                if not isinstance(text,str) or not 0<len(text.strip())<=20000 or not isinstance(request,str) or not re.fullmatch(r'[A-Za-z0-9_-]{16,64}',request):
+                    raise ValueError('Неверные данные')
+                rid = agent_service.submit('[Сводка:'+request+'] '+text.strip(),request)
+                duplicate = getattr(rid,'duplicate',False)
+                return self.send_json(200 if duplicate else 202,dict(id=int(rid),duplicate=duplicate))
+            if route == '/api/workspace/revision' and post:
+                return self.send_json(201,workspace.create_revision(b.get('target'),b.get('original'),b.get('text')))
+            if route == '/api/workspace/revision/send' and post:
+                if b.get('confirm') is not True or type(b.get('id')) is not int:
+                    raise ValueError('Требуется confirm:true и id черновика')
+                result = workspace.send_revision(b['id'])
+                return self.send_json(200 if result['duplicate'] else 202,result)
+            return self.send_json(404,{'error':'not found'})
+        except Unavailable as e:
+            return self.send_json(503,{'error':str(e)})
+        except (ValueError, TypeError) as e:
+            return self.send_json(400 if post else 503,{'error':str(e) if isinstance(e,ValueError) else 'Неверные данные'})
 
     def do_GET(self):
         route = urlsplit(self.path).path
@@ -1050,6 +1123,8 @@ class Handler(BaseHTTPRequestHandler):
         if not allowed:
             self.deny()
             return
+        if route.startswith("/api/workspace"):
+            return self.workspace_route(route)
         if route == "/manifest.webmanifest":
             token = load_token()
             start = "/?k=" + token if token else "/"
@@ -1124,6 +1199,8 @@ class Handler(BaseHTTPRequestHandler):
         if not allowed:
             self.deny()
             return
+        if urlsplit(self.path).path.startswith('/api/workspace'):
+            return self.workspace_route(urlsplit(self.path).path, True)
         if urlsplit(self.path).path in ('/api/voice/metrics', '/api/client-log'):
             self.voice_diagnostic(urlsplit(self.path).path)
             return

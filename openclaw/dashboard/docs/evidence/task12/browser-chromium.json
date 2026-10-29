@@ -1,0 +1,144 @@
+{
+  "engine": "chromium",
+  "environment": "viewport emulation; synthetic Gateway",
+  "checks": [
+    {
+      "name": "boot",
+      "passed": true,
+      "err": null,
+      "ms": 387
+    },
+    {
+      "name": "history",
+      "passed": true,
+      "err": null,
+      "ms": 482,
+      "details": {
+        "initial": 30,
+        "totalVisible": 44,
+        "systemHidden": true
+      }
+    },
+    {
+      "name": "send and duplicate",
+      "passed": true,
+      "err": null,
+      "ms": 4702
+    },
+    {
+      "name": "two tabs",
+      "passed": true,
+      "err": null,
+      "ms": 871
+    },
+    {
+      "name": "revision and duplicate",
+      "passed": true,
+      "err": null,
+      "ms": 6747
+    },
+    {
+      "name": "offline recovery",
+      "passed": true,
+      "err": null,
+      "ms": 12111
+    },
+    {
+      "name": "cancel disabled with reason",
+      "passed": true,
+      "err": null,
+      "ms": 18
+    },
+    {
+      "name": "security",
+      "passed": true,
+      "err": null,
+      "ms": 49
+    },
+    {
+      "name": "navigation and voice regression",
+      "passed": true,
+      "err": null,
+      "ms": 1506
+    },
+    {
+      "name": "screenshot desktop",
+      "passed": true,
+      "err": null,
+      "ms": 161
+    },
+    {
+      "name": "screenshot ipad",
+      "passed": true,
+      "err": null,
+      "ms": 153
+    },
+    {
+      "name": "screenshot phone",
+      "passed": true,
+      "err": null,
+      "ms": 117
+    }
+  ],
+  "pageErrors": [],
+  "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 415 (Unsupported Media Type)"
+  ],
+  "screenshots": [
+    "chromium-desktop.png",
+    "chromium-ipad.png",
+    "chromium-phone.png"
+  ],
+  "browserVersion": "156.0.8078.47",
+  "latency": {
+    "mock": true,
+    "label": "synthetic Gateway polling latency",
+    "messageMs": 4168,
+    "assistantMs": 4171
+  },
+  "gateway": {
+    "count": 2,
+    "requests": [
+      {
+        "headers": {
+          "accept-encoding": "identity",
+          "content-length": "310",
+          "host": "127.0.0.1:35017",
+          "user-agent": "Python-urllib/3.12",
+          "authorization": "Bearer [redacted]",
+          "content-type": "application/json",
+          "accept": "text/event-stream",
+          "x-openclaw-session-key": "agent:svodka-test:main",
+          "connection": "close"
+        },
+        "body": {
+          "model": "openclaw/svodka-test",
+          "input": "[Сводка:CGjlUxeZRzy22S8JFm0Mkg] Синтетическая проверка отправки workspace",
+          "stream": true
+        },
+        "answer": "Синтетический ответ 1"
+      },
+      {
+        "headers": {
+          "accept-encoding": "identity",
+          "content-length": "1555",
+          "host": "127.0.0.1:35017",
+          "user-agent": "Python-urllib/3.12",
+          "authorization": "Bearer [redacted]",
+          "content-type": "application/json",
+          "accept": "text/event-stream",
+          "x-openclaw-session-key": "agent:svodka-test:main",
+          "connection": "close"
+        },
+        "body": {
+          "model": "openclaw/svodka-test",
+          "input": "[Сводка:iysfZKI6xbDM_1oLoBXeSg] Уточнение к ранее отправленному запросу (id sent-1). Исходный текст сохранён ниже без изменений. Уже выполненные действия не отменены; не повторяй их без явной необходимости.\nИсходный запрос:\nСинтетическая проверка отправки workspace\nНовая редакция:\nУточнённая синтетическая формулировка",
+          "stream": true
+        },
+        "answer": "Синтетический ответ 2"
+      }
+    ]
+  },
+  "serverLog": "Сводка on http://127.0.0.1:39823, data in /tmp/svodka-workspace-G6QP75/life\n",
+  "ok": true
+}

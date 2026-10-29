@@ -62,7 +62,16 @@ class Agent:
             self.started = True
 
 
+    def canonical(self):
+        key = os.environ.get("SVODKA_CANONICAL_SESSION")
+        if key is None:
+            return None
+        if (key != "main" and not re.fullmatch(r"agent:[a-z0-9_-]{1,64}:[A-Za-z0-9:_.-]{1,160}", key)) or any(x in key for x in ("subagent:", "cron:", "acp:")):
+            raise Unavailable("Неверная SVODKA_CANONICAL_SESSION: требуется main или agent:<id>:<session> без subagent:, cron:, acp:")
+        return key
+
     def config(self):
+        canonical = self.canonical()
         if os.environ.get('SVODKA_AGENT_ENABLED') != '1':
             raise Unavailable('Агент отключён: требуется разрешение оператора и отдельно включённая точка ответов шлюза.')
         url = os.environ.get('SVODKA_AGENT_URL', '')
@@ -71,7 +80,7 @@ class Agent:
             raise Unavailable('Адрес агента должен явно указывать локальную точку /v1/responses')
         agent = os.environ.get('SVODKA_AGENT_ID', '')
         user = os.environ.get('SVODKA_AGENT_USER', '')
-        if not re.fullmatch(r'[a-zA-Z0-9_-]{1,64}', agent) or not re.fullmatch(r'svodka-[a-zA-Z0-9_-]{1,80}', user):
+        if not re.fullmatch(r'[a-zA-Z0-9_-]{1,64}', agent) or (canonical is None and not re.fullmatch(r'svodka-[a-zA-Z0-9_-]{1,80}', user)):
             raise Unavailable('Требуются фиксированный идентификатор агента и пользователь с префиксом svodka-')
         try:
             f = Path(os.environ['SVODKA_AGENT_TOKEN_FILE'])
@@ -90,12 +99,17 @@ class Agent:
             runs = [dict(r) for r in c.execute('SELECT id,status,substr(input,1,20000) AS input,substr(output,1,16384) AS output,length(output)>16384 AS truncated,substr(error,1,1000) AS error,started,updated,model FROM runs ORDER BY id DESC LIMIT 20')][::-1]
         try:
             self.config()
+            key = self.canonical()
             available, reason = True, 'Настроен; точка подключения и выполнение модели пока не проверены'
         except Unavailable as e:
             available, reason = False, str(e)
+            try:
+                key = self.canonical()
+            except Unavailable:
+                key = None
         with self.lock, self.db() as c:
             events = [dict(r) for r in c.execute('SELECT run,status,time,output_chars FROM events ORDER BY id DESC LIMIT 100')]
-        return dict(available=available, reason=reason, runs=runs, events=events)
+        return dict(available=available, reason=reason, runs=runs, events=events, session={"canonical": key is not None, "key": key})
 
     def recover(self, c):
         # A dead worker may have failed to persist its terminal state. Never retry work.
@@ -149,7 +163,14 @@ class Agent:
         last_write = float('-inf')
         timer = None
         try:
-            req = urllib.request.Request(url, data=json.dumps(dict(model='openclaw/'+agent, user=user, input=text, stream=True)).encode(), headers={'Authorization':'Bearer '+token, 'Content-Type':'application/json', 'Accept':'text/event-stream'})
+            payload = dict(model='openclaw/'+agent, input=text, stream=True)
+            headers = {'Authorization':'Bearer '+token, 'Content-Type':'application/json', 'Accept':'text/event-stream'}
+            canonical = self.canonical()
+            if canonical is not None:
+                headers['x-openclaw-session-key'] = canonical
+            else:
+                payload['user'] = user
+            req = urllib.request.Request(url, data=json.dumps(payload).encode(), headers=headers)
             # No redirects: never forward the operator credential to another URL.
             class NoRedirect(urllib.request.HTTPRedirectHandler):
                 def redirect_request(self, *args, **kwargs):

@@ -184,6 +184,8 @@ assert(!/<dialog id="voice"/.test(html));
 assert(/id="voice-status" role="status" aria-live="polite"/.test(html));
 const mobileItem=html.match(/width: clamp\((\d+)px, (\d+)vw, 46px\)/);
 const itemWidth=Math.max(+mobileItem[1],Math.min(320*(+mobileItem[2])/100,46));
-assert(8*itemWidth+8*3.2+16+5 < 320-24);
+assert(9*itemWidth+9*3.2+16+5 < 320-24);
 for(const script of html.matchAll(/<script>([\s\S]*?)<\/script>/g))new vm.Script(script[1]);
 assert(!/\?\?=|\|\|=|&&=|structuredClone|\.at\(|\(\?<([=!])/.test(html));
+
+require('./workspace_ui.cjs');

@@ -167,7 +167,7 @@ body[data-page="graph"] .flower { width: 170px; height: 170px; right: 10px; }
 @media (max-width: 760px) {
   .side { width:max-content; max-width:calc(100vw - 24px); left: 50%; top: auto; bottom: max(12px, env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); }
   .nav { flex-direction: row; padding: 8px; gap: clamp(2px, 1vw, 8px); max-width:100%; }
-  .nav .item { width: clamp(28px, 9vw, 46px); height: 46px; flex: 0 1 auto; min-width:0; }
+  .nav .item { width: clamp(24px, 7vw, 46px); height: 46px; flex: 0 1 auto; min-width:0; }
   .nav .label { display: none; }
   .nav .sep { width: 1px; height: auto; margin: 10px 2px; }
   .main { padding: max(14px, env(safe-area-inset-top, 0px)) 14px 112px; gap: 14px; }
@@ -422,6 +422,7 @@ dialog[open] { animation: pop .4s var(--spring); }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .001ms !important; animation-delay: 0s !important; animation-iteration-count: 1 !important; transition-duration: .001ms !important; }
 }
+ .chat-layout{display:grid;grid-template-columns:minmax(0,2fr) minmax(220px,1fr);gap:20px}.chat-layout textarea{width:100%;min-height:100px;box-sizing:border-box}.chat-message{padding:14px;margin:10px 0;border:1px solid #8885;border-radius:12px;overflow-wrap:anywhere}.chat-layout button{margin:5px;border:0;border-radius:999px;padding:7px 14px;font:600 13px var(--font);background:var(--pill);color:var(--on-pill);cursor:pointer}.chat-layout button:disabled{opacity:.45;cursor:not-allowed}#page-chat p{margin:6px 0}.chat-message small{opacity:.7} @media(max-width:760px){.chat-layout{grid-template-columns:1fr}}
 </style>
 </head>
 <body data-page="life">
@@ -432,6 +433,7 @@ dialog[open] { animation: pop .4s var(--spring); }
     <a class="item" href="#work" id="tab-work"><svg class="i" viewBox="0 0 24 24"><rect x="3.5" y="7.5" width="17" height="12" rx="3"/><path d="M9 7.5V6a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v1.5M3.5 13h17"/></svg><span class="label">Работа</span></a>
     <a class="item" href="#graph" id="tab-graph"><svg class="i" viewBox="0 0 24 24"><circle cx="6" cy="7" r="2.5"/><circle cx="18" cy="6" r="2"/><circle cx="16" cy="18" r="2.5"/><circle cx="6" cy="17" r="1.8"/><path d="M8.4 7.3 16 6.2M7.6 9l7 7.2M17.6 8l-1.2 7.6M7.8 17.2h5.7"/></svg><span class="label">Память</span></a>
     <a class="item" href="#ai" id="tab-ai"><svg class="i" viewBox="0 0 24 24"><path d="M5 5.5h14a1.5 1.5 0 0 1 1.5 1.5v8.5A1.5 1.5 0 0 1 19 17h-7.5L7 20.5V17H5a1.5 1.5 0 0 1-1.5-1.5V7A1.5 1.5 0 0 1 5 5.5z"/><path d="M8.5 11.25h.01M12 11.25h.01M15.5 11.25h.01" stroke-width="2.4"/></svg><span class="label">ИИ</span></a>
+    <a class="item" href="#chat" id="tab-chat" aria-label="Переписка" title="Переписка"><svg class="i" viewBox="0 0 24 24"><path d="M4 4h16v12H9l-5 4zM8 8h8M8 12h5"/></svg><span class="label">Переписка</span></a>
     <a class="item" href="#agents" id="tab-agents" aria-label="Агенты · офис запусков" title="Агенты · офис запусков"><svg class="i" viewBox="0 0 24 24"><rect x="3" y="8" width="18" height="13" rx="3"/><path d="M12 3v5M7 13h2m6 0h2M8 17h8"/></svg><span class="label">Агенты</span></a>
     <a class="item" href="#agent" id="tab-agent" aria-label="Агент · серверный чат" title="Агент · серверный чат" hidden><svg class="i" viewBox="0 0 24 24"><path d="M4 4h16v13H9l-5 4zM8 9h8M8 13h5"/></svg><span class="label">Агент · чат</span></a>
     <button id="voice-btn" class="item" type="button" aria-label="Голосовой помощник" aria-controls="voice" aria-expanded="false"><svg class="i" viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="12" rx="3"/><path d="M6 11v1a6 6 0 0 0 12 0v-1M12 18v3M9 21h6"/></svg><span class="label">Голос</span></button>
@@ -660,6 +662,13 @@ dialog[open] { animation: pop .4s var(--spring); }
     </section>
   </div>
 
+<section class="page" id="page-chat" hidden><div class="card">
+<h2>Переписка</h2><p>Каноническая сессия: <span id="chat-key">не задана</span> · Telegram + Сводка</p>
+<p id="chat-live" role="status">Подключение…</p><p id="chat-reason" role="alert"></p>
+<div class="chat-layout"><div><button id="chat-earlier" disabled>Загрузить раньше</button><div id="chat-messages"></div>
+<textarea id="chat-input" maxlength="20000" aria-label="Сообщение" disabled></textarea><button id="chat-send" disabled>Отправить</button><div id="chat-revision" hidden></div></div>
+<aside><h2>Задачи</h2><div id="chat-tasks"></div><a href="#agents">Офис агентов</a> · <a href="#graph">Память</a></aside></div>
+</div></section>
 <section class="page" id="page-agents" hidden>
   <div class="card office-card">
     <div class="office-heading"><h2>Офис агентов</h2><span class="meta">Прямой эфир · только чтение</span></div>
@@ -996,7 +1005,7 @@ async function post(path, body) {
 }
 
 // ----- pages: fade out the old one, cascade the new one in -----
-const PAGES = ['life', 'work', 'graph', 'ai', 'agents', 'agent'];
+const PAGES = ['life', 'work', 'graph', 'ai', 'chat', 'agents', 'agent'];
 let current = '';
 let leaveTimer;
 function showPage() {
@@ -2621,6 +2630,55 @@ addEventListener('pagehide',()=>{voiceStop('Разговор остановле�
 document.addEventListener('visibilitychange',()=>{if(document.hidden){voiceStop('Разговор остановлен: страница свёрнута');clearTimeout(V.poll);}else if(!V.panel.hidden)voicePoll();});
 document.addEventListener('click',e=>{const row=e.target.closest&&e.target.closest('[data-voice-task]');if(row)V.task={tab:current,title:row.dataset.voiceTask};});
 document.addEventListener('focusin',e=>{if(!V.panel.hidden&&!V.panel.contains(e.target)&&e.target.closest&&e.target.closest('form,dialog,[role="dialog"]'))voiceCollapse(true);});
+
+</script>
+<script>
+// ----- workspace pure logic -----
+function workspaceMerge(oldMessages,newMessages){
+ const map=new Map();oldMessages.concat(newMessages).forEach(m=>map.set(m.id,m));
+ return Array.from(map.values()).map((m,i)=>({m,i})).sort((a,b)=>{const x=a.m.ts,y=b.m.ts;return (x==null?Infinity:x)-(y==null?Infinity:y)||a.i-b.i;}).map(x=>x.m);
+}
+// ----- workspace UI -----
+const chatState={messages:[],pending:[],next:null,delay:4000,timer:null,busy:false,available:false,draft:null,attempted:false,sending:false,attempt:null};
+try{const saved=JSON.parse(sessionStorage.getItem('svodka-chat')||'null');if(saved&&typeof saved.text==='string'&&/^[A-Za-z0-9_-]{22}$/.test(saved.request)){chatState.draft=saved;chatState.attempted=!!saved.attempted;if(chatState.attempted)chatState.attempt={text:saved.text,request:saved.request};$('chat-input').value=saved.text;}chatState.pending=JSON.parse(sessionStorage.getItem('svodka-chat-pending')||'[]');}catch(e){}
+function chatId(){const bytes=new Uint8Array(16);crypto.getRandomValues(bytes);return btoa(String.fromCharCode(...bytes)).replace(/\+/g,'-').replace(/\//g,'_').replace(/=/g,'');}
+function chatSave(){sessionStorage.setItem('svodka-chat',JSON.stringify(chatState.draft?{...chatState.draft,attempted:chatState.attempted}:null));sessionStorage.setItem('svodka-chat-pending',JSON.stringify(chatState.pending));}
+async function chatJSON(url,body){const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),18000);try{const r=await fetch(url,{signal:controller.signal,...(body?{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}:{})});const j=await r.json();if(!r.ok)throw Error(j.error||'Ошибка сервера');return j;}finally{clearTimeout(timer);}}
+function chatNode(tag,text){const n=document.createElement(tag);if(text!=null)n.textContent=text;return n;}
+function chatRender(){
+ const confirmed=new Set(chatState.messages.map(m=>m.origin_request).filter(Boolean));chatState.pending=chatState.pending.filter(p=>!confirmed.has(p.request));chatSave();
+ const list=$('chat-messages');list.replaceChildren();
+ if(chatState.gap)list.append(chatNode('p','пропуск в истории'));
+ if(chatState.hidden)list.append(chatNode('p','скрыто '+chatState.hidden+' служебных'));
+ if(chatState.redacted)list.append(chatNode('p','Часть содержимого скрыта шлюзом'));
+ for(const m of chatState.messages){const card=chatNode('article');card.className='chat-message';const source={telegram:'Telegram',dashboard:'Сводка',agent:'агент'}[m.source]||'неизвестно';card.append(chatNode('small',(m.role==='user'?'Владелец':'Ассистент')+' · '+(m.ts==null?'время неизвестно':new Date(m.ts*1000).toLocaleTimeString())+' · '+source+(m.edited?' · изменено':'')+(m.deleted?' · удалено':'')+(m.truncated?' · обрезано':'')));const text=chatNode('p',m.text);text.style.whiteSpace='pre-wrap';card.append(text);for(const a of m.attachments||[]){const mark=chatNode('a','['+a.kind+(a.name?': '+a.name:'')+'] ');mark.setAttribute('role','note');card.append(mark);}if(m.role==='user'){const b=chatNode('button','Уточнить');b.disabled=!chatState.available;b.onclick=()=>chatRevision(m);card.append(b);}list.append(card);}
+ for(const p of chatState.pending)list.append(chatNode('p',p.text+' · ожидает подтверждения в истории'));
+ $('chat-earlier').disabled=chatState.next==null||!chatState.available;
+}
+function chatRevision(message){
+ const box=$('chat-revision');box.replaceChildren();box.hidden=false;
+ const original=chatNode('textarea');original.value=message.text;original.readOnly=true;
+ const edit=chatNode('textarea');edit.value=message.text;edit.maxLength=20000;
+ const warning=chatNode('p','Уже выполненные действия и отправленные сообщения не отменяются. Сообщение в Telegram не редактируется — уходит новая связанная инструкция.');
+ const save=chatNode('button','Сохранить черновик'),send=chatNode('button','Отправить изменённый запрос'),feedback=chatNode('p');send.disabled=true;let draft=null;
+ edit.oninput=()=>{draft=null;send.disabled=true;};
+ save.onclick=async()=>{save.disabled=true;try{draft=await chatJSON('/api/workspace/revision',{target:message.id,original:message.text,text:edit.value});send.disabled=false;feedback.textContent='Черновик сохранён';}catch(e){feedback.textContent=e.message;}finally{save.disabled=false;}};
+ send.onclick=async()=>{if(!draft)return;send.disabled=true;try{await chatJSON('/api/workspace/revision/send',{id:draft.id,confirm:true});feedback.textContent='Уточнение отправлено';}catch(e){feedback.textContent=e.message;send.disabled=false;}};
+ box.append(original,edit,save,warning,send,feedback);
+}
+function chatTasks(tasks){const list=$('chat-tasks');list.replaceChildren();const labels={queued:'в очереди',running:'выполняется',waiting_approval:'ждёт решения владельца',completed:'готово',failed:'ошибка',cancelled:'отменено',unknown:'неизвестно',stale:'устарело'};for(const t of tasks){const row=chatNode('p',(t.title||String(t.id))+' · '+t.kind+' · '+(labels[t.status]||labels.unknown)+(t.model?' · '+t.model:''));const b=chatNode('button','Отменить');b.disabled=true;b.title=t.cancel.reason;row.append(b);list.append(row);}}
+function chatApply(h,earlier){chatState.messages=workspaceMerge(earlier?h.messages:chatState.messages,earlier?chatState.messages:h.messages);if(earlier||chatState.next==null)chatState.next=h.next_offset;chatState.gap=chatState.gap||h.gap;chatState.hidden=h.hidden_count;chatState.redacted=h.redacted;const confirmed=new Set(chatState.messages.map(m=>m.origin_request).filter(Boolean));chatState.pending=chatState.pending.filter(p=>!confirmed.has(p.request));chatSave();chatRender();}
+async function chatPoll(){
+ clearTimeout(chatState.timer);if(document.hidden||current!=='chat'||chatState.busy)return;
+ chatState.busy=true;try{const w=await chatJSON('/api/workspace');chatState.available=w.status.available;$('chat-key').textContent=w.session.key||'не задана';$('chat-reason').textContent=w.status.available?'':w.status.reason;for(const id of ['chat-input','chat-send']){$(id).disabled=!w.status.available||chatState.sending;$(id).title=w.status.available?'':w.status.reason;}document.querySelectorAll('#chat-revision button, #chat-revision textarea').forEach(n=>{if(!w.status.available){if(!n.dataset.workspaceDisabled)n.dataset.workspaceDisabled=n.disabled?'disabled':'enabled';n.disabled=true;n.title=w.status.reason;}else if(n.dataset.workspaceDisabled){n.disabled=n.dataset.workspaceDisabled==='disabled';delete n.dataset.workspaceDisabled;n.title='';}});chatTasks(w.tasks||[]);if(w.error)throw Error(w.error);if(w.status.available)chatApply(await chatJSON('/api/workspace/history'),false);else chatRender();chatState.delay=4000;$('chat-live').textContent='обновлено '+new Date().toLocaleTimeString();}catch(e){chatState.delay=Math.min(30000,chatState.delay*2);$('chat-live').textContent='соединение потеряно, повтор через '+chatState.delay/1000+' с';$('chat-reason').textContent=e.message;}finally{chatState.busy=false;if(!document.hidden&&current==='chat')chatState.timer=setTimeout(chatPoll,chatState.delay);}
+}
+$('chat-input').addEventListener('input',()=>{chatState.draft={request:chatState.draft&&!chatState.attempted?chatState.draft.request:chatId(),text:$('chat-input').value};chatState.attempted=false;chatState.attempt=null;chatSave();});
+$('chat-send').onclick=async()=>{if(chatState.sending)return;const d=chatState.draft;if(!d||!d.text.trim())return;const attempt=chatState.attempt||{text:d.text,request:d.request};chatState.attempt=attempt;chatState.attempted=true;chatState.sending=true;chatSave();$('chat-send').disabled=true;$('chat-input').disabled=true;try{await chatJSON('/api/workspace/send',attempt);if(!chatState.pending.some(p=>p.request===attempt.request))chatState.pending.push(attempt);if(chatState.draft&&chatState.draft.text===attempt.text){chatState.draft=null;chatState.attempt=null;chatState.attempted=false;$('chat-input').value='';}chatSave();chatRender();chatPoll();}catch(e){$('chat-reason').textContent=e.message;}finally{chatState.sending=false;$('chat-send').disabled=!chatState.available;$('chat-input').disabled=!chatState.available;}};
+$('chat-earlier').onclick=async()=>{const b=$('chat-earlier');b.disabled=true;try{chatApply(await chatJSON('/api/workspace/history?offset='+encodeURIComponent(chatState.next)),true);}catch(e){$('chat-reason').textContent=e.message;}finally{b.disabled=chatState.next==null;}};
+addEventListener('hashchange',()=>{clearTimeout(chatState.timer);if(location.hash==='#chat')setTimeout(chatPoll,200);});
+document.addEventListener('visibilitychange',()=>{clearTimeout(chatState.timer);if(!document.hidden)chatPoll();});
+addEventListener('online',()=>{chatState.delay=4000;chatPoll();});
+if(location.hash==='#chat')setTimeout(chatPoll,200);
 
 </script>
 </body>
