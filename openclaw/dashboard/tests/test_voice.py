@@ -42,7 +42,7 @@ print(os.environ.get('VOICE_JSON','{}'))
         self.assertTrue(self.sent[-1][1]['stt']);self.assertEqual(self.sent[-1][1]['max_seconds'],60)
         status=self.sent[-1][1];self.assertTrue(status['vad']);self.assertFalse(status['realtime'])
         self.assertEqual(status['max_utterance_seconds'],30);self.assertEqual(status['session_max_minutes'],15)
-        self.assertIn('TASK11-voice-architecture.md',status['realtime_reason'])
+        self.assertIn('realtime',status['realtime_reason'])
         os.environ['SVODKA_OPENCLAW_BIN']='/missing'
         with patch.object(server.shutil,'which',return_value=None),patch.object(server.Path,'home',return_value=self.root):
             self.h.do_GET();self.assertFalse(self.sent[-1][1]['stt'])

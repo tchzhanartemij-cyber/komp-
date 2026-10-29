@@ -405,7 +405,6 @@ body[data-page="ai"] .main { padding-bottom:20px; }
 }
 
 
-.agent-toolbar[hidden], #tab-chat[hidden], .nav #tab-agent { display:none; }
 .ai-chips { display:flex; gap:8px; overflow-x:auto; padding:4px 0; }
 .ai-chip { flex:0 0 auto; max-width:230px; display:flex; gap:6px; align-items:center; padding:6px; border:1px solid var(--line); border-radius:12px; font-size:12px; }
 .ai-chip img { width:40px; height:40px; object-fit:cover; border-radius:6px; }
@@ -458,7 +457,7 @@ dialog[open] { animation: pop .4s var(--spring); }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .001ms !important; animation-delay: 0s !important; animation-iteration-count: 1 !important; transition-duration: .001ms !important; }
 }
- .chat-layout{display:grid;grid-template-columns:minmax(0,2fr) minmax(220px,1fr);gap:20px}.chat-layout textarea{width:100%;min-height:100px;box-sizing:border-box}.chat-message{padding:14px;margin:10px 0;border:1px solid #8885;border-radius:12px;overflow-wrap:anywhere}.chat-layout button{margin:5px;border:0;border-radius:999px;padding:7px 14px;font:600 13px var(--font);background:var(--pill);color:var(--on-pill);cursor:pointer}.chat-layout button:disabled{opacity:.45;cursor:not-allowed}#page-chat p{margin:6px 0}.chat-message small{opacity:.7} @media(max-width:760px){.chat-layout{grid-template-columns:1fr}}
+ .chat-layout{display:grid;grid-template-columns:minmax(0,2fr) minmax(220px,1fr);gap:20px}.chat-layout textarea{width:100%;min-height:100px;box-sizing:border-box}.chat-message{padding:14px;margin:10px 0;border:1px solid #8885;border-radius:12px;overflow-wrap:anywhere}.chat-layout button{margin:5px;border:0;border-radius:999px;padding:7px 14px;font:600 13px var(--font);background:var(--pill);color:var(--on-pill);cursor:pointer}.chat-layout button:disabled{opacity:.45;cursor:not-allowed}.chat-message small{opacity:.7} @media(max-width:760px){.chat-layout{grid-template-columns:1fr}}
 </style>
 </head>
 <body data-page="life">
@@ -469,14 +468,12 @@ dialog[open] { animation: pop .4s var(--spring); }
     <a class="item" href="#work" id="tab-work"><svg class="i" viewBox="0 0 24 24"><rect x="3.5" y="7.5" width="17" height="12" rx="3"/><path d="M9 7.5V6a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v1.5M3.5 13h17"/></svg><span class="label">Работа</span></a>
     <a class="item" href="#graph" id="tab-graph"><svg class="i" viewBox="0 0 24 24"><circle cx="6" cy="7" r="2.5"/><circle cx="18" cy="6" r="2"/><circle cx="16" cy="18" r="2.5"/><circle cx="6" cy="17" r="1.8"/><path d="M8.4 7.3 16 6.2M7.6 9l7 7.2M17.6 8l-1.2 7.6M7.8 17.2h5.7"/></svg><span class="label">Память</span></a>
     <a class="item" href="#ai" id="tab-ai"><svg class="i" viewBox="0 0 24 24"><path d="M5 5.5h14a1.5 1.5 0 0 1 1.5 1.5v8.5A1.5 1.5 0 0 1 19 17h-7.5L7 20.5V17H5a1.5 1.5 0 0 1-1.5-1.5V7A1.5 1.5 0 0 1 5 5.5z"/><path d="M8.5 11.25h.01M12 11.25h.01M15.5 11.25h.01" stroke-width="2.4"/></svg><span class="label">ИИ</span></a>
-    <a class="item" href="#chat" id="tab-chat" hidden aria-label="Переписка" title="Переписка"><svg class="i" viewBox="0 0 24 24"><path d="M4 4h16v12H9l-5 4zM8 8h8M8 12h5"/></svg><span class="label">Переписка</span></a>
     <a class="item" href="#agents" id="tab-agents" aria-label="Агенты · офис запусков" title="Агенты · офис запусков"><svg class="i" viewBox="0 0 24 24"><rect x="3" y="8" width="18" height="13" rx="3"/><path d="M12 3v5M7 13h2m6 0h2M8 17h8"/></svg><span class="label">Агенты</span></a>
-    <a class="item" href="#agent" id="tab-agent" aria-label="Агент · серверный чат" title="Агент · серверный чат" hidden><svg class="i" viewBox="0 0 24 24"><path d="M4 4h16v13H9l-5 4zM8 9h8M8 13h5"/></svg><span class="label">Агент · чат</span></a>
-    <button id="voice-btn" class="item" type="button" aria-label="Голосовой помощник" aria-controls="voice" aria-expanded="false"><svg class="i" viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="12" rx="3"/><path d="M6 11v1a6 6 0 0 0 12 0v-1M12 18v3M9 21h6"/></svg><span class="label">Голос</span></button>
     <span class="sep" aria-hidden="true"></span>
     <button class="item" type="button" id="theme-btn" aria-label="Тема"><svg class="i" viewBox="0 0 24 24" id="theme-ico"></svg><span class="label" id="theme-label">Тема</span></button>
   </nav>
 </aside>
+<button id="voice-btn" class="jarvis-btn" type="button" aria-label="Джарвис · голосовой ассистент" title="Джарвис" aria-controls="voice" aria-expanded="false"><span class="jarvis-orb" aria-hidden="true"></span><span class="jarvis-label">Джарвис</span></button>
 
 <main class="main">
   <section class="card banner" id="banner" aria-labelledby="b-title">
@@ -671,8 +668,6 @@ dialog[open] { animation: pop .4s var(--spring); }
 
   <!-- ===== ИИ ===== -->
   <div id="page-ai" class="page" hidden>
-    <div class="agent-toolbar" hidden><button class="pill soft" id="mode-chat" hidden>Чат</button> <button class="pill soft" id="mode-agent" hidden>Серверный агент</button> <button class="pill soft" id="agent-layout-toggle" hidden>Отдельная вкладка агента</button></div>
-    <div id="agent-embedded"></div>
     <section class="card ai-card" aria-labelledby="h-ai">
       <div class="ai-layout" id="ai-layout">
         <button class="ai-backdrop" id="ai-backdrop" aria-label="Закрыть меню"></button>
@@ -703,13 +698,7 @@ dialog[open] { animation: pop .4s var(--spring); }
     </section>
   </div>
 
-<section class="page" id="page-chat" hidden><div class="card">
-<h2>Переписка</h2><p>Каноническая сессия: <span id="chat-key">не задана</span> · Telegram + Сводка</p>
-<p id="chat-live" role="status">Подключение…</p><p id="chat-reason" role="alert"></p>
-<div class="chat-layout"><div><button id="chat-earlier" disabled>Загрузить раньше</button><div id="chat-messages"></div>
-<textarea id="chat-input" maxlength="20000" aria-label="Сообщение" disabled></textarea><button id="chat-send" disabled>Отправить</button><div id="chat-revision" hidden></div></div>
-<aside><h2>Задачи</h2><div id="chat-tasks"></div><a href="#agents">Офис агентов</a> · <a href="#graph">Память</a></aside></div>
-</div></section>
+<div id="chat-state" hidden><span id="chat-key"></span><p id="chat-live"></p><p id="chat-reason"></p><button id="chat-earlier" disabled></button><div id="chat-messages"></div><textarea id="chat-input" maxlength="20000" disabled></textarea><button id="chat-send" disabled></button><div id="chat-revision" hidden></div><div id="chat-tasks"></div></div>
 <section class="page" id="page-agents" hidden>
   <div class="card office-card">
     <div class="office-heading"><h2>Офис агентов</h2><span class="meta">Прямой эфир · только чтение</span></div>
@@ -732,7 +721,6 @@ dialog[open] { animation: pop .4s var(--spring); }
     </aside>
   </div>
 </section>
-<section class="page" id="page-agent" hidden><div id="agent-separate"></div></section>
 
   <p class="hint foot-hint">Пиши Джарвису в Telegram: «потратил 500 на такси», «надо оплатить интернет до пятницы», «по работе: позвонить поставщику плёнки», «запомни: …», а ещё фото еды, этикетки или чека. Всё появится здесь само в течение 10 секунд.</p>
 </main>
@@ -794,7 +782,7 @@ dialog[open] { animation: pop .4s var(--spring); }
 </dialog>
 
 <style>
-.agent-toolbar {display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px}
+
 .agent-panel {padding:22px;max-width:900px;margin:auto}
 .agent-history {max-height:55dvh;overflow:auto;display:grid;gap:16px;white-space:pre-wrap;overflow-wrap:anywhere}
 .agent-panel textarea {width:100%;min-height:90px;margin:14px 0}
@@ -851,6 +839,14 @@ dialog[open] { animation: pop .4s var(--spring); }
 
 #voice { position:fixed; z-index:21; right:16px; bottom:16px; width:min(420px,calc(100vw - 32px)); max-height:85vh; max-height:85dvh; overflow:auto; box-sizing:border-box; border:1px solid var(--rule); border-radius:24px; padding:18px; background:var(--bg); color:var(--ink); box-shadow:var(--shadow-up); }
 #voice[hidden],#voice-body[hidden] { display:none; }
+.jarvis-btn { position:fixed; z-index:20; right:max(12px,env(safe-area-inset-right,0px)); top:50%; transform:translateY(-50%); display:grid; place-items:center; width:52px; height:52px; padding:0; border:0; border-radius:50%; background:var(--pill); color:var(--on-pill); font:inherit; font-weight:700; box-shadow:var(--shadow-up); cursor:pointer; }
+.jarvis-orb { width:36px; height:36px; border-radius:50%; background:radial-gradient(circle at 35% 30%,#fff 0 8%,#9fd8ff 22%,#4a7dff 55%,#2a1f6b 100%); box-shadow:0 0 14px #5aa7ff99; animation:jarvisGlow 3.2s ease-in-out infinite; }
+@keyframes jarvisGlow { 50% { box-shadow:0 0 22px #7cc4ffcc; transform:scale(1.06); } }
+.jarvis-btn[aria-expanded="true"] { display:none; }
+.jarvis-btn:focus-visible { outline:2px solid var(--accent); outline-offset:3px; }
+.jarvis-label { position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0 0 0 0); }
+@media (max-width:1100px) { .jarvis-btn { width:46px; height:46px; right:max(6px,env(safe-area-inset-right,0px)); } .jarvis-orb { width:32px; height:32px; } }
+@media (prefers-reduced-motion:reduce) { .jarvis-orb { animation:none; } }
 #voice[data-collapsed="true"] { display:flex; align-items:center; gap:8px; width:auto; max-width:calc(100vw - 20px); padding:6px 6px 6px 14px; border-radius:999px; overflow:visible; }
 #voice[data-collapsed="true"][hidden] { display:none; }
 #voice[data-collapsed="true"] .voice-head,#voice[data-collapsed="true"] .voice-quick { display:contents; }
@@ -1075,13 +1071,13 @@ async function post(path, body) {
 }
 
 // ----- pages: fade out the old one, cascade the new one in -----
-const PAGES = ['life', 'work', 'graph', 'ai', 'chat', 'agents', 'agent'];
+const PAGES = ['life', 'work', 'graph', 'ai', 'agents'];
 let current = '';
 let leaveTimer;
 function showPage() {
-  let page = PAGES.includes(location.hash.slice(1)) ? location.hash.slice(1) : 'life';
-  if(page==='chat')page='ai';
-  if(page==='agent' && !agentSeparate){page='ai';agentPanel.hidden=false;document.querySelector('.ai-card').hidden=true;}
+  const asked = location.hash.slice(1);
+  // Old links to «Переписка» and «Серверный агент» open the unified chat.
+  let page = ['chat', 'agent'].includes(asked) ? 'ai' : PAGES.includes(asked) ? asked : 'life';
   if (page === current) { if (page === 'graph') graphShown(); if(page==='ai')aiShown(); return; }
   const prev = current && $('page-' + current);
   current = page;
@@ -2183,27 +2179,6 @@ load();
 setInterval(() => { if (!document.hidden) { load(); renderBanner(); } }, 10000);
 document.addEventListener('visibilitychange', () => { if (!document.hidden) scheduleRefresh(); });
 
-// Persistent server agent: polling only observes work; closing this page never cancels it.
-const agentPanel=el('div',{class:'card agent-panel'},el('h2',{text:'Серверный агент'}));
-const agentReason=el('p',{class:'meta',role:'status'}), agentHistory=el('div',{class:'agent-history'});
-const agentInput=el('textarea',{'aria-label':'Сообщение серверному агенту',placeholder:'Задача для серверного агента'});
-const agentSend=el('button',{class:'pill dark',text:'Отправить',type:'submit'});
-const agentForm=el('form',{},agentInput,agentSend);
-agentPanel.append(agentReason,agentHistory,agentForm);
-let agentSeparate=false;
-try { agentSeparate=(new URLSearchParams(location.search).get('agentLayout') || localStorage.getItem('svodka-agent-layout'))==='separate'; } catch {}
-function setAgentLayout(){
- $('tab-agent').hidden=!agentSeparate;
- (agentSeparate?$('agent-separate'):$('agent-embedded')).append(agentPanel);
- $('agent-layout-toggle').textContent=agentSeparate?'Агент внутри ИИ':'Отдельная вкладка агента';
- agentPanel.hidden=!agentSeparate;
- if(agentSeparate)document.querySelector('.ai-card').hidden=false;
-}
-setAgentLayout();
-$('agent-layout-toggle').onclick=()=>{agentSeparate=!agentSeparate;try{localStorage.setItem('svodka-agent-layout',agentSeparate?'separate':'embedded');}catch{}setAgentLayout();location.hash=agentSeparate?'agent':'ai';};
-$('mode-chat').onclick=()=>{agentPanel.hidden=!agentSeparate;document.querySelector('.ai-card').hidden=false;};
-$('mode-agent').onclick=()=>{if(agentSeparate){agentPanel.hidden=false;location.hash='agent';}else{agentPanel.hidden=false;document.querySelector('.ai-card').hidden=true;}refreshAgent();};
-agentForm.onsubmit=e=>{e.preventDefault();const text=agentInput.value.trim();if(text&&voiceEnqueue(text)){agentInput.value='';agentSend.disabled=true;agentReason.textContent='Сообщение в очереди агента';}};
 const statusLabels={running:'Выполняется',completed:'Завершён',incomplete:'Ответ неполный',failed:'Ошибка',interrupted:'Прерван',queued:'В очереди',waiting_limit:'Ожидание лимита',question:'Требуется ответ',done:'Готово',nochange:'Без изменений',cancelled:'Отменён',merged:'Объединён',unknown:'Неизвестно'};
 const statusLabel=s=>statusLabels[s] || 'Неизвестно';
 const officeTime=t=>typeof t==='number'?new Date(t*1000).toLocaleString('ru-RU'):t || 'неизвестно';
@@ -2478,7 +2453,7 @@ function officeDetails(){
  add(el('p',{class:'meta',text:kind==='coder'?'Отмена/ответ — через существующие команды кодера в Telegram':kind==='chat'?'Остановить можно в окне диалога ИИ':'Новый запуск — через форму серверного агента'}));
  // The feed lives in its own slot so detail refreshes keep its scroll position.
  $('office-feed-slot').hidden=kind!=='coder';
- if(kind!=='coder')add(el('a',{href:kind==='chat'?'#ai':'#agent',text:kind==='chat'?'Открыть диалог ИИ':'Открыть форму агента',onclick:()=>{if(kind==='chat')$('mode-chat').click(); officeClose();}}));
+ if(kind!=='coder')add(el('a',{href:'#ai',text:'Открыть чат ИИ',onclick:()=>officeClose()}));
 }
 // Live work feed of the selected coder task: public tool steps and visible replies, polled while open.
 const officeFeedBox=el('section',{class:'office-feed','aria-label':'Ход работы'});
@@ -2604,34 +2579,15 @@ if(window.ResizeObserver)new ResizeObserver(()=>{if(officeActive())officeResize(
 const officeMotion=()=>{officeLast=0;officeWake();};if(RM.addEventListener)RM.addEventListener('change',officeMotion);else RM.addListener(officeMotion);
 // OFFICE_UI_END
 let agentRefreshing=false;
-const runNodes=new Map();
-function renderAgentRuns(runs){
- const ids=new Set(runs.map(r=>r.id));
- for(const [id,node] of runNodes)if(!ids.has(id)){node.remove();runNodes.delete(id);}
- for(const r of runs){
-  let node=runNodes.get(r.id);
-  if(!node){node=el('div',{},el('div',{class:'msg user'}),el('div',{class:'agent-output'}),el('div',{class:'meta'}));runNodes.set(r.id,node);agentHistory.append(node);}
-  const values=[voiceInput(r.input),r.output || (r.status==='running'?'Выполняется на сервере…':'Ответа нет'),statusLabel(r.status)+' · '+officeTime(r.updated)+(r.model?' · '+r.model:'')+(r.error?' · '+r.error:'')+(r.truncated?' · Показана часть ответа':'')];
-  [...node.children].forEach((child,i)=>{if(child.textContent!==values[i])child.textContent=values[i];});
- }
-}
 async function refreshAgent(){
- if(document.hidden || agentRefreshing || !['ai','agent','agents'].includes(current))return;
+ if(document.hidden || agentRefreshing || !['ai','agents'].includes(current))return;
  agentRefreshing=true;
  try {
-  await Promise.all([
-   (async()=>{try{
-    const a=await aiGet('/api/agent');
-    agentReason.textContent=a.reason+' · История хранится на сервере. Закрытие браузера не останавливает работу.';
-    agentSend.disabled=!a.available || a.runs.some(r=>r.status==='running');
-    renderAgentRuns(a.runs);
-   }catch(e){agentReason.textContent='Нет связи с сервером';}})(),
-   (async()=>{try{officeAccept(await aiGet('/api/office'));}catch(e){officeAccept({type:'offline',at:Date.now()/1000});}})()
-  ]);
+  try{officeAccept(await aiGet('/api/office'));}catch(e){officeAccept({type:'offline',at:Date.now()/1000});}
  }finally{agentRefreshing=false;}
 }
-showPage();refreshAgent();setInterval(()=>{if(!document.hidden && ['ai','agent','agents'].includes(current))refreshAgent();},2500);
-document.addEventListener('visibilitychange',()=>{officeVisibility();if(!document.hidden && ['ai','agent','agents'].includes(current))refreshAgent();});
+showPage();refreshAgent();setInterval(()=>{if(!document.hidden && ['ai','agents'].includes(current))refreshAgent();},2500);
+document.addEventListener('visibilitychange',()=>{officeVisibility();if(!document.hidden && ['ai','agents'].includes(current))refreshAgent();});
 // ----- voice: persistent cascade; no provider realtime connection -----
 // VOICE_CORE_BEGIN — pure helpers, exercised directly by Node.
 const VOICE_CFG={threshold:.025,bargeThreshold:.085,bargeMs:250,minSpeech:300,silence:900,maxUtterance:30000};
@@ -2859,7 +2815,7 @@ function voiceSchedule(delay=700){clearTimeout(V.poll);V.poll=setTimeout(voicePo
 async function voicePoll(){
  clearTimeout(V.poll);if(V.polling||document.hidden)return;V.polling=true;
  try{
-  const a=await voiceJSON('/api/agent');V.offline=false;V.available=a.available;V.runs=a.runs||[];voiceRenderHistory();if(typeof renderAgentRuns==='function')renderAgentRuns(V.runs);
+  const a=await voiceJSON('/api/agent');V.offline=false;V.available=a.available;V.runs=a.runs||[];voiceRenderHistory();
   for(const t of V.turns){if(!t.id||t.finished)continue;const r=V.runs.find(r=>r.id===t.id);if(!r)continue;if(r.output)voiceStage(t,'t_first_text');voiceFeed(t,r);
    if(r.status!=='running'){t.finished=true;voiceStage(t,'t_done');if(r.error)voiceNotice(r.error);await voiceDiff(t);voiceMetrics(t);}
   }

@@ -1098,7 +1098,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def voice_status(self):
         limits = dict(max_bytes=VOICE_MAX_BYTES, max_seconds=60, vad=True, max_utterance_seconds=30, session_max_minutes=15,
-                      realtime=False, realtime_reason='Нативный realtime speech-to-speech не подключён: нужен платный провайдер (см. docs/TASK11-voice-architecture.md)')
+                      realtime=False, realtime_reason='Нативный realtime speech-to-speech не подключён: нужен платный провайдер')
         binary = None
         candidate = os.environ.get('SVODKA_OPENCLAW_BIN', '')
         if candidate and Path(candidate).is_absolute() and Path(candidate).is_file() and os.access(candidate, os.X_OK):

@@ -298,26 +298,21 @@ class Tests(unittest.TestCase):
         with patch.object(server,'read_json',return_value={'models':[{'slug':'--help','visibility':'list'}]}),patch.dict(os.environ,SVODKA_CLAUDE_MODELS=''):
             self.assertEqual(server.listed_models(),[])
 
-    def test_layout_logic_with_node(self):
+    def test_old_pages_open_unified_chat(self):
         import shutil, subprocess
         if not shutil.which('node'):self.skipTest('node unavailable')
         html=(Path(server.__file__).parent/'index.html').read_text()
-        setup=html[html.index('let agentSeparate=false;'):html.index('agentForm.onsubmit=')]
         show=html[html.index('function showPage()'):html.index("addEventListener('hashchange', showPage)")]
+        self.assertNotIn('id="tab-chat"',html);self.assertNotIn('id="tab-agent"',html);self.assertNotIn('id="page-agent"',html)
         script="""
 const assert=require('assert');
 const nodes=new Map();function $(id){if(!nodes.has(id))nodes.set(id,{hidden:false,append(){},setAttribute(){},removeAttribute(){},classList:{add(){},remove(){}}});return nodes.get(id);}
-const agentPanel={hidden:false}; const card={hidden:false};
-const document={querySelector:()=>card,body:{dataset:{}}};
-const localStorage={getItem:()=>null,setItem(){}};
-const location={search:'',hash:'#agent'};
-const PAGES=['life','work','graph','ai','agents','agent'];let current='',leaveTimer;
+const document={querySelector:()=>({hidden:false}),body:{dataset:{}}};
+const location={search:'',hash:''};
+const PAGES=['life','work','graph','ai','agents'];let current='',leaveTimer;
 const RM={matches:true};function renderBanner(){} function refreshAgent(){} function aiShown(){}
-"""+setup+show+"""
-showPage();assert.equal(current,'ai');assert.equal(agentPanel.hidden,false);assert.equal(card.hidden,true);
-agentSeparate=true;setAgentLayout();$('mode-chat').onclick();assert.equal(agentPanel.hidden,false);
-$('mode-agent').onclick();assert.equal(location.hash,'agent');assert.equal(agentPanel.hidden,false);
-$('agent-layout-toggle').onclick();assert.equal(location.hash,'ai');
+"""+show+"""
+for(const [hash,page] of [['#chat','ai'],['#agent','ai'],['#agents','agents'],['#nope','life']]){location.hash=hash;current='';showPage();assert.equal(current,page,hash);}
 """
         subprocess.run(['node','-e',script],check=True,capture_output=True)
 

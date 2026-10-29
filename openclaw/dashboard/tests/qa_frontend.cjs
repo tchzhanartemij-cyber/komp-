@@ -187,10 +187,11 @@ let completed=false;
 process.on('beforeExit',()=>{if(!completed){console.error('Harness ended with unfinished async assertions');process.exitCode=1;}});
 main().then(()=>{completed=true},e=>{completed=true;console.error(e);process.exitCode=1});
 
-// Voice entry stays in the existing capsule; the panel never takes the modal top layer.
+// Menu has the five sections; Jarvis is one floating button outside it; the panel never takes the modal top layer.
 const nav = html.match(/<nav class="nav"[\s\S]*?<\/nav>/)[0];
-assert(nav.includes('id="voice-btn"'));
-assert(nav.indexOf('id="voice-btn"') < nav.indexOf('class="sep"'));
+assert.deepEqual([...nav.matchAll(/class="item" href="#([a-z]+)"/g)].map(m=>m[1]),['life','work','graph','ai','agents']);
+assert(!nav.includes('id="voice-btn"'));
+assert(/<button id="voice-btn" class="jarvis-btn"/.test(html));
 assert(/<aside id="voice" role="complementary"/.test(html));
 assert(!/<dialog id="voice"/.test(html));
 assert(/id="voice-status" role="status" aria-live="polite"/.test(html));

@@ -5,7 +5,7 @@
 const fs = require('node:fs/promises'), path = require('node:path'), os = require('node:os');
 const http = require('node:http'), assert = require('node:assert/strict');
 const { spawn } = require('node:child_process');
-const dashboard = path.resolve(__dirname, '..'), evidence = path.join(dashboard, 'docs/evidence/task11');
+const dashboard = path.resolve(__dirname, '..'), evidence = path.join(os.tmpdir(), 'svodka-evidence-voice');
 const choice = process.argv[2] || 'all', engines = choice === 'all' ? ['chromium', 'webkit'] : [choice];
 if (process.argv.length > 3 || engines.some(e => !['chromium', 'webkit'].includes(e))) {
   console.error('Usage: node tests/browser_voice.cjs [chromium|webkit|all]'); process.exit(2);

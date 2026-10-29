@@ -3,7 +3,7 @@
 // Disposable integration fixture; no operator data or credentials.
 const fs = require('node:fs/promises'), path = require('node:path'), os = require('node:os');
 const http = require('node:http'), assert = require('node:assert/strict'), { spawn } = require('node:child_process');
-const dashboard = path.resolve(__dirname, '..'), evidence = path.join(dashboard, 'docs/evidence/task12');
+const dashboard = path.resolve(__dirname, '..'), evidence = path.join(os.tmpdir(), 'svodka-evidence-workspace');
 const engine = process.argv[2] || 'chromium', token = 'synthetic-workspace-agent-token', key = 'agent:svodka-test:main';
 if (process.argv.length > 3 || !['chromium', 'webkit'].includes(engine)) { console.error('Usage: node tests/browser_workspace.cjs [chromium|webkit]'); process.exit(2); }
 const clean = x => String(x).replaceAll(token, '[redacted]').replace(/Bearer\s+[^\s"\\]+/gi, 'Bearer [redacted]').replace(/([?&])k=[^\s"'<>]*/gi, '[redacted-query]');
