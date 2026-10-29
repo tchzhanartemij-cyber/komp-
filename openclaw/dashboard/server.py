@@ -69,7 +69,7 @@ _office_spec = importlib.util.spec_from_file_location('office', _office_path)
 _office_module = importlib.util.module_from_spec(_office_spec)
 sys.modules[_office_spec.name] = _office_module
 _office_spec.loader.exec_module(_office_module)
-office_sessions, coder_metadata = _office_module.office_sessions, _office_module.coder_metadata
+office_sessions, coder_metadata, coder_feed = _office_module.office_sessions, _office_module.coder_metadata, _office_module.coder_feed
 
 LIFE_DIR = Path(os.environ.get("LIFE_DIR", Path.home() / ".openclaw/workspace/life")).expanduser()
 agent_service = Agent(LIFE_DIR / "dashboard-agent")
@@ -1264,6 +1264,22 @@ class Handler(BaseHTTPRequestHandler):
                                  "agent": {k: state[k] for k in ('available', 'reason')},
                                  "runs": [{k:r[k] for k in ("id", "status", "started", "updated")} for r in state["runs"]],
                                  "events": state["events"], "queue": queue})
+        elif route == "/api/office/events":
+            # Public work feed of one coder task: tool steps and visible replies only.
+            key = parse_qs(urlsplit(self.path).query).get('key', [''])[0]
+            m = re.fullmatch(r'coder:([A-Za-z0-9_-]{1,64})', key)
+            filename = os.environ.get('SVODKA_CODER_QUEUE_FILE')
+            if not m or not filename:
+                return self.send_json(404, {"error": "Лента есть только у задач кодера"})
+            logs_dir = os.environ.get('SVODKA_CODER_LOGS_DIR') or str(Path(filename).parent / 'logs')
+            queue = queue_snapshot(filename)
+            job = next((j for j in queue.get('jobs', []) if str(j.get('id')) == m.group(1)), None)
+            if job is None:
+                return self.send_json(404, {"error": "Задача не найдена в очереди"})
+            feed = None if job['status'] == 'queued' else coder_feed(m.group(1), logs_dir)
+            self.send_json(200, {"server_time": time.time(), "key": key, "status": job['status'],
+                                 "available": feed is not None or job['status'] == 'queued',
+                                 **(feed or {"model": None, "events": [], "log_at": None})})
         elif route == "/api/ai/models":
             self.send_json(200, models_payload())
         elif route == "/api/ai/projects":

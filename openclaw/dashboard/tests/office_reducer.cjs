@@ -89,7 +89,7 @@ function node(){return {hidden:false,textContent:'',children:[],isConnected:true
 const $=id=>nodes.get(id)||(nodes.set(id,node()),nodes.get(id));
 const document={hidden:false,activeElement:null,createElement:node,addEventListener(k,f){listeners[k]=f}};
 const RM={matches:false,addEventListener(k,f){this.change=f}};
-Object.assign(ctx,{$,document,RM,window:{devicePixelRatio:2},current:'agents',el:(tag,props={},...kids)=>{const n=node();Object.assign(n,props);n.append(...kids);return n},requestAnimationFrame:f=>{frames.set(++frameId,f);return frameId},cancelAnimationFrame:id=>frames.delete(id),addEventListener(){},ResizeObserver:class{observe(){}},officeTime:t=>String(t),agentReason:node(),agentSend:node(),renderAgentRuns(){},Date});
+Object.assign(ctx,{$,document,RM,window:{devicePixelRatio:2},current:'agents',el:(tag,props={},...kids)=>{const n=node();Object.assign(n,props);n.append(...kids);return n},requestAnimationFrame:f=>{frames.set(++frameId,f);return frameId},cancelAnimationFrame:id=>frames.delete(id),addEventListener(){},ResizeObserver:class{observe(){}},officeTime:t=>String(t),agentReason:node(),agentSend:node(),renderAgentRuns(){},Date,setTimeout:()=>0,clearTimeout(){}});
 vm.runInContext(section('// OFFICE_UI_BEGIN','// OFFICE_UI_END'),ctx);
 $('office-drawer').hidden=true;
 run('officeVisibility()');assert.equal(frames.size,1);

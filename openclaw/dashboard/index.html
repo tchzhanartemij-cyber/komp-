@@ -690,7 +690,7 @@ dialog[open] { animation: pop .4s var(--spring); }
     </div>
     <p id="office-sources" class="meta"></p>
     <aside id="office-drawer" role="dialog" aria-modal="false" aria-labelledby="office-detail-label" tabindex="-1" hidden>
-      <button type="button" id="office-close" aria-label="Закрыть сведения">×</button><h3 id="office-detail-label"></h3><div id="office-details"></div>
+      <button type="button" id="office-close" aria-label="Закрыть сведения">×</button><h3 id="office-detail-label"></h3><div id="office-details"></div><div id="office-feed-slot" hidden></div>
     </aside>
   </div>
 </section>
@@ -786,10 +786,24 @@ dialog[open] { animation: pop .4s var(--spring); }
 .office-task-action {grid-column:2;font-size:12px;overflow-wrap:anywhere}
 #office-empty {padding:14px;font-size:13px}
 #office-sources {font-size:11px;overflow-wrap:anywhere}
-#office-drawer {position:absolute;z-index:12;right:16px;top:76px;width:min(360px,calc(100% - 32px));max-height:calc(100% - 96px);overflow:auto;padding:20px;border:1px solid var(--rule);border-radius:20px;background:var(--card);box-shadow:var(--shadow-up);overflow-wrap:anywhere}
+#office-drawer {position:absolute;z-index:12;right:16px;top:76px;width:min(420px,calc(100% - 32px));max-height:calc(100% - 96px);overflow:auto;padding:20px;border:1px solid var(--rule);border-radius:20px;background:var(--card);box-shadow:var(--shadow-up);overflow-wrap:anywhere}
 #office-drawer h3 {margin:0 42px 16px 0}#office-close {position:absolute;right:10px;top:10px;font-size:22px}
-#office-details dl {display:grid;gap:10px;margin:0 0 16px}#office-details dt {font-size:11px;color:var(--muted)}#office-details dd {margin:0;font-size:13px}
-#office-details a {color:var(--accent-ink)}#office-details button {border:0;background:var(--field);padding:8px;border-radius:10px;cursor:pointer}
+#office-details dl {display:grid;gap:8px;margin:0 0 12px}#office-details dt {font-size:11px;color:var(--muted)}#office-details dd {margin:0;font-size:13px}
+#office-details a {color:var(--accent-ink)}
+.office-feed {border-top:1px solid var(--rule);padding-top:12px;margin-bottom:12px}
+.office-feed-head {display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;margin-bottom:6px}.office-feed-head h4 {margin:0;font-size:13px}
+.office-feed-head .live {color:var(--good)}#office-feed-slot .office-feed-head button {border:0;background:var(--field);border-radius:10px;cursor:pointer;padding:4px 8px;font-size:12px;margin-left:auto}
+.office-feed-list {list-style:none;margin:0;padding:0;max-height:min(340px,45dvh);overflow:auto;display:grid;gap:2px;font-size:12.5px;overscroll-behavior:contain}
+.office-feed-item {display:grid;grid-template-columns:52px 12px minmax(0,1fr);gap:6px;align-items:baseline;padding:4px 2px;border-radius:6px}
+.office-feed-item time {font-size:10.5px;color:var(--muted);font-variant-numeric:tabular-nums}
+.office-feed-icon {width:8px;height:8px;border-radius:50%;margin:0 auto;background:var(--muted);align-self:center}
+.office-feed-item.code .office-feed-icon {background:#e9a47f}.office-feed-item.command .office-feed-icon {background:#8dbbf1}
+.office-feed-item.codex .office-feed-icon {background:#71d5b2}.office-feed-item.text .office-feed-icon {background:transparent;border:1.5px solid var(--muted)}
+.office-feed-item.start .office-feed-icon,.office-feed-item.result .office-feed-icon {background:var(--good);border-radius:2px}
+.office-feed-item.error .office-feed-icon {background:var(--bad)}.office-feed-detail,.office-feed-state {color:var(--muted)}
+.office-feed-item.text .office-feed-text {font-style:italic}.office-feed-item.sub {padding-left:14px}
+.office-feed-item.running {background:var(--accent-soft)}.office-feed-item.error .office-feed-state {color:var(--bad)}
+.office-feed-item.result {font-weight:600}#office-details button {border:0;background:var(--field);padding:8px;border-radius:10px;cursor:pointer}
 .office-card button:focus-visible,#office-drawer:focus-visible {outline:2px solid var(--accent);outline-offset:-2px}
 @media(max-width:850px) and (orientation:portrait), (max-width:650px) {
  .office-layout {grid-template-columns:minmax(0,1fr)}
@@ -2310,25 +2324,83 @@ function officeElapsed(c){
 let officeDetailSignature='';
 function officeDetails(){
  const c=officeState.chars[officeSelected];if(!c)return;
- const signature=JSON.stringify([officeSelected,c,officeState.online,officeState.chars[c.source.parent]?.source.label]);
+ const signature=JSON.stringify([officeSelected,c,officeState.online,officeState.chars[c.source.parent]?.source.label,officeFeed.key===officeFeedKey(officeSelected)&&officeFeed.model]);
  if(signature===officeDetailSignature)return;officeDetailSignature=signature;
  const s=c.source,details=$('office-details');$('office-detail-label').textContent=s.label;
- const fields=[['Задача',s.title || 'Название не сообщено'],['Провайдер',s.provider],['Модель',s.model || 'модель не сообщена'],['Статус',c.text],['Действие',!officeState.online||c.missing?'неизвестно':OFFICE_ACTIONS[s.activity] || 'нет данных о действии'],['Начало',officeTime(s.started)],['Обновлено',officeTime(s.updated)]];
+ const feedModel=officeFeed.key===officeFeedKey(officeSelected)?officeFeed.model:null;
+ const action=s.status==='queued'?'ожидает запуска':!officeState.online||c.missing?'неизвестно':s.status!=='running'?'не работает':OFFICE_ACTIONS[s.activity]?OFFICE_ACTIONS[s.activity]+(s.detail?' · '+s.detail:''):'нет данных о действии';
+ const clock=t=>Number.isFinite(t)?new Date(t*1000).toLocaleTimeString('ru-RU',{hour:'2-digit',minute:'2-digit'}):'?';
+ const fields=[['Задача',s.title || 'Название не сообщено'],['Исполнитель',s.provider+' · '+(s.model || feedModel || (s.status==='queued'?'модель станет известна при запуске':'модель не сообщена'))],['Сейчас',action===c.text?action:c.text+' · '+action],['Время',clock(s.started)+' → '+clock(s.updated)+' · '+officeElapsed(c)]];
+ const add=n=>details.append(n);
  details.replaceChildren(el('dl',{},...fields.map(([label,value])=>el('div',{},el('dt',{text:label}),el('dd',{text:value})))));
- if(c.stale)details.append(el('p',{class:'meta',text:'данные устарели'}));
- if(c.place==='aisle')details.append(el('p',{class:'meta',text:'В проходе: нет свободного стола'}));
- if(s.parent){const parent=officeState.chars[s.parent];details.append(parent?el('button',{type:'button',text:'Родитель: '+parent.source.label,onclick:()=>officeSelect(s.parent)}):el('p',{class:'meta',text:'Родительский кодер не присутствует в снимке'}));}
+ if(c.stale)add(el('p',{class:'meta',text:'данные устарели'}));
+ if(c.place==='aisle')add(el('p',{class:'meta',text:'В проходе: нет свободного стола'}));
+ if(s.parent){const parent=officeState.chars[s.parent];add(parent?el('button',{type:'button',text:'Родитель: '+parent.source.label,onclick:()=>officeSelect(s.parent)}):el('p',{class:'meta',text:'Родительский кодер не присутствует в снимке'}));}
  const kind=s.kind==='codex'?'coder':s.kind;
- details.append(el('p',{class:'meta',text:kind==='coder'?'Отмена/ответ — через существующие команды кодера в Telegram':kind==='chat'?'Остановить можно в окне диалога ИИ':'Новый запуск — через форму серверного агента'}));
- if(kind!=='coder')details.append(el('a',{href:kind==='chat'?'#ai':'#agent',text:kind==='chat'?'Открыть диалог ИИ':'Открыть форму агента',onclick:()=>{if(kind==='chat')$('mode-chat').click();officeClose();}}));
+ add(el('p',{class:'meta',text:kind==='coder'?'Отмена/ответ — через существующие команды кодера в Telegram':kind==='chat'?'Остановить можно в окне диалога ИИ':'Новый запуск — через форму серверного агента'}));
+ // The feed lives in its own slot so detail refreshes keep its scroll position.
+ $('office-feed-slot').hidden=kind!=='coder';
+ if(kind!=='coder')add(el('a',{href:kind==='chat'?'#ai':'#agent',text:kind==='chat'?'Открыть диалог ИИ':'Открыть форму агента',onclick:()=>{if(kind==='chat')$('mode-chat').click(); officeClose();}}));
 }
+// Live work feed of the selected coder task: public tool steps and visible replies, polled while open.
+const officeFeedBox=el('section',{class:'office-feed','aria-label':'Ход работы'});
+const officeFeedHead=el('div',{class:'office-feed-head'}),officeFeedLive=el('span',{class:'meta'}),officeFeedJump=el('button',{type:'button',text:'К последнему',hidden:''});
+const officeFeedList=el('ol',{class:'office-feed-list'}),officeFeedNote=el('p',{class:'meta'});
+officeFeedHead.append(el('h4',{text:'Ход работы'}),officeFeedLive,officeFeedJump);officeFeedBox.append(officeFeedHead,officeFeedNote,officeFeedList);$('office-feed-slot').append(officeFeedBox);
+let officeFeed={key:'',model:null,events:[],status:'',at:null,error:''},officeFeedTimer=0,officeFeedFollow=true,officeFeedBusy=false;
+const officeFeedRows=new Map();
+function officeFeedKey(key){const m=/^(coder:[A-Za-z0-9_-]+)(?::codex)?$/.exec(key || '');return m?m[1]:'';}
+function officeFeedClock(t){return Number.isFinite(t)?new Date(t*1000).toLocaleTimeString('ru-RU',{hour:'2-digit',minute:'2-digit',second:'2-digit'}):'';}
+function officeFeedRender(){
+ const f=officeFeed,running=f.status==='running';
+ officeFeedLive.textContent=f.error?'нет связи · повтор':f.status==='queued'?'':(running?'● в эфире':'запись')+(f.at?' · обновлено '+officeFeedClock(f.at):'');
+ officeFeedLive.className='meta'+(running&&!f.error?' live':'');
+ officeFeedNote.textContent=f.status==='queued'?'Ожидает запуска. Ход работы появится, когда кодер начнёт.':!f.key?'':f.error&&!f.events.length?f.error:!f.events.length?(running?'Кодер запущен, событий пока нет.':'Журнал этой задачи не найден.'):'';
+ officeFeedNote.hidden=!officeFeedNote.textContent;
+ const ids=new Set(f.events.map(e=>e.id));
+ for(const [id,li] of officeFeedRows)if(!ids.has(id)){li.remove();officeFeedRows.delete(id);}
+ let prev=null;
+ for(const e of f.events){
+  let li=officeFeedRows.get(e.id);
+  if(!li){li=el('li',{});officeFeedRows.set(e.id,li);}
+  const state=e.state==='running'&&!running?'stopped':e.state || 'none';
+  li.className='office-feed-item '+e.kind+' '+state+(e.sub?' sub':'');
+  const mark=state==='running'?'…':state==='error'?'✗':state==='stopped'?'⏹':'';
+  const note=state==='stopped'?'прервано':e.note || '';
+  li.replaceChildren(el('time',{text:officeFeedClock(e.at)}),el('span',{class:'office-feed-icon','aria-hidden':'true'}),
+   el('span',{class:'office-feed-text'},el('span',{text:e.text}),e.detail?el('span',{class:'office-feed-detail',text:' · '+e.detail}):null,note||mark?el('span',{class:'office-feed-state',text:' '+(mark+' '+note).trim()}):null));
+  if(li.previousElementSibling!==prev || li.parentNode!==officeFeedList)prev?prev.after(li):officeFeedList.prepend(li);
+  prev=li;
+ }
+ officeFeedJump.hidden=officeFeedFollow||!f.events.length;
+ if(officeFeedFollow)officeFeedList.scrollTop=officeFeedList.scrollHeight;
+}
+async function officeFeedPoll(){
+ clearTimeout(officeFeedTimer);officeFeedTimer=0;
+ const key=officeFeedKey(officeSelected);
+ if(!key||$('office-drawer').hidden||document.hidden)return;
+ if(officeFeed.key!==key){officeFeed={key,model:null,events:[],status:'',at:null,error:''};officeFeedRows.clear();officeFeedList.replaceChildren();officeFeedFollow=true;}
+ if(!officeFeedBusy){
+  officeFeedBusy=true;
+  try{
+   const r=await aiGet('/api/office/events?key='+encodeURIComponent(key));
+   if(officeFeedKey(officeSelected)===key&&r.key===key)officeFeed={key,model:r.model || null,events:Array.isArray(r.events)?r.events:[],status:r.status,at:r.server_time,error:''};
+  }catch(e){if(officeFeed.key===key)officeFeed={...officeFeed,error:'Нет связи с сервером'};}
+  finally{officeFeedBusy=false;}
+  if(officeFeedKey(officeSelected)===key){officeFeedRender();officeDetails();}
+ }
+ if(officeFeedKey(officeSelected)===key&&!$('office-drawer').hidden)officeFeedTimer=setTimeout(officeFeedPoll,officeFeed.error?6000:officeFeed.status==='running'?3000:15000);
+}
+officeFeedList.addEventListener('scroll',()=>{const l=officeFeedList;officeFeedFollow=l.scrollHeight-l.scrollTop-l.clientHeight<24;officeFeedJump.hidden=officeFeedFollow;});
+officeFeedJump.onclick=()=>{officeFeedFollow=true;officeFeedRender();};
+document.addEventListener('visibilitychange',()=>{if(!document.hidden&&officeSelected)officeFeedPoll();});
 function officeSelect(key){
  if(!officeState.chars[key])return;
  if($('office-drawer').hidden)officeReturn=document.activeElement;
- officeSelected=key;officeFollow=true;$('office-drawer').hidden=false;officeDetails();$('office-close').focus();officeRender();officeWake();
+ officeSelected=key;officeFollow=true;$('office-drawer').hidden=false;officeDetails();$('office-close').focus();officeRender();officeWake();officeFeedPoll();
 }
 function officeClose(){
- $('office-drawer').hidden=true;const key=officeSelected;officeSelected='';officeFollow=false;officeRender();
+ $('office-drawer').hidden=true;const key=officeSelected;officeSelected='';officeFollow=false;clearTimeout(officeFeedTimer);officeRender();
  const target=officeReturn?.isConnected?officeReturn:officeRows.get(key)?.button || $('office-fit');target.focus();officeReturn=null;
 }
 function officeRender(){

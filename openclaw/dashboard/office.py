@@ -219,3 +219,133 @@ def office_sessions(agent, queue, chats):
                                 {**row, 'status': 'running', 'model': None},
                                 'answering' if row.get('phase') == 'streaming' else 'waiting_model', row.get('updated')))
     return sessions
+
+
+FEED_LIMIT = 2 * 1024 * 1024
+FEED_EVENTS = 200
+_feed_cache = {}
+
+
+def public_text(value, limit=280):
+    """Visible assistant prose: absolute paths reduced to file names, secrets hidden, bounded."""
+    text = value if isinstance(value, str) else ''
+    text = re.sub(r'(?<![\w.])(?:~|/)[\w.+-]*(?:/[\w.+-]+)+', lambda m: m.group(0).rsplit('/', 1)[-1], text)
+    text = re.sub(r'\*\*|__|`', '', text)  # markdown emphasis and code marks
+    text = redact(text)
+    return text if len(text) <= limit else text[:limit - 1].rstrip() + '…'
+
+
+def line_count(value):
+    return value.count('\n') + 1 if isinstance(value, str) and value else 0
+
+
+def edit_summary(name, inp):
+    if name == 'Write':
+        return '+' + str(line_count(inp.get('content')))
+    edits = inp.get('edits') if name == 'MultiEdit' and isinstance(inp.get('edits'), list) else [inp]
+    added = sum(line_count(e.get('new_string')) for e in edits if isinstance(e, dict))
+    removed = sum(line_count(e.get('old_string')) for e in edits if isinstance(e, dict))
+    return f'+{added} −{removed}'
+
+
+TOOL_TEXT = {'Read': 'Читает файл', 'Edit': 'Правит файл', 'MultiEdit': 'Правит файл', 'Write': 'Создаёт файл',
+             'NotebookEdit': 'Правит блокнот', 'Grep': 'Ищет в коде', 'Glob': 'Ищет файлы',
+             'WebSearch': 'Ищет в интернете', 'WebFetch': 'Открывает страницу', 'Task': 'Поручил подагенту',
+             'Agent': 'Поручил подагенту', 'TodoWrite': 'Обновил план', 'Bash': 'Запускает команду'}
+
+
+def feed_events(data):
+    """Public work feed from a Claude Code stream-json log: tool steps, visible replies, results.
+
+    Never includes thinking, prompts, tool arguments beyond a file or program name, or tool output."""
+    events, by_tool, model = [], {}, None
+    for line in data.splitlines():
+        try:
+            obj = json.loads(line)
+        except (ValueError, UnicodeError, RecursionError):
+            continue
+        if not isinstance(obj, dict):
+            continue
+        kind, at = obj.get('type'), timestamp(obj.get('timestamp'))
+        uid = obj.get('uuid') if isinstance(obj.get('uuid'), str) else None
+        sub = obj.get('parent_tool_use_id') is not None
+        if kind == 'system' and obj.get('subtype') == 'init':
+            model = model_name(obj.get('model'))
+            events.append(dict(id=uid or 'init' + str(len(events)), at=at, kind='start', state='ok',
+                               text='Запущен', detail=model))
+        elif kind == 'system' and obj.get('subtype') == 'permission_denied':
+            tid = obj.get('tool_use_id')
+            if tid in by_tool:
+                by_tool[tid].update(state='error', note='нет разрешения')
+        elif kind == 'assistant':
+            message = obj.get('message') if isinstance(obj.get('message'), dict) else {}
+            model = model_name(message.get('model')) or model
+            for i, item in enumerate(message.get('content') if isinstance(message.get('content'), list) else []):
+                if not isinstance(item, dict):
+                    continue
+                if item.get('type') == 'text' and isinstance(item.get('text'), str) and item['text'].strip():
+                    events.append(dict(id=(uid or 'm') + ':' + str(i), at=at, kind='text', state=None,
+                                       text=public_text(item['text']), detail=None, sub=sub))
+                elif item.get('type') == 'tool_use':
+                    name = item.get('name') if isinstance(item.get('name'), str) else ''
+                    inp = item.get('input') if isinstance(item.get('input'), dict) else {}
+                    tid = item.get('id') if isinstance(item.get('id'), str) else (uid or 't') + ':' + str(i)
+                    text, detail = TOOL_TEXT.get(name, 'Инструмент'), tool_detail(name, inp)
+                    step = TOOLS.get(name, 'tool')
+                    if name in ('Edit', 'MultiEdit', 'Write'):
+                        detail = ' '.join(filter(None, (detail, edit_summary(name, inp))))
+                    elif name == 'Bash':
+                        child = codex_command(inp.get('command'))
+                        if child is not None:
+                            text, step, detail = 'Поручил код Codex', 'codex', child.get('model') or 'модель не указана'
+                        elif isinstance(inp.get('description'), str) and inp['description'].strip():
+                            text = public_text(inp['description'], 120)
+                    elif name in ('Task', 'Agent') and isinstance(inp.get('description'), str):
+                        detail = public_text(inp['description'], 80)
+                    if name == 'TodoWrite':
+                        step = 'plan'
+                    event = dict(id=tid, at=at, kind=step, state='running', text=text, detail=detail, sub=sub)
+                    by_tool[tid] = event
+                    events.append(event)
+        elif kind == 'user':
+            message = obj.get('message') if isinstance(obj.get('message'), dict) else {}
+            for item in message.get('content') if isinstance(message.get('content'), list) else []:
+                if isinstance(item, dict) and item.get('type') == 'tool_result' and item.get('tool_use_id') in by_tool:
+                    event = by_tool[item['tool_use_id']]
+                    if event['state'] == 'running':
+                        event['state'] = 'error' if item.get('is_error') is True else 'ok'
+                    event['done_at'] = at
+        elif kind == 'result':
+            ok = obj.get('is_error') is not True and obj.get('subtype') == 'success'
+            secs = obj.get('duration_ms')
+            events.append(dict(id=uid or 'result' + str(len(events)), at=at, kind='result', state='ok' if ok else 'error',
+                               text='Заход завершён' if ok else 'Заход завершился ошибкой',
+                               detail=f'{round(secs / 60000)} мин' if isinstance(secs, (int, float)) and secs >= 60000 else None))
+    return {'model': model, 'events': events[-FEED_EVENTS:]}
+
+
+def coder_feed(task_id, logs_dir):
+    """Feed for the newest run log of a coder task; cached by file size and mtime."""
+    rid = str(task_id)
+    if not re.fullmatch(r'[A-Za-z0-9_-]{1,64}', rid) or not logs_dir:
+        return None
+    try:
+        files = [p for p in Path(logs_dir).glob(rid + '-*.json') if not p.is_symlink() and p.is_file()]
+        if not files:
+            return {'model': None, 'events': [], 'log_at': None}
+        newest = max(files, key=lambda p: p.stat().st_mtime)
+        with newest.open('rb') as f:
+            stat = os.fstat(f.fileno())
+            key = (str(newest), stat.st_size, stat.st_mtime)
+            if _feed_cache.get('key') == key:
+                return _feed_cache['value']
+            offset = max(0, stat.st_size - FEED_LIMIT)
+            f.seek(offset)
+            data = f.read(FEED_LIMIT)
+        if offset:
+            data = data.partition(b'\n')[2]
+        value = {**feed_events(data), 'log_at': stat.st_mtime, 'truncated': bool(offset)}
+        _feed_cache.update(key=key, value=value)
+        return value
+    except (OSError, ValueError):
+        return None

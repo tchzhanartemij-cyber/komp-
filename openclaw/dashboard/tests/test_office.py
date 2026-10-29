@@ -248,6 +248,60 @@ class OfficeTests(unittest.TestCase):
             h.body.assert_not_called()
             submit.assert_not_called()
 
+    def test_feed_shows_public_steps_only(self):
+        from office import feed_events
+        secret = 'sk-' + 'Z' * 30
+        stamp = '2026-10-29T08:00:00Z'
+        lines = [json.dumps({'type': 'system', 'subtype': 'init', 'model': 'claude-opus-5-5', 'uuid': 'u0'}).encode() + b'\n',
+                 json.dumps({'type': 'assistant', 'uuid': 'u1', 'timestamp': stamp, 'message': {'model': 'claude-opus-5-5', 'content': [
+                     {'type': 'thinking', 'thinking': 'hidden reasoning'},
+                     {'type': 'text', 'text': 'Смотрю /home/private/repo/server.py ' + secret},
+                     {'type': 'tool_use', 'id': 'e', 'name': 'Edit', 'input': {'file_path': '/home/private/a.py', 'old_string': 'x\ny', 'new_string': 'private body'}},
+                     {'type': 'tool_use', 'id': 'b', 'name': 'Bash', 'input': {'command': 'python3 -m unittest ' + secret, 'description': 'Run tests'}},
+                     {'type': 'tool_use', 'id': 'c', 'name': 'Bash', 'input': {'command': 'codex exec -m gpt-6-astra "private prompt"'}},
+                     {'type': 'tool_use', 'id': 'g', 'name': 'Grep', 'input': {'pattern': 'private pattern'}}]}}).encode() + b'\n',
+                 json.dumps({'type': 'user', 'timestamp': stamp, 'message': {'content': [
+                     {'type': 'tool_result', 'tool_use_id': 'e', 'content': 'private output'},
+                     {'type': 'tool_result', 'tool_use_id': 'b', 'is_error': True, 'content': 'private failure'}]}}).encode() + b'\n',
+                 b'not json\n',
+                 json.dumps({'type': 'result', 'subtype': 'success', 'duration_ms': 180000, 'result': 'private summary'}).encode() + b'\n']
+        feed = feed_events(b''.join(lines))
+        self.assertEqual(feed['model'], 'claude-opus-5-5')
+        kinds = [(e['kind'], e['state']) for e in feed['events']]
+        self.assertEqual(kinds, [('start', 'ok'), ('text', None), ('code', 'ok'), ('command', 'error'),
+                                 ('codex', 'running'), ('search_code', 'running'), ('result', 'ok')])
+        events = {e['id']: e for e in feed['events']}
+        self.assertEqual(events['e']['detail'], 'a.py +1 −2')
+        self.assertEqual(events['b']['text'], 'Run tests')
+        self.assertEqual(events['c']['detail'], 'gpt-6-astra')
+        self.assertIn('server.py', feed['events'][1]['text'])
+        public = json.dumps(feed, ensure_ascii=False)
+        for raw in ('hidden reasoning', 'private', secret, 'unittest'):
+            self.assertNotIn(raw, public)
+
+    def test_feed_route_queued_running_and_unknown(self):
+        queue = self.root / 'tasks.json'
+        queue.write_text(json.dumps({'tasks': [{'id': 1, 'status': 'queued', 'text': 'a'}, {'id': 2, 'status': 'running', 'text': 'b'}]}))
+        logs = self.root / 'logs'
+        logs.mkdir()
+        (logs / '2-1.json').write_bytes(tool('Read', file_path='/x/index.html'))
+        os.environ.update(SVODKA_CODER_QUEUE_FILE=str(queue), SVODKA_CODER_LOGS_DIR=str(logs))
+        h = object.__new__(server.Handler)
+        h.headers = {}
+        sent = []
+        h.send_json = lambda code, payload: sent.append((code, payload))
+        with patch.object(server, 'TOKEN_FILE', self.root / 'none'):
+            for path, code in (('coder:1', 200), ('coder:2', 200), ('coder:9', 404), ('agent:1', 404), ('coder:../x', 404)):
+                h.path = '/api/office/events?key=' + path
+                h.do_GET()
+                self.assertEqual(sent[-1][0], code, path)
+            h.path = '/api/office/events?key=coder:1'
+            h.do_GET()
+            self.assertEqual((sent[-1][1]['status'], sent[-1][1]['events']), ('queued', []))
+            h.path = '/api/office/events?key=coder:2'
+            h.do_GET()
+        self.assertEqual([(e['text'], e['detail'], e['state']) for e in sent[-1][1]['events']], [('Читает файл', 'index.html', 'running')])
+
     def test_sse_model_migration_and_request_unchanged(self):
         a = Agent(self.root)
         with sqlite3.connect(self.root / 'agent.sqlite3') as db:
