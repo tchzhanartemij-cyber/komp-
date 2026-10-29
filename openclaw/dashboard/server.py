@@ -399,6 +399,53 @@ def memory_status():
 # key lives only in ~/.config/jarvis/freellm-unified-key.
 
 CONF = Path.home() / ".config/jarvis"
+ELEVEN_FILE = CONF / "elevenlabs.env"   # ELEVENLABS_API_KEY=..., optional ELEVENLABS_VOICE_ID / ELEVENLABS_MODEL
+ELEVEN_VOICE = "JBFqnCBsd6RMkjVDRZzb"   # premade multilingual male voice; speaks Russian with flash v2.5
+eleven_pause = {"until": 0.0, "reason": ""}
+tts_semaphore = threading.Semaphore(2)
+
+
+def eleven_config():
+    values = {}
+    try:
+        for line in ELEVEN_FILE.read_text().splitlines():
+            k, _, v = line.partition("=")
+            values[k.strip()] = v.strip().strip("'\"")
+    except OSError:
+        pass
+    key = values.get("ELEVENLABS_API_KEY") or os.environ.get("ELEVENLABS_API_KEY", "")
+    voice = values.get("ELEVENLABS_VOICE_ID") or ELEVEN_VOICE
+    model = values.get("ELEVENLABS_MODEL") or "eleven_flash_v2_5"
+    if not re.fullmatch(r"[A-Za-z0-9]{10,40}", voice) or not re.fullmatch(r"[a-z0-9_]{3,40}", model):
+        return "", ELEVEN_VOICE, "eleven_flash_v2_5"
+    return key.strip(), voice, model
+
+
+def tts_status():
+    if not eleven_config()[0]:
+        return False, "Голос ElevenLabs не настроен — озвучивает браузер"
+    if eleven_pause["until"] > time.time():
+        return False, eleven_pause["reason"]
+    return True, "Голос ElevenLabs"
+
+
+def eleven_speak(text):
+    """MP3 for one short phrase. Pauses ElevenLabs for a while on quota or key problems."""
+    key, voice, model = eleven_config()
+    body = json.dumps({"text": text, "model_id": model, "language_code": "ru",
+                       "voice_settings": {"stability": 0.45, "similarity_boost": 0.8, "style": 0.15, "use_speaker_boost": True}}).encode()
+    req = urllib.request.Request(f"https://api.elevenlabs.io/v1/text-to-speech/{voice}?output_format=mp3_44100_64", data=body,
+                                 headers={"xi-api-key": key, "Content-Type": "application/json", "Accept": "audio/mpeg"})
+    try:
+        with urllib.request.urlopen(req, timeout=20) as r:
+            return r.read(3 * 1024 * 1024)
+    except urllib.error.HTTPError as e:
+        quota = e.code in (401, 402, 403, 429)
+        eleven_pause.update(until=time.time() + (600 if quota else 60),
+                            reason="Минуты ElevenLabs закончились или ключ не подходит — озвучивает браузер" if quota else "ElevenLabs временно недоступен — озвучивает браузер")
+    except (urllib.error.URLError, OSError, ValueError):
+        eleven_pause.update(until=time.time() + 60, reason="ElevenLabs временно недоступен — озвучивает браузер")
+    return None
 CODER_DATA = Path.home() / ".openclaw/workspace/coder"   # limits from coder.py (usage.json, limits.json)
 CHAT_ID_RE = re.compile(r"^[0-9a-f]{12}$")
 AI_SYSTEM = ("Ты собеседник владельца в его личном чате. Отвечай на языке вопроса, по делу, "
@@ -1115,8 +1162,45 @@ class Handler(BaseHTTPRequestHandler):
         elif not binary:
             reason = 'Исполняемый файл OpenClaw не найден'
         else:
-            return dict(stt=True, reason='Распознавание через OpenClaw; ответы озвучивает браузер', **limits), binary
-        return dict(stt=False, reason=reason, **limits), binary
+            tts, tts_reason = tts_status()
+            return dict(stt=True, reason='Распознавание через OpenClaw · ' + tts_reason, tts=tts, tts_reason=tts_reason, **limits), binary
+        return dict(stt=False, reason=reason, tts=False, tts_reason=reason, **limits), binary
+
+    def speak(self):
+        def fail(code, msg):
+            self.send_json(code, {'error': msg})
+        if not self.same_origin(required=True):
+            return fail(403, 'Источник запроса не совпадает с панелью')
+        if self.headers.get('X-Svodka-Voice') != '1':
+            return fail(403, 'Требуется X-Svodka-Voice: 1')
+        if self.headers.get('Content-Type', '').split(';', 1)[0].strip().lower() != 'application/json':
+            return fail(415, 'Требуется application/json')
+        if not self.agent_protected():
+            return fail(503, 'Озвучка запрещена: требуется защита панели')
+        try:
+            b = self.body()
+            text = b.get('text') if isinstance(b, dict) else None
+        except (ValueError, KeyError, TypeError):
+            text = None
+        if not isinstance(text, str) or not text.strip() or len(text) > 600:
+            return fail(400, 'Нужна фраза до 600 символов')
+        ok, reason = tts_status()
+        if not ok:
+            return fail(503, reason)
+        if not tts_semaphore.acquire(timeout=25):
+            return fail(429, 'Озвучка занята')
+        try:
+            audio = eleven_speak(text.strip())
+        finally:
+            tts_semaphore.release()
+        if not audio:
+            return fail(503, tts_status()[1])
+        self.send_response(200)
+        self.send_header('Content-Type', 'audio/mpeg')
+        self.send_header('Cache-Control', 'no-store')
+        self.send_header('Content-Length', str(len(audio)))
+        self.end_headers()
+        self.wfile.write(audio)
 
     def transcribe(self):
         def fail(code, msg):
@@ -1523,6 +1607,9 @@ class Handler(BaseHTTPRequestHandler):
             return
         if urlsplit(self.path).path == "/api/voice/transcribe":
             self.transcribe()
+            return
+        if urlsplit(self.path).path == "/api/voice/speak":
+            self.speak()
             return
         if urlsplit(self.path).path == "/api/agent/send":
             if self.headers.get("Content-Type", "").split(";", 1)[0].strip().lower() != "application/json":

@@ -347,7 +347,7 @@ body[data-page="ai"] .main { padding-bottom:20px; }
 .ai-section-title { display:flex; align-items:center; justify-content:space-between; margin-top:16px; }
 .ai-chat { display:grid; grid-template-rows:auto minmax(0,1fr) auto; overflow:hidden; }
 .ai-header { padding:16px 20px; display:flex; align-items:center; gap:10px; border-bottom:1px solid var(--field); }
-.ai-header h2 { margin:0; font-size:16px; }
+.ai-header h2 { margin:0; font-size:16px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; } .ai-header > div { min-width:0; }
 .ai-msgs { overflow:auto; overscroll-behavior:contain; padding:24px max(16px, calc((100% - 760px)/2)); display:flex; flex-direction:column; gap:24px; }
 .msg { width:100%; flex:none; }
 .msg.me { align-self:flex-end; width:fit-content; max-width:88%; }
@@ -406,6 +406,8 @@ body[data-page="ai"] .main { padding-bottom:20px; }
 @media (max-width:760px) {
  body[data-page="ai"] .main { padding-bottom:calc(100px + env(safe-area-inset-bottom,0px)); }
  .ai-card { height:calc(100dvh - max(14px,env(safe-area-inset-top,0px)) - 100px - var(--kb,0px)); }
+ .ai-picker { position:fixed; left:12px; right:12px; width:auto; bottom:calc(170px + env(safe-area-inset-bottom,0px) + var(--kb,0px)); }
+ body[data-page="ai"] { overflow:hidden; }
  .ai-header { padding:12px; } .ai-composer { padding:8px 10px max(8px,env(safe-area-inset-bottom)); }
  .ai-msgs { padding:18px 14px; }
 }
@@ -846,6 +848,25 @@ dialog[open] { animation: pop .4s var(--spring); }
 
 #voice { position:fixed; z-index:21; right:16px; bottom:16px; width:min(420px,calc(100vw - 32px)); max-height:85vh; max-height:85dvh; overflow:auto; box-sizing:border-box; border:1px solid var(--rule); border-radius:24px; padding:18px; background:var(--bg); color:var(--ink); box-shadow:var(--shadow-up); }
 #voice[hidden],#voice-body[hidden] { display:none; }
+#jarvis { position:fixed; inset:0; z-index:60; display:grid; grid-template-rows:auto 1fr auto auto auto; justify-items:center; gap:14px; padding:max(18px,env(safe-area-inset-top,0px)) max(18px,env(safe-area-inset-right,0px)) max(28px,env(safe-area-inset-bottom,0px)) max(18px,env(safe-area-inset-left,0px)); background:radial-gradient(120% 90% at 50% 38%,#16204a 0%,#070a18 60%,#03040a 100%); color:#eef3ff; }
+#jarvis[hidden] { display:none; }
+body::before { content:""; position:fixed; inset:0 0 auto; height:env(safe-area-inset-top,0px); background:var(--bg); z-index:55; pointer-events:none; }
+.nav .jarvis-btn { position:static; transform:none; width:46px; height:46px; flex:none; background:transparent; box-shadow:none; }
+.nav .jarvis-btn .jarvis-orb { width:30px; height:30px; }
+body.jarvis-open { overflow:hidden; }
+#jarvis-orb { align-self:center; width:min(72vw,340px,46dvh); height:min(72vw,340px,46dvh); cursor:pointer; touch-action:manipulation; }
+#jarvis-state { margin:0; font-size:24px; font-weight:600; letter-spacing:.01em; text-align:center; }
+#jarvis-caption { margin:0; min-height:3em; max-width:32ch; font-size:16px; line-height:1.5; color:#aab6d8; text-align:center; display:-webkit-box; -webkit-line-clamp:3; -webkit-box-orient:vertical; overflow:hidden; }
+.jarvis-controls { display:flex; gap:22px; margin-top:6px; }
+.jarvis-controls button { width:64px; height:64px; border-radius:50%; border:0; display:grid; place-items:center; background:#ffffff1f; color:#fff; cursor:pointer; }
+.jarvis-controls button .i { width:26px; height:26px; stroke:currentColor; }
+#jarvis-mute[aria-pressed="true"] { background:#fff; color:#111; }
+#jarvis-end { background:#e5484d; }
+.jarvis-controls button:focus-visible,.jarvis-link:focus-visible { outline:2px solid #9fd8ff; outline-offset:3px; }
+.jarvis-link { justify-self:start; border:0; background:none; color:#aab6d8; font:inherit; font-size:14px; padding:8px 4px; cursor:pointer; }
+.jarvis-btn.live { box-shadow:0 0 0 0 #5aa7ffaa; animation:jarvisLive 1.6s ease-out infinite; }
+@keyframes jarvisLive { 70% { box-shadow:0 0 0 14px #5aa7ff00; } 100% { box-shadow:0 0 0 0 #5aa7ff00; } }
+@media (prefers-reduced-motion:reduce) { .jarvis-btn.live { animation:none; outline:3px solid #5aa7ff; } }
 .jarvis-btn { position:fixed; z-index:20; right:max(12px,env(safe-area-inset-right,0px)); top:50%; transform:translateY(-50%); display:grid; place-items:center; width:52px; height:52px; padding:0; border:0; border-radius:50%; background:var(--pill); color:var(--on-pill); font:inherit; font-weight:700; box-shadow:var(--shadow-up); cursor:pointer; }
 .jarvis-orb { width:36px; height:36px; border-radius:50%; background:radial-gradient(circle at 35% 30%,#fff 0 8%,#9fd8ff 22%,#4a7dff 55%,#2a1f6b 100%); box-shadow:0 0 14px #5aa7ff99; animation:jarvisGlow 3.2s ease-in-out infinite; }
 @keyframes jarvisGlow { 50% { box-shadow:0 0 22px #7cc4ffcc; transform:scale(1.06); } }
@@ -896,6 +917,17 @@ dialog[open] { animation: pop .4s var(--spring); }
  <p class="meta">Автоматический разговор: распознавание → агент → озвучка браузером. При сворачивании страницы разговор остановится. Если микрофон недоступен, напишите сообщение.</p>
  </div>
 </aside>
+<div id="jarvis" role="dialog" aria-modal="true" aria-label="Разговор с Джарвисом" data-state="idle" hidden>
+ <button id="jarvis-history" class="jarvis-link" type="button">История и текст</button>
+ <canvas id="jarvis-orb" aria-hidden="true"></canvas>
+ <p id="jarvis-state" role="status" aria-live="polite">Подключаюсь…</p>
+ <p id="jarvis-caption"></p>
+ <div class="jarvis-controls">
+  <button id="jarvis-mute" type="button" aria-pressed="false" aria-label="Выключить микрофон"><svg class="i" viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="12" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></button>
+  <button id="jarvis-min" type="button" aria-label="Свернуть, разговор продолжится"><svg class="i" viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></svg></button>
+  <button id="jarvis-end" type="button" aria-label="Завершить разговор"><svg class="i" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
+ </div>
+</div>
 
 <script>
 window.__svodkaBootStage='script-start';
@@ -2660,14 +2692,14 @@ function isEcho(transcript,recentSpokenText){
  if(!t)return false;const recent=Array.isArray(recentSpokenText)?recentSpokenText:[recentSpokenText];
  return recent.some(answer=>{const a=norm(answer);if(!a)return false;if(t.length>=4&&a===t)return true;const words=t.split(' ');if(t.length<12||words.length<3)return false;if((' '+a+' ').includes(' '+t+' '))return true;const set=new Set(a.split(' '));return words.length>=4&&words.filter(w=>set.has(w)).length/words.length>=.9;});
 }
-function voiceAttempt(previous,text,context,request){return previous||{request,text:'[Голосовой запрос из Сводки. Контекст: '+context+']\n'+text};}
+function voiceAttempt(previous,text,context,request){return previous||{request,text:'[Голосовой запрос из Сводки. Контекст: '+context+'. Это живой голосовой разговор: отвечай как человек, коротко (1–3 предложения), разговорно, без списков, таблиц и разметки; если нужен длинный ответ, скажи главное и что подробности в чате]\n'+text};}
 function voiceInput(text){return String(text||'').replace(/^\[Голосовой запрос[^\n]*\]\s*\n?/,'');}
 // VOICE_CORE_END
 const V={panel:$('voice'),session:false,starting:false,paused:false,interrupted:false,stream:null,ac:null,source:null,analyser:null,samples:null,recorder:null,vad:null,timer:0,heartbeat:0,epoch:0,started:0,idleSince:0,available:false,stt:false,offline:navigator.onLine===false,poll:0,polling:false,sending:false,transcribing:false,capture:null,turns:[],runs:[],queue:[],speech:null,speechEpoch:0,recent:[],lockId:null,task:null,opener:null};
 const voiceLabels={idle:'Готов',starting:'Включаю микрофон…',listening:'Слушаю…',hearing:'Слышу вас…',transcribing:'Распознаю…',thinking:'Агент отвечает…',speaking:'Озвучиваю ответ…',paused:'Микрофон на паузе',error:'Ошибка',offline:'Нет связи · переподключаюсь…'};
 let voiceMuted=false;try{voiceMuted=localStorage.getItem('svodka-voice-mute')==='1';}catch{}
 function voiceState(state,message){
- const prev=V.panel.dataset.state;V.panel.dataset.state=state;const label=message||voiceLabels[state];if($('voice-status').textContent!==label)$('voice-status').textContent=label;
+ const prev=V.panel.dataset.state;V.panel.dataset.state=state;jarvisState(state,message);const label=message||voiceLabels[state];if($('voice-status').textContent!==label)$('voice-status').textContent=label;
  if(state==='listening'&&prev!=='listening'&&prev!=='hearing')V.idleSince=performance.now();
  $('voice-start').disabled=V.session||V.starting||!V.stt;$('voice-stop').disabled=!V.session&&!V.starting&&!V.speech&&!V.turns.some(t=>!t.finished);
  $('voice-pause').disabled=!V.session;$('voice-pause').textContent=V.paused?'Включить микрофон':'Выключить микрофон';$('voice-pause').setAttribute('aria-pressed',String(V.paused));
@@ -2678,7 +2710,7 @@ function voiceState(state,message){
  if(!['listening','hearing','speaking'].includes(state))$('voice-level').style?.setProperty('--lvl','0');
  $('voice-send').disabled=V.turns.filter(t=>!t.id&&!t.finished).length>=4;$('voice-context').textContent='Контекст: '+voiceContext();
 }
-function voiceNotice(text,retry=false){$('voice-notice').textContent=text;$('voice-retry').hidden=!retry;}
+function voiceNotice(text,retry=false){$('voice-notice').textContent=text;$('voice-retry').hidden=!retry;if(text&&$('jarvis'))$('jarvis-caption').textContent=text;}
 function voiceRest(){
  if(document.hidden)return voiceState('idle',V.stopMessage||'Разговор остановлен: страница свёрнута');
  if(V.starting)return voiceState('starting');
@@ -2697,18 +2729,18 @@ async function voiceJSON(url,options={},timeout=15000){
 }
 function voiceCollapse(value){V.panel.dataset.collapsed=String(value);$('voice-body').hidden=value;document.body.dataset.voiceDock=String(!V.panel.hidden&&!value);$('voice-collapse').textContent=value?'Подробнее':'Свернуть';$('voice-collapse').setAttribute('aria-label',value?'Показать историю и настройки':'Свернуть подробности');$('voice-collapse').setAttribute('aria-expanded',String(!value));if(typeof resizeCanvas==='function')requestAnimationFrame(()=>{resizeCanvas();redraw();});}
 async function voiceCheck(){
- try{const v=await voiceJSON('/api/voice');V.checked=true;V.stt=!!(v.stt&&window.isSecureContext&&navigator.mediaDevices&&navigator.mediaDevices.getUserMedia&&window.MediaRecorder&&(window.AudioContext||window.webkitAudioContext));$('voice-reason').textContent=v.reason+(V.stt?'':' · Микрофон недоступен: используйте текст.');voiceRest();}catch(e){V.offline=!!e.network;voiceNotice(e.message,true);voiceRest();}
+ try{const v=await voiceJSON('/api/voice');V.checked=true;V.tts=!!v.tts;V.stt=!!(v.stt&&window.isSecureContext&&navigator.mediaDevices&&navigator.mediaDevices.getUserMedia&&window.MediaRecorder&&(window.AudioContext||window.webkitAudioContext));$('voice-reason').textContent=v.reason+(V.stt?'':' · Микрофон недоступен: используйте текст.');voiceRest();}catch(e){V.offline=!!e.network;voiceNotice(e.message,true);voiceRest();}
 }
 async function voiceOpen(){
  V.opener=document.activeElement;V.panel.hidden=false;$('voice-btn').setAttribute('aria-expanded','true');voiceCollapse(false);$('voice-start').focus();voiceRest();voicePoll();const other=voiceLockRead();if(other&&other.id!==V.lockId&&other.until>Date.now())voiceNotice('Разговор уже идёт в другой вкладке');
  await voiceCheck();
 }
-// One tap: start talking in a compact strip; tap again: stop and release the microphone.
+// One tap opens a hands-free conversation: it listens, notices the pause, answers aloud and listens again.
 async function voiceQuick(){
- if(V.session||V.starting){voiceStop('Разговор остановлен');return;}
- V.opener=document.activeElement;const opened=V.panel.hidden;V.panel.hidden=false;$('voice-btn').setAttribute('aria-expanded','true');if(opened)voiceCollapse(true);voiceRest();voicePoll();
- if(!V.checked)await voiceCheck();
- if(V.stt)voiceStart();else{voiceCollapse(false);$('voice-text').focus();}
+ jarvisUnlock();jarvisOpen();
+ if(V.session||V.starting)return;
+ voicePoll();if(!V.checked)await voiceCheck();
+ if(V.stt)voiceStart();else jarvisState('error','Микрофон недоступен в этом браузере. Напишите Джарвису в чат.');
 }
 function voiceToggle(){voiceQuick();}
 const VOICE_LOCK='svodka-voice-lock';let voiceChannel=null;
@@ -2726,7 +2758,7 @@ function voiceLockCheck(){
 }
 addEventListener('storage',e=>{if(e.key===VOICE_LOCK&&V.lockId)voiceLockCheck();});
 if(voiceChannel)voiceChannel.onmessage=e=>{if(V.lockId&&e.data.id!==V.lockId&&e.data.type!=='release')voiceLockCheck();};
-function voiceCancelAudio(){V.speechEpoch++;clearTimeout(V.speechTimer);V.queue=[];V.speech=null;if(window.speechSynthesis)window.speechSynthesis.cancel();}
+function voiceCancelAudio(){V.speechEpoch++;clearTimeout(V.speechTimer);V.queue=[];V.speech=null;if(V.audio){V.audio.onended=V.audio.onerror=null;V.audio.pause();}if(window.speechSynthesis)window.speechSynthesis.cancel();}
 function voiceDropRecording(){if(V.recorder){V.recorder.onstop=null;if(V.recorder.state!=='inactive')V.recorder.stop();V.recorder=null;}V.vad=null;}
 function voiceStop(message='Разговор остановлен. Запуск на сервере не отменяется: ответ дописывается в истории.'){
  V.stopMessage=message;V.epoch++;V.session=false;V.starting=false;V.paused=false;V.interrupted=false;voiceDropRecording();voiceCancelAudio();clearInterval(V.timer);V.timer=0;
@@ -2762,7 +2794,7 @@ function voiceTick(){
  if(!V.analyser||V.transcribing)return;
  const speaking=!!V.speech;
  if(!speaking&&!V.recorder&&V.panel.dataset.state!=='listening')return;
- V.analyser.getByteTimeDomainData(V.samples);let power=0;for(const n of V.samples)power+=((n-128)/128)**2;const rms=Math.sqrt(power/V.samples.length);
+ V.analyser.getByteTimeDomainData(V.samples);let power=0;for(const n of V.samples)power+=((n-128)/128)**2;const rms=Math.sqrt(power/V.samples.length);V.level=rms;
  $('voice-level').style?.setProperty('--lvl',Math.min(1,rms*8).toFixed(2));
  if(speaking&&(!V.vad||V.vad.mode!=='speaking'))V.vad={mode:'speaking'};
  const step=vadStep(V.vad||{mode:'listening'},rms,now);V.vad=step.state;
@@ -2813,19 +2845,41 @@ function voiceMetrics(t){
  voiceJSON('/api/voice/metrics',{method:'POST',headers:{'Content-Type':'application/json','X-Svodka-Voice':'1'},body:JSON.stringify(payload)}).catch(()=>{});
 }
 function voiceFeed(t,run){
- if(!t.say||voiceMuted||!window.speechSynthesis)return;
+ if(!t.say||voiceMuted||!V.tts&&!window.speechSynthesis)return;
  const plain=stripSpeechMarkdown(run.output);if(!plain.startsWith(t.audioPrefix)){t.say=false;voiceNotice('Ответ уточнён агентом; полный текст доступен в истории.');return;}
  const parts=splitSentences(plain.slice(t.audioPrefix.length)),ready=parts.ready.slice();t.audioPrefix=plain.slice(0,plain.length-parts.rest.length);
  if(run.status!=='running'&&parts.rest.trim()){ready.push(parts.rest.trim());t.audioPrefix=plain;}
  for(const sentence of ready){let text=sentence;while(text.length>350){let end=text.lastIndexOf(' ',350);if(end<100)end=350;V.queue.push({turn:t,text:text.slice(0,end)});text=text.slice(end).trim();}if(text)V.queue.push({turn:t,text});}voicePlay();
 }
+function voiceSpoken(t,text){voiceStage(t,'t_first_audio');let recent=V.recent.find(r=>r.id===t.attempt.request);if(!recent){recent={id:t.attempt.request,text:''};V.recent.push(recent);V.recent=V.recent.slice(-2);}recent.text+=' '+text;$('jarvis-caption').textContent=text;}
+function voiceDone(epoch,t){if(epoch!==V.speechEpoch)return;clearTimeout(V.speechTimer);V.speech=null;V.vad=null;voiceMetrics(t);voiceRest();voicePlay();}
+function voiceFetchAudio(text){
+ return fetch('/api/voice/speak',{method:'POST',headers:{'Content-Type':'application/json','X-Svodka-Voice':'1'},body:JSON.stringify({text})})
+  .then(async r=>{if(r.ok)return URL.createObjectURL(await r.blob());if(r.status===503){V.tts=false;try{voiceNotice((await r.json()).error);}catch{}}return null;}).catch(()=>null);
+}
 function voicePlay(){
  if(V.speech||V.recorder||V.transcribing||V.interrupted||document.hidden||!V.queue.length)return;
  const item=V.queue.shift(),t=item.turn;if(!t.say||voiceMuted){voiceMetrics(t);voicePlay();return;}
- const epoch=V.speechEpoch,u=new SpeechSynthesisUtterance(item.text);u.lang='ru-RU';u.voice=window.speechSynthesis.getVoices().find(v=>v.lang.toLowerCase().startsWith('ru'))||null;V.speech=item;V.vad=null;voiceRest();
- u.onstart=()=>{if(epoch!==V.speechEpoch)return;voiceStage(t,'t_first_audio');let recent=V.recent.find(r=>r.id===t.attempt.request);if(!recent){recent={id:t.attempt.request,text:''};V.recent.push(recent);V.recent=V.recent.slice(-2);}recent.text+=' '+item.text;};
- const done=()=>{if(epoch!==V.speechEpoch)return;clearTimeout(V.speechTimer);V.speech=null;V.vad=null;voiceMetrics(t);voiceRest();voicePlay();};
- u.onend=done;u.onerror=e=>{if(epoch!==V.speechEpoch)return;t.say=false;V.queue=V.queue.filter(q=>q.turn!==t);voiceNotice('Озвучка недоступна: '+(e.error||'ошибка браузера')+'. Ответ остаётся в истории.');done();};
+ if(V.tts&&V.audio)return voiceSpeakEleven(item);
+ if(window.speechSynthesis)return voiceSpeakBrowser(item);
+ voiceMetrics(t);voicePlay();
+}
+function voiceSpeakEleven(item){
+ const t=item.turn,epoch=V.speechEpoch;V.speech=item;V.vad=null;voiceRest();
+ const next=V.queue[0];if(next&&!next.audio&&V.tts)next.audio=voiceFetchAudio(next.text);
+ (item.audio||voiceFetchAudio(item.text)).then(url=>{
+  if(epoch!==V.speechEpoch){if(url)URL.revokeObjectURL(url);return;}
+  const fallback=()=>{if(url)URL.revokeObjectURL(url);if(epoch!==V.speechEpoch)return;V.speech=null;window.speechSynthesis?voiceSpeakBrowser(item):voiceDone(epoch,t);};
+  if(!url)return fallback();
+  const a=V.audio;a.onended=()=>{URL.revokeObjectURL(url);voiceDone(epoch,t);};a.onerror=fallback;a.src=url;
+  a.play().then(()=>{if(epoch===V.speechEpoch)voiceSpoken(t,item.text);},fallback);
+  V.speechTimer=setTimeout(()=>{if(epoch!==V.speechEpoch||V.speech!==item)return;a.pause();URL.revokeObjectURL(url);voiceDone(epoch,t);},60000);
+ });
+}
+function voiceSpeakBrowser(item){
+ const t=item.turn,epoch=V.speechEpoch,u=new SpeechSynthesisUtterance(item.text);u.lang='ru-RU';u.voice=window.speechSynthesis.getVoices().find(v=>v.lang.toLowerCase().startsWith('ru'))||null;V.speech=item;V.vad=null;voiceRest();
+ u.onstart=()=>{if(epoch!==V.speechEpoch)return;voiceSpoken(t,item.text);};
+ u.onend=()=>voiceDone(epoch,t);u.onerror=e=>{if(epoch!==V.speechEpoch)return;t.say=false;V.queue=V.queue.filter(q=>q.turn!==t);voiceNotice('Озвучка недоступна: '+(e.error||'ошибка браузера')+'. Ответ остаётся в истории.');voiceDone(epoch,t);};
  V.speechTimer=setTimeout(()=>{if(epoch!==V.speechEpoch||V.speech!==item)return;t.say=false;voiceCancelAudio();voiceMetrics(t);voiceNotice('Браузер не завершил озвучку. Ответ доступен в истории.');voiceRest();},60000);
  try{window.speechSynthesis.speak(u);}catch(e){u.onerror(e);}
 }
@@ -2868,7 +2922,50 @@ async function voicePoll(){
  }catch(e){V.offline=!!e.network;voiceNotice('История: '+e.message,true);voiceState(V.offline?'offline':'error');}
  finally{V.polling=false;if(!document.hidden&&(!V.panel.hidden||V.session||V.turns.some(t=>!t.finished&&!t.held)))voiceSchedule(V.offline?3000:V.session||V.turns.some(t=>!t.finished&&!t.held)?700:2500);}
 }
-$('voice-btn').onclick=voiceToggle;$('voice-main').onclick=()=>V.session||V.starting?voiceStop('Разговор остановлен'):voiceStart();
+// ----- Jarvis full-screen conversation: live orb driven by the real microphone level and state -----
+const JARVIS_TEXT={idle:'Нажмите на сферу, чтобы поговорить',starting:'Подключаюсь…',listening:'Слушаю',hearing:'Слушаю…',transcribing:'Думаю…',thinking:'Думаю…',speaking:'Говорю',paused:'Микрофон выключен',offline:'Нет связи · переподключаюсь…',error:'Не получилось'};
+const JARVIS_COLORS={idle:['#cfd8ff','#5b6cff'],starting:['#d8e8ff','#4c7dff'],listening:['#d9f6ff','#2f9bff'],hearing:['#e6fbff','#20b8ff'],transcribing:['#efe6ff','#8b5cff'],thinking:['#efe6ff','#8b5cff'],speaking:['#e2fff4','#18c39a'],paused:['#e4e6ee','#7c8296'],offline:['#e4e6ee','#7c8296'],error:['#ffe3e3','#e5484d']};
+const J={frame:0,level:0,color:null};
+function jarvisState(state,message){
+ const box=$('jarvis');if(!box)return;box.dataset.state=state;
+ $('jarvis-state').textContent=['idle','error','paused','offline'].includes(state)&&message?message:JARVIS_TEXT[state]||'';
+ if(state==='hearing'||state==='listening')$('jarvis-caption').textContent=state==='listening'&&!V.speech?$('jarvis-caption').textContent:'';
+ $('jarvis-mute').setAttribute('aria-pressed',String(!!V.paused));$('jarvis-mute').setAttribute('aria-label',V.paused?'Включить микрофон':'Выключить микрофон');$('jarvis-mute').disabled=!V.session;
+ const vb=$('voice-btn'),live=!!(V.session&&box.hidden);vb.className=String(vb.className||'').replace(/\s*\blive\b/g,'')+(live?' live':'');
+}
+function jarvisUnlock(){
+ // iOS lets a page play audio only after it started playback inside a tap.
+ if(!V.audio){V.audio=new Audio();V.audio.setAttribute('playsinline','');}
+ try{V.audio.muted=true;V.audio.src='data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=';V.audio.play().catch(()=>{}).finally(()=>{V.audio.muted=false;});}catch{}
+}
+function jarvisOpen(){$('jarvis').hidden=false;document.body.classList.add('jarvis-open');$('voice-btn').setAttribute('aria-expanded','true');jarvisState(V.panel.dataset.state||'idle');$('jarvis-end').focus();if(!J.frame)J.frame=requestAnimationFrame(jarvisDraw);}
+function jarvisClose(){$('jarvis').hidden=true;document.body.classList.remove('jarvis-open');$('voice-btn').setAttribute('aria-expanded','false');cancelAnimationFrame(J.frame);J.frame=0;jarvisState(V.panel.dataset.state||'idle');}
+function jarvisDraw(now){
+ J.frame=0;const box=$('jarvis');if(box.hidden||document.hidden)return;
+ const c=$('jarvis-orb'),dpr=Math.min(2,window.devicePixelRatio||1),w=c.clientWidth,h=c.clientHeight;if(c.width!==Math.round(w*dpr)){c.width=Math.round(w*dpr);c.height=Math.round(h*dpr);}
+ const g=c.getContext('2d'),state=box.dataset.state,t=now/1000,still=RM.matches;
+ const target=['listening','hearing'].includes(state)?Math.min(1,(V.level||0)*9):state==='speaking'?.35+.25*Math.abs(Math.sin(t*5.3))*Math.abs(Math.sin(t*2.1)):0;
+ J.level+=(target-J.level)*.18;
+ const [light,base]=JARVIS_COLORS[state]||JARVIS_COLORS.idle,R=Math.min(c.width,c.height)*.32*(1+J.level*.12),cx=c.width/2,cy=c.height/2;
+ g.clearRect(0,0,c.width,c.height);
+ const glow=g.createRadialGradient(cx,cy,R*.6,cx,cy,Math.min(cx,cy)*.98);glow.addColorStop(0,base+'66');glow.addColorStop(1,base+'00');g.fillStyle=glow;g.fillRect(0,0,c.width,c.height);
+ const wobble=still?0:(['thinking','transcribing'].includes(state)?.05:.025)+J.level*.09,spin=['thinking','transcribing'].includes(state)?t*1.6:t*.5;
+ g.beginPath();for(let k=0;k<=96;k++){const a=k/96*Math.PI*2,r=R*(1+wobble*(Math.sin(3*a+spin*1.3)*.6+Math.sin(5*a-spin*1.7)*.3+Math.sin(7*a+t*.9)*.2));const x=cx+Math.cos(a)*r,y=cy+Math.sin(a)*r;k?g.lineTo(x,y):g.moveTo(x,y);}g.closePath();
+ const body=g.createRadialGradient(cx-R*.35,cy-R*.4,R*.05,cx,cy,R*1.05);body.addColorStop(0,'#ffffff');body.addColorStop(.25,light);body.addColorStop(.75,base);body.addColorStop(1,'#0b1030');g.fillStyle=body;g.fill();
+ g.globalAlpha=.35;g.beginPath();g.ellipse(cx-R*.3,cy-R*.42,R*.32,R*.16,-.5,0,Math.PI*2);g.fillStyle='#fff';g.fill();g.globalAlpha=1;
+ J.frame=requestAnimationFrame(jarvisDraw);
+}
+$('jarvis-orb').onclick=()=>{if(V.speech||V.queue.length)voiceInterrupt();else if(!V.session&&!V.starting){jarvisUnlock();voiceStart();}};
+$('jarvis-mute').onclick=()=>{voicePause();jarvisState(V.panel.dataset.state||'idle');};
+$('jarvis-min').onclick=()=>{jarvisClose();V.opener?.focus?.();};
+$('jarvis-end').onclick=()=>{voiceStop('Разговор завершён');jarvisClose();$('voice-btn').focus();};
+$('jarvis-history').onclick=()=>{jarvisClose();voiceOpen();};
+$('jarvis').addEventListener('keydown',e=>{if(e.key==='Escape')$('jarvis-min').click();});
+$('voice-btn').onclick=voiceToggle;
+// On a phone the bottom menu takes the screen edge, so Jarvis sits in it as the rightmost item.
+const jarvisPhone=typeof matchMedia==='function'?matchMedia('(max-width:760px)'):{matches:false};
+function jarvisPlace(){if(typeof document.querySelector!=='function')return;const b=$('voice-btn'),nav=document.querySelector('.nav');if(!nav||!b)return;if(jarvisPhone.matches){if(b.parentNode!==nav)nav.append(b);}else if(b.parentNode===nav)document.querySelector('.side').after(b);}
+jarvisPlace();jarvisPhone.addEventListener?.('change',jarvisPlace);$('voice-main').onclick=()=>V.session||V.starting?voiceStop('Разговор остановлен'):voiceStart();
 // Check the microphone path once up front so the first tap can start in the same gesture (iOS audio unlock).
 voiceCheck();
 addEventListener('focusin',e=>{if(e.target.matches('input,textarea,[contenteditable]')&&e.target.id!=='voice-text')document.body.dataset.typing='true';});
