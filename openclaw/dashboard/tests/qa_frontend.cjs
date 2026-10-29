@@ -3,12 +3,12 @@ const fs = require('fs'), vm = require('vm'), assert = require('assert');
 const html = fs.readFileSync(__dirname + '/../index.html', 'utf8');
 const between = (a,b) => html.slice(html.indexOf(a),html.indexOf(b,html.indexOf(a)));
 const nodes = new Map();
-function node() { return {dataset:{}, elements:[], hidden:false, children:[], classList:{toggle(){}}, append(x){this.children.push(x)},replaceChildren(){this.children=[]},setAttribute(k,v){this[k]=v},focus(){document.activeElement=this},scrollIntoView(){this.scrolled=true}, contains(x){return this===x},parentElement:{classList:{toggle(k,v){nodes.set(k,v)}}}}; }
+function node() { return {dataset:{}, elements:[], hidden:false, children:[], classList:{toggle(){}}, append(x){this.children.push(x)},replaceChildren(...xs){this.children=xs},setAttribute(k,v){this[k]=v},focus(){document.activeElement=this},scrollIntoView(){this.scrolled=true}, contains(x){return this===x},parentElement:{classList:{toggle(k,v){nodes.set(k,v)}}}}; }
 const $ = id => nodes.get(id) || (nodes.set(id,node()),nodes.get(id));
 const listeners={}; const document={activeElement:null,addEventListener:(k,f)=>listeners[k]=f,querySelector:()=>null};
 const storage=new Map();
 let mobile=false, resized=0, redrawn=0;
-const ctx=vm.createContext({console,assert,$,document,localStorage:{getItem:k=>storage.get(k),setItem:(k,v)=>storage.set(k,v)},matchMedia:()=>({matches:mobile}),setTimeout,clearTimeout,AbortController,Date,JSON,Promise,Map,
+const ctx=vm.createContext({console,assert,$,document,crypto:require('crypto').webcrypto,btoa:s=>Buffer.from(s,'binary').toString('base64'),localStorage:{getItem:k=>storage.get(k),setItem:(k,v)=>storage.set(k,v)},matchMedia:()=>({matches:mobile}),setTimeout,clearTimeout,AbortController,Date,JSON,Promise,Map,
  el:(tag,p)=>({...node(),...p}),setStatus:(t,e)=>{$('status').textContent=t;$('status').bad=!!e},
  applyPendingMemory(){},render(){},resizeCanvas(){resized++},redraw(){redrawn++},current:'graph',selected:'',G:{ents:new Map(),nodes:new Map(),history:[],hidden:new Set()},setView(){},renderKinds(){},entKey:s=>s.toLowerCase()});
 vm.runInContext('let data={},lastJson="";'+between('let mutationError =','// ----- pages:'),ctx);
@@ -95,6 +95,7 @@ async function main(){
    f=form(type,values,type==='memory'?'qa':null);if(type==='memory')nodes.set('f-fact',f);
    const event={target:f,preventDefault(){}};let save=listeners.submit(event);assert(f.elements.at(-1).disabled);count=requests.length;await listeners.submit(event);assert.equal(requests.length,count);
    const request=pending.shift();
+   if(type==='memory'){const body=JSON.parse(request.opts.body);assert(/^[A-Za-z0-9_-]{22}$/.test(body.request));assert.equal(body.source,'dashboard');}
    if(fault==='network')request.reject(Error('lost'));else request.resolve({...reply(false,'{"error":"save failed"}'),status:fault});
    await save;assert(!f.closed);assert(!f.elements.at(-1).disabled);for(const [k,v] of Object.entries(values))assert.equal(f.elements.namedItem(k).value,v);
    const message=f._feedbackNode;
@@ -132,6 +133,11 @@ async function main(){
  f=form('notes',{text:'submitted'});const reset=f.reset;f.reset=()=>{reset();f.elements.namedItem=()=>null};
  let missingSave=listeners.submit({target:f,preventDefault(){}});pending.shift().resolve(reply());await missingSave;assert(f.closed);
  pending.shift().resolve(reply());await run('dataFlight');
+ f=form('memory',{name:'QA',text:'existing fact',kind:'person'},'qa');nodes.set('f-fact',f);
+ const dedupSave=listeners.submit({target:f,preventDefault(){}});
+ pending.shift().resolve(reply(true,'{"ok":true,"duplicate":true}'));await dedupSave;
+ assert.equal(run("factFeedback.get('qa').text"),'Такой факт уже есть — не дублирую');
+ pending.shift().resolve(reply());await run('dataFlight');
  // R5: saving an entity while switching away clears only its submitted draft.
  vm.runInContext(between('function renderPanel()', 'function restoreTyping('),ctx);
  run("selected='qa';panelOpen=true");
@@ -161,9 +167,15 @@ async function main(){
  run("selectNode('',false)");assert.equal($('f-fact').elements.namedItem('text').value,'later new page edit');
  // Revisiting the graph must neither reopen a closed panel nor scroll a selected page.
  ctx.readColors=()=>{};ctx.fit=()=>{};const resize=ctx.resizeCanvas;ctx.resizeCanvas=()=>true;
- vm.runInContext(between('function graphShown()', '// Zoom/pan'),ctx);
+ vm.runInContext(between('let memoryStatusFlight =', '// Zoom/pan'),ctx);
  run('closeMemoryPanel()');$('g-panel').scrolled=false;run('graphShown()');assert.equal(run('panelOpen'),false);assert.equal($('g-panel').scrolled,false);
  ctx.resizeCanvas=resize;
+ const statusRequest=pending.shift();assert.equal(requests.at(-1).url,'/api/memory/status');
+ statusRequest.resolve(reply(true,JSON.stringify({store:{pages:2,facts:3},audit:{last:null},search:{mode:'keyword',reason:'diagnostic'},contract:[],tools:{probe:false}})));await flush();
+ assert($('mem-status-body').children[0].text.includes('keyword'));assert($('mem-status-body').children[1].text.includes('фактов: 3'));
+ const probe=run('loadMemoryStatus(true)');assert.equal(requests.at(-1).url,'/api/memory/status?probe=1');
+ pending.shift().resolve(reply(true,JSON.stringify({store:{pages:2,facts:3},audit:{last:null},search:{mode:'keyword',reason:'diagnostic'},contract:[],tools:{probe:true,memory_get:{ok:true,error:null,ms:2},sessions_history:{ok:false,error:'недоступен',ms:3}}})));await probe;
+ assert($('mem-tools').textContent.includes('memory_get: ok · 2 мс'));assert($('mem-tools').textContent.includes('sessions_history: ошибка'));
  // An invalidation queued at response completion must cause a new request.
  let completion=run('load()');const last=pending.shift();last.resolve(reply());
  completion.then(()=>run('load(true)'));await completion;await flush();assert.equal(pending.length,1);

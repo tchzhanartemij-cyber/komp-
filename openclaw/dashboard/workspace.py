@@ -60,7 +60,7 @@ class Workspace:
             raise ValueError(state['reason'])
 
     def gateway_invoke(self, tool, args):
-        if tool not in ('sessions_history', 'sessions_list'):
+        if tool not in ('sessions_history', 'sessions_list', 'memory_get'):
             raise ValueError('Инструмент не разрешён')
         self.require()
         url, token, _, _ = self.agent.config()

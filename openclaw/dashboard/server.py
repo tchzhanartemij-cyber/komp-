@@ -320,6 +320,70 @@ def read_memory():
     return pages
 
 
+MEMORY_SERVICE_RE = re.compile(r'<\s*/?\s*(think|thinking|reasoning|system)\b|system\s+prompt|системный\s+промпт', re.I)
+MEMORY_REJECT = 'Похоже на секрет или служебный текст — в память не сохраняется'
+
+
+def memory_version(data):
+    return hashlib.sha256(data).hexdigest()[:16]
+
+
+def memory_audit():
+    rows = []
+    for line in read_text('dashboard-agent/memory-audit.jsonl').splitlines():
+        try:
+            row = json.loads(line)
+            if isinstance(row, dict):
+                rows.append(row)
+        except ValueError:
+            pass
+    return rows
+
+
+def memory_journal(file, text):
+    target = path('dashboard-agent/' + file)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    with target.open('a', encoding='utf-8') as f:
+        f.write(text + '\n')
+        f.flush()
+        os.fsync(f.fileno())
+
+
+def memory_record(op, source, request, page, line, text, before, after):
+    memory_journal('memory-audit.jsonl', json.dumps(dict(ts=datetime.now().isoformat(timespec='seconds'),
+        op=op, source=source, request=request, page=page, line=line,
+        text_sha256=memory_version(text.encode()), version_before=before, version_after=after), ensure_ascii=False))
+
+
+def memory_metadata(b):
+    request, source = b.get('request'), b.get('source', 'dashboard')
+    if ('request' in b and (not isinstance(request, str) or not re.fullmatch(r'[A-Za-z0-9_-]{16,64}', request))) or source not in ('dashboard', 'voice'):
+        raise ValueError()
+    return request, source
+
+
+def memory_status():
+    pages = read_memory()
+    digest = hashlib.sha256()
+    for f in sorted((LIFE_DIR / 'memory').glob('*.md')):
+        digest.update(f.name.encode()); digest.update(b'\0'); digest.update(f.read_bytes()); digest.update(b'\0')
+    folder = LIFE_DIR / 'memory'
+    parent = folder
+    while not parent.exists():
+        parent = parent.parent
+    writable = os.access(parent, os.W_OK) and all(os.access(f, os.W_OK) for f in folder.glob('*.md'))
+    rows = memory_audit()
+    contract = [
+        dict(data='Факты о людях/местах/проектах', authority='life/memory/<Имя>.md', writers='Сводка + агент (навык life-ledger)', agent_access='Агент читает файлы напрямую'),
+        dict(data='Профиль и предпочтения', authority='USER.md/SOUL.md рабочего пространства', writers='Только агент', agent_access='Панель не читает и не правит'),
+        dict(data='Долгая память агента', authority='MEMORY.md, memory/*.md, индекс memory_search', writers='Агент', agent_access='Панель не читает'),
+        dict(data='Переписка', authority='Канонический сеанс задачи 12 через sessions_history', writers='Панель + агент', agent_access='Панель не копирует в память')]
+    return dict(store=dict(pages=len(pages), facts=sum(len(p['facts']) for p in pages), version=digest.hexdigest()[:16], writable=writable),
+        audit=dict(records=len(rows), last={k:rows[-1].get(k) for k in ('ts','op','source')} if rows else None),
+        search=dict(mode='keyword', semantic=False, reason='Семантический поиск OpenClaw не подтверждён: индекс построен как fts-only, ожидается text-embedding-3-small (диагностика 29.10). Панель и агент находят факты Сводки прямым чтением страниц и поиском по ключевым словам.'),
+        contract=contract, tools=dict(probe=False))
+
+
 # --- AI chat ------------------------------------------------------------
 # Claude goes through the Claude Code subscription; when the limits service says it is
 # used up, auto mode skips it. Free models go through the local freellmapi gateway, its one
@@ -1159,6 +1223,30 @@ class Handler(BaseHTTPRequestHandler):
                     "today": datetime.now().strftime("%Y-%m-%d"),
                 }
             self.send_json(200, payload)
+        elif route == '/api/memory/status':
+            with lock:
+                payload = memory_status()
+            if parse_qs(urlsplit(self.path).query).get('probe') == ['1']:
+                workspace = _workspace_module.Workspace(agent_service, SECRET_RE)
+                state = workspace.status()
+                if not self.agent_protected() or not state['available']:
+                    payload['tools'] = dict(probe=False, reason=state['reason'] if not state['available'] else 'Требуется защита панели токеном или доверенным прокси')
+                else:
+                    payload['tools'] = dict(probe=True)
+                    for tool, args in (('memory_get', dict(path='MEMORY.md', **{'from':1}, lines=1)),
+                                       ('sessions_history', dict(sessionKey=agent_service.canonical(), limit=1, includeTools=False))):
+                        started = time.monotonic()
+                        error = None
+                        try:
+                            workspace.gateway_invoke(tool, args)  # content is discarded, only reachability is reported
+                        except Exception as e:
+                            # Only the adapter's fixed diagnostics (401/403/404/offline); never Gateway text.
+                            known = ('Шлюз отклонил авторизацию', 'Политика шлюза запретила инструмент',
+                                     'Инструмент недоступен по политике шлюза', 'Ошибка HTTP шлюза',
+                                     'Шлюз недоступен или вернул некорректный ответ')
+                            error = str(e) if str(e) in known else 'Инструмент недоступен'
+                        payload['tools'][tool] = dict(ok=error is None, error=error, ms=int((time.monotonic()-started)*1000))
+            self.send_json(200, payload)
         elif route == "/api/voice":
             self.send_json(200, self.voice_status()[0])
         elif route == "/api/voice/metrics":
@@ -1367,17 +1455,60 @@ class Handler(BaseHTTPRequestHandler):
         elif p == "/api/notes/delete":
             replace_line(NOTE_FILES[b.get("list", "notes")], int(b["line"]), b.get("raw"), None)
         elif p == "/api/memory/add":
-            name, file = page_file(b["name"])
-            text = one_line(b["text"], 2000)
+            request, source = memory_metadata(b)
+            if any(SECRET_RE.search(str(b.get(k, ''))) or MEMORY_SERVICE_RE.search(str(b.get(k, ''))) for k in ('name', 'text', 'kind')):
+                return self.send_json(400, {'error': MEMORY_REJECT})
+            name, file = page_file(b['name'])
+            text = one_line(b['text'], 2000)
             if not text:
                 raise ValueError()
-            if not path(file).exists():
-                kind = one_line(b.get("kind"), 40)
-                write_text(file, f"# {name}\n" + (f"тип: {kind}\n" if kind else "") + "\n")
-            append_line(file, f"- {today} · {text}")
+            target = path(file)
+            target.parent.mkdir(parents=True, exist_ok=True)
+            data = target.read_bytes() if target.exists() else b''
+            before = memory_version(data)
+            lines = data.decode('utf-8').splitlines()
+            previous = next((r for r in memory_audit() if request and r.get('request') == request), None)
+            normalize = lambda value: ' '.join(value.split()).casefold()
+            idx = next((i for i, line in enumerate(lines) if normalize(NOTE_RE.match(line).group(3) if NOTE_RE.match(line) else line.strip().lstrip('-* ').strip()) == normalize(text) and line.strip() and not line.startswith('#') and not KIND_RE.match(line)), None)
+            duplicate = previous is not None or idx is not None
+            if previous:
+                name, file = page_file(previous['page'])
+                data = path(file).read_bytes()
+                return self.send_json(200, dict(ok=True, duplicate=True, page=name, line=previous['line'], version=memory_version(data), verified=True))
+            if not duplicate:
+                raw = f'- {today} · {text}'
+                # Append in place: never replace a page another writer may have appended to.
+                with target.open('ab+') as f:
+                    f.seek(0); data = f.read()
+                    before = memory_version(data)
+                    prefix = (b'\n' if data and not data.endswith(b'\n') else b'')
+                    if not data:
+                        kind = one_line(b.get('kind'), 40)
+                        prefix = (f'# {name}\n' + (f'тип: {kind}\n' if kind else '') + '\n').encode()
+                    f.write(prefix + raw.encode() + b'\n')
+                    f.flush(); os.fsync(f.fileno())
+                data = target.read_bytes()
+                lines = data.decode('utf-8').splitlines()
+                if raw not in lines:
+                    raise Conflict()
+                idx = len(lines) - 1 - lines[::-1].index(raw)
+            else:
+                data = target.read_bytes()
+            version = memory_version(data)
+            memory_record('dedup' if duplicate else 'add', source, request, name, idx, text, before, version)
+            return self.send_json(200, dict(ok=True, duplicate=duplicate, page=name, line=idx, version=version, verified=True))
         elif p == "/api/memory/delete":
-            _, file = page_file(b["name"])
-            replace_line(file, int(b["line"]), b.get("raw"), None)
+            request, source = memory_metadata(b)
+            name, file = page_file(b['name'])
+            data = path(file).read_bytes()
+            lines = data.decode('utf-8').splitlines()
+            idx = int(b['line'])
+            if idx < 0 or idx >= len(lines) or lines[idx] != b.get('raw'):
+                raise Conflict()
+            raw = lines[idx]
+            memory_journal('memory-removed.md', f'### {today} · {name}\n{raw}\n')
+            replace_line(file, idx, raw, None)
+            memory_record('delete', source, request, name, idx, raw, memory_version(data), memory_version(path(file).read_bytes()))
         elif p == "/api/food/add":
             item = one_line(b["item"], 200)
             kcal = number(b.get("kcal"))
