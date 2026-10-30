@@ -107,28 +107,82 @@ PROMPT = """Ты работаешь над репозиторием {repo} по 
 В конце ответь коротко по-русски, это уйдёт владельцу в Telegram:
 что сделано, как проверено, что осталось или вызывает сомнения."""
 
-CODE_SELF_LIMIT = 60   # % лимита Claude за 5 часов: ниже пишет сам, с этого порога код пишет Codex
-CODE_RULE_SELF = """- Лимит Claude за 5 часов сейчас {pct}: меньше {limit}%, поэтому код пиши сам. Перед каждой крупной
-  частью работы смотри `cat {usage}` (поле five_hour.pct): если стало {limit} или больше, оставшийся
-  объёмный код отдавай Codex, как описано ниже.
-- Codex: составь короткий точный промпт и запусти `codex exec -s workspace-write "<промпт>"` в папке
-  репозитория. Его работу на слово не принимай: читай дифф (`git diff`) и проверяй сам."""
-CODE_RULE_CODEX = """- Лимит Claude за 5 часов сейчас {pct}: {limit}% или больше, поэтому код сам не пиши. Ты планируешь,
-  проверяешь и сдаёшь работу, а код пишет Codex: составь короткий точный промпт и запусти
-  `codex exec -s workspace-write "<промпт>"` в папке репозитория. Читай дифф (`git diff`), запускай
-  тесты, а найденные ошибки тоже отдавай Codex. Принимать его работу на слово нельзя. Сам правь
-  только строку-две, или всё, если Codex недоступен или упёрся в свой лимит."""
+BALANCE_GAP = 5          # % разницы в расходе, при которой работу отдаём тому, кто тратит меньше
+BALANCE_MAX = 95         # выше этого процента исполнитель считается почти исчерпанным
+CODEX_USAGE_FILE = DATA / "usage_codex.json"
+
+CODE_RULE_BALANCED = """- Работу делят Claude Code и Codex поровну по расходу подписок. Сейчас израсходовано: Claude {claude}, Codex {codex}.
+  Код сейчас пишет {writer}. {role}"""
+CODE_RULE_WRITER_CLAUDE = """Сам пиши код и мелкие правки. Если объём большой, отдай его Codex: составь короткий точный промпт
+  и запусти `codex exec -s workspace-write "<промпт>"` в папке репозитория. Его работу читай (`git diff`) и проверяй сам."""
+CODE_RULE_WRITER_CODEX = """Объёмный код пиши через Codex: составь короткий точный промпт и запусти
+  `codex exec -s workspace-write "<промпт>"` в папке репозитория. Ты планируешь, читаешь дифф (`git diff`),
+  запускаешь тесты, ошибки снова отдаёшь Codex и принимаешь работу только после своей проверки. Мелкие правки в одну-две строки делай сам."""
 
 
-def code_rule():
-    """Who writes the code for this run, by the current Claude 5-hour usage."""
+def read_claude_used():
+    """Расход Claude в процентах: максимум из окна 5 часов и недели. None, если данные старые или их нет."""
     try:
         data = json.loads(USAGE_FILE.read_text())
-        pct = float(data["five_hour"]["pct"]) if time.time() - float(data.get("saved", 0)) < 3600 else None
+        if time.time() - float(data.get("saved", 0)) > 3600:
+            return None
+        return max(float(data["five_hour"]["pct"]), float(data["seven_day"]["pct"]))
     except (OSError, ValueError, KeyError, TypeError):
-        pct = None
-    rule = CODE_RULE_CODEX if pct is None or pct >= CODE_SELF_LIMIT else CODE_RULE_SELF
-    return rule.format(pct=f"{pct:.0f}%" if pct is not None else "неизвестен", limit=CODE_SELF_LIMIT, usage=USAGE_FILE)
+        return None
+
+
+def read_codex_used():
+    """Расход Codex (окно 168 часов) в процентах. Берём из `openclaw models status` и кэшируем на 10 минут."""
+    try:
+        data = json.loads(CODEX_USAGE_FILE.read_text())
+        if time.time() - float(data.get("saved", 0)) < 600:
+            return float(data["used"])
+    except (OSError, ValueError, KeyError, TypeError):
+        pass
+    try:
+        out = subprocess.run(["openclaw", "models", "status"], capture_output=True, text=True, timeout=60).stdout
+        left = re.search(r"openai usage: 168h (\d+)% left", out)
+        if not left:
+            return None
+        used = 100.0 - float(left.group(1))
+        CODEX_USAGE_FILE.write_text(json.dumps({"saved": time.time(), "used": used}))
+        return used
+    except (OSError, subprocess.SubprocessError, ValueError):
+        return None
+
+
+def code_writer(task_id):
+    """Кто пишет код в этой задаче: тот, кто меньше израсходовал, с поправкой на чётность номера задачи при равенстве."""
+    claude, codex = read_claude_used(), read_codex_used()
+    if claude is None and codex is None:
+        return "codex", None, None
+    if claude is None:
+        return "codex", None, codex
+    if codex is None:
+        return "claude", claude, None
+    if claude >= BALANCE_MAX and codex < BALANCE_MAX:
+        return "codex", claude, codex
+    if codex >= BALANCE_MAX and claude < BALANCE_MAX:
+        return "claude", claude, codex
+    if codex - claude > BALANCE_GAP:
+        return "claude", claude, codex
+    if claude - codex > BALANCE_GAP:
+        return "codex", claude, codex
+    return ("claude" if task_id % 2 == 0 else "codex"), claude, codex
+
+
+def code_rule(task_id=0):
+    """Кто пишет код, с текущими цифрами расхода — для промпта Claude Code."""
+    writer, claude, codex = code_writer(task_id)
+    fmt = lambda v: f"{v:.0f}%" if v is not None else "неизвестно"
+    if writer == "claude":
+        role = CODE_RULE_WRITER_CLAUDE
+    else:
+        role = CODE_RULE_WRITER_CODEX
+    if claude is None or codex is None:
+        role += "\n  Расход одного из агентов не удалось узнать, поэтому действуй по правилу выше."
+    return CODE_RULE_BALANCED.format(claude=fmt(claude), codex=fmt(codex),
+                                     writer="Claude Code" if writer == "claude" else "Codex", role=role)
 
 
 FOLLOWUP = {
@@ -625,11 +679,11 @@ def run_claude(task, repo_dir, env):
     claude = env.get("CLAUDE_BIN", "claude")
     fu = task.get("followup")
     if fu and task.get("session"):
-        prompt = FOLLOWUP[fu["kind"]].format(id=task["id"], text=fu["text"]) + "\n\nКто пишет код сейчас:\n" + code_rule()
+        prompt = FOLLOWUP[fu["kind"]].format(id=task["id"], text=fu["text"]) + "\n\nКто пишет код сейчас:\n" + code_rule(task["id"])
         resume = ["--resume", task["session"]]
     else:
         text = task["text"] + (f"\n\nДополнение владельца: {fu['text']}" if fu and fu["kind"] != "continue" else "")
-        prompt = PROMPT.format(repo=task["repo"], id=task["id"], text=text, branch=task["branch"], code_rule=code_rule())
+        prompt = PROMPT.format(repo=task["repo"], id=task["id"], text=text, branch=task["branch"], code_rule=code_rule(task["id"]))
         if task.get("refs"):
             prompt += REFS_PROMPT.format(count=len(task["refs"]), path=f"{REFS_DIR}/task-{task['id']}")
         resume = []
