@@ -41,7 +41,7 @@ Root владелец вводит сам; команды под root дават
 Код: `openclaw/dashboard/` (`server.py`, `index.html`, `agent.py`, `office.py`, `workspace.py`).
 Тесты: `python3 -m unittest discover -s openclaw/dashboard/tests`.
 
-Разделы: Личное, Работа, Память, ИИ, Переписка, Агенты (пиксельный офис), голосовой помощник.
+Разделы меню: Личное, Работа, Память, ИИ, Агенты; справа кнопка Джарвиса (живой голос через OpenClaw Talk)
 
 Сделано 29.10 (в ветке, выложено только после `deploy.sh` владельцем,
 `~/backups/life-dashboard-predeploy-20261029-180509/`): офис читает очередь кодера, живая лента
