@@ -98,6 +98,9 @@ PROMPT = """Ты работаешь над репозиторием {repo} по 
 - Если в проекте есть тесты, линтер или сборка, запусти их и почини то, что сломал.
 - Закоммить работу одним или несколькими коммитами с понятными сообщениями на русском.
 - Не трогай секреты, токены и файлы с паролями.
+- Общая память с Джарвисом и Codex — в `~/.openclaw/workspace/SHARED.md`. Если узнал важное о
+  проекте (как устроено, что сломано и чем починено, решение владельца), допиши одну строку
+  `- ЧЧ:ММ [claude] …` в дневник за сегодня: `~/.openclaw/workspace/memory/ГГГГ-ММ-ДД.md`.
 - Если задача непонятна настолько, что любое решение будет угадыванием, ничего не меняй
   и ответь одной строкой, начинающейся с «ВОПРОС:», и сам вопрос.
 
@@ -630,7 +633,9 @@ def run_claude(task, repo_dir, env):
         if task.get("refs"):
             prompt += REFS_PROMPT.format(count=len(task["refs"]), path=f"{REFS_DIR}/task-{task['id']}")
         resume = []
+    # Shared memory with Jarvis and Codex (SHARED.md): the run may append to the daily notes there.
     cmd = [claude, "-p", prompt, "--output-format", "stream-json", "--verbose", "--permission-mode", "acceptEdits",
+           "--add-dir", str(HOME / ".openclaw/workspace/memory"),
            *resume, "--allowedTools", *ALLOWED_TOOLS, "--disallowedTools", *DENIED_TOOLS]
     LOGS.mkdir(parents=True, exist_ok=True)
     out_path = LOGS / f"{task['id']}-{int(time.time())}.json"
