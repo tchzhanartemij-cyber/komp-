@@ -1472,7 +1472,7 @@ function memoryModel() {
 }
 
 const G = { ents: new Map(), nodes: new Map(), edges: [], w: 0, h: 0, dpr: 1, scale: 1, ox: 0, oy: 0, alpha: 0, target: 0, raf: 0,
-  hover: null, drag: null, press: null, pinch: null, hidden: new Set(), query: '', colors: {}, history: [], fitted: false, view: 0 };
+  hover: null, drag: null, press: null, pinch: null, hidden: new Set(['tag']), query: '', colors: {}, history: [], fitted: false, view: 0 };
 const pointers = new Map();
 const kindOf = id => KINDS.find(k => k.id === id) || KINDS[6];
 
