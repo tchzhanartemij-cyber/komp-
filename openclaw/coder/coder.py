@@ -94,10 +94,7 @@ PROMPT = """Ты работаешь над репозиторием {repo} по 
 Правила:
 - Ты уже на ветке {branch}. Не переключай ветки, не пушь, не трогай настройки git.
 - Сначала разберись в коде, потом делай минимальное изменение, которое решает задачу.
-- Объёмный код пиши не сам, а через Codex, чтобы беречь лимит Claude: составь короткий точный
-  промпт и запусти `codex exec -s workspace-write "<промпт>"` в папке репозитория. Сам планируй,
-  читай дифф (`git diff`) и проверяй результат; принимать работу Codex на слово нельзя. Мелкие
-  правки в одну-две строки делай сам. Если Codex недоступен или упёрся в лимит, дописывай сам.
+{code_rule}
 - Если в проекте есть тесты, линтер или сборка, запусти их и почини то, что сломал.
 - Закоммить работу одним или несколькими коммитами с понятными сообщениями на русском.
 - Не трогай секреты, токены и файлы с паролями.
@@ -106,6 +103,30 @@ PROMPT = """Ты работаешь над репозиторием {repo} по 
 
 В конце ответь коротко по-русски, это уйдёт владельцу в Telegram:
 что сделано, как проверено, что осталось или вызывает сомнения."""
+
+CODE_SELF_LIMIT = 60   # % лимита Claude за 5 часов: ниже пишет сам, с этого порога код пишет Codex
+CODE_RULE_SELF = """- Лимит Claude за 5 часов сейчас {pct}: меньше {limit}%, поэтому код пиши сам. Перед каждой крупной
+  частью работы смотри `cat {usage}` (поле five_hour.pct): если стало {limit} или больше, оставшийся
+  объёмный код отдавай Codex, как описано ниже.
+- Codex: составь короткий точный промпт и запусти `codex exec -s workspace-write "<промпт>"` в папке
+  репозитория. Его работу на слово не принимай: читай дифф (`git diff`) и проверяй сам."""
+CODE_RULE_CODEX = """- Лимит Claude за 5 часов сейчас {pct}: {limit}% или больше, поэтому код сам не пиши. Ты планируешь,
+  проверяешь и сдаёшь работу, а код пишет Codex: составь короткий точный промпт и запусти
+  `codex exec -s workspace-write "<промпт>"` в папке репозитория. Читай дифф (`git diff`), запускай
+  тесты, а найденные ошибки тоже отдавай Codex. Принимать его работу на слово нельзя. Сам правь
+  только строку-две, или всё, если Codex недоступен или упёрся в свой лимит."""
+
+
+def code_rule():
+    """Who writes the code for this run, by the current Claude 5-hour usage."""
+    try:
+        data = json.loads(USAGE_FILE.read_text())
+        pct = float(data["five_hour"]["pct"]) if time.time() - float(data.get("saved", 0)) < 3600 else None
+    except (OSError, ValueError, KeyError, TypeError):
+        pct = None
+    rule = CODE_RULE_CODEX if pct is None or pct >= CODE_SELF_LIMIT else CODE_RULE_SELF
+    return rule.format(pct=f"{pct:.0f}%" if pct is not None else "неизвестен", limit=CODE_SELF_LIMIT, usage=USAGE_FILE)
+
 
 FOLLOWUP = {
     "answer": "Ответ владельца на твой вопрос по задаче №{id}:\n{text}\n\nПродолжай работу по тем же правилам.",
@@ -601,11 +622,11 @@ def run_claude(task, repo_dir, env):
     claude = env.get("CLAUDE_BIN", "claude")
     fu = task.get("followup")
     if fu and task.get("session"):
-        prompt = FOLLOWUP[fu["kind"]].format(id=task["id"], text=fu["text"])
+        prompt = FOLLOWUP[fu["kind"]].format(id=task["id"], text=fu["text"]) + "\n\nКто пишет код сейчас:\n" + code_rule()
         resume = ["--resume", task["session"]]
     else:
         text = task["text"] + (f"\n\nДополнение владельца: {fu['text']}" if fu and fu["kind"] != "continue" else "")
-        prompt = PROMPT.format(repo=task["repo"], id=task["id"], text=text, branch=task["branch"])
+        prompt = PROMPT.format(repo=task["repo"], id=task["id"], text=text, branch=task["branch"], code_rule=code_rule())
         if task.get("refs"):
             prompt += REFS_PROMPT.format(count=len(task["refs"]), path=f"{REFS_DIR}/task-{task['id']}")
         resume = []
