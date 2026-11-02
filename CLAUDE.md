@@ -4,6 +4,15 @@
 (Termius, Safari, Telegram). Секреты (токены, ключи, пароли) никогда не просить в чат и не
 коммитить: он вводит их сам скрытым вводом (`read -rsp`).
 
+## Карта репозитория
+
+- `openclaw/dashboard/` — «Сводка»: `server.py` (сервер), `index.html` (весь интерфейс), `agent.py`,
+  `office.py` (офис агентов), `workspace.py` (диалог Telegram), `attachments.py`, `talk_helper.mjs`
+  (живой голос), `tests/`, `deploy-live.sh` (выкладка), `SPEC.md` (главное ТЗ).
+- `openclaw/coder/` — очередь задач по коду `jarvis-coder` (`coder.py`), скилл Джарвиса `SKILL.md`.
+- `openclaw/limits/`, `openclaw/msk-proxy/`, `openclaw/memwatch/` — служебное: потолки памяти, туннель, сторож.
+- Общая память агентов — вне репозитория: `~/.openclaw/workspace/SHARED.md` (см. там).
+
 ## Сервер
 
 Aeza NL, `new-coral`, 138.124.113.106, Ubuntu 24.04, 2 ядра, 8 ГБ RAM, подкачка 4 ГБ.
