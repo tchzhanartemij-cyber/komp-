@@ -10,7 +10,7 @@
   `office.py` (офис агентов), `workspace.py` (диалог Telegram), `attachments.py`, `talk_helper.mjs`
   (живой голос), `tests/`, `deploy-live.sh` (выкладка), `SPEC.md` (главное ТЗ).
 - `openclaw/coder/` — очередь задач по коду `jarvis-coder` (`coder.py`), скилл Джарвиса `SKILL.md`.
-- `openclaw/limits/`, `openclaw/msk-proxy/`, `openclaw/memwatch/` — служебное: потолки памяти, туннель, сторож.
+- `openclaw/limits/`, `openclaw/msk-proxy/`, `openclaw/screen/`, `openclaw/skills/` — служебное: потолки памяти, туннель через Москву, экран, скиллы Джарвиса; доступы — `openclaw/ACCESS.md`.
 - Общая память агентов — вне репозитория: `~/.openclaw/workspace/SHARED.md` (см. там).
 
 ## Сервер
