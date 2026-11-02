@@ -404,12 +404,15 @@ body[data-page="ai"] .main { padding-bottom:20px; }
  .ai-layout.lists .ai-backdrop { display:block; position:absolute; inset:0; background:rgba(0,0,0,.35); border:0; z-index:31; }
 }
 @media (max-width:760px) {
- body[data-page="ai"] .main { padding-bottom:calc(100px + env(safe-area-inset-bottom,0px)); }
- .ai-card { height:calc(100dvh - max(14px,env(safe-area-inset-top,0px)) - 100px - var(--kb,0px)); }
+ /* Phone chat is full-bleed like the ChatGPT and Claude apps: edge-to-edge text, composer right above the menu. */
+ body[data-page="ai"] .main { padding:env(safe-area-inset-top,0px) 0 0; gap:0; }
+ body[data-page="ai"] .banner, body[data-page="ai"] .foot-hint { display:none; }
+ .ai-card { border-radius:0; box-shadow:none; height:calc(100dvh - env(safe-area-inset-top,0px) - 74px - max(12px,env(safe-area-inset-bottom,0px)) - var(--kb,0px)); }
  .ai-picker { position:fixed; left:12px; right:12px; width:auto; bottom:calc(170px + env(safe-area-inset-bottom,0px) + var(--kb,0px)); }
  body[data-page="ai"] { overflow:hidden; }
- .ai-header { padding:12px; } .ai-composer { padding:8px 10px max(8px,env(safe-area-inset-bottom)); }
- .ai-msgs { padding:18px 14px; }
+ .ai-header { padding:8px 12px; } .ai-composer { padding:6px 8px 8px; }
+ .ai-msgs { padding:14px 16px; gap:18px; }
+ .ai-input { border-radius:20px; padding:6px; } .ai-input textarea { min-height:22px; padding:6px 8px; }
 }
 
 
