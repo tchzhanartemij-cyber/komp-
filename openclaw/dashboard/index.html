@@ -2002,7 +2002,7 @@ async function aiLoadModels(){
  try{AI.models=await aiGet('/api/ai/models');}catch{return;}
  const M=AI.models;
  if(aiModel!=='auto'&&!aiWho()){
-  const replacement=M.models.find(m=>m.id==='claude:claude-opus-5-5')||M.models.find(m=>m.route==='claude');
+  const replacement=M.models.find(m=>m.route==='jarvis')||M.models.find(m=>m.id==='claude:claude-opus-5-5')||M.models.find(m=>m.route==='claude');
   if(replacement){aiModel=replacement.id;aiSave();AI.modelWarning='модель заменена на '+aiShort(replacement.title)+': прежний выбор больше не поддерживается';aiErr(AI.modelWarning,'warn');}
  }
  $('ai-model').textContent=aiChoiceTitle();
@@ -2014,13 +2014,14 @@ function aiProbeLabel(m){const p=m.probe||{};return p.status==='ok'?'прове�
 function aiPicker(){
  const box=$('ai-picker'),M=AI.models;if(!M)return;
  function choice(m,probe=true){
-  const select=el('button',{type:'button','aria-pressed':String(aiModel===m.id),onclick:()=>{AI.modelWarning='';aiModel=m.id;aiSave();aiErr('');$('ai-model').textContent=aiChoiceTitle();box.hidden=true;$('ai-model').setAttribute('aria-expanded','false');aiChips();}},el('b',{text:m.title}),el('div',{class:'meta',text:aiProbeLabel(m)}),el('span',{class:'ai-caps',text:(m.caps?.image?'▧ изображения · ':'')+'▤ PDF · текст'}),!m.available?el('div',{class:'meta',text:m.why}):null);
+  const select=el('button',{type:'button','aria-pressed':String(aiModel===m.id),onclick:()=>{AI.modelWarning='';aiModel=m.id;aiSave();aiErr('');$('ai-model').textContent=aiChoiceTitle();box.hidden=true;$('ai-model').setAttribute('aria-expanded','false');aiChips();aiHeader();}},el('b',{text:m.title}),el('div',{class:'meta',text:aiProbeLabel(m)}),el('span',{class:'ai-caps',text:(m.caps?.image?'▧ изображения · ':'')+'▤ PDF · текст'}),!m.available?el('div',{class:'meta',text:m.why}):null);
   const row=el('div',{class:'ai-model-row'},select);
   if(probe){const b=el('button',{type:'button',text:AI.probes.has(m.id)?'Проверка…':'Проверить',onclick:async()=>{AI.probes.add(m.id);aiPicker();try{const p=await aiPost('probe',{model:m.id});if(!p.ok)aiErr(p.error);}catch(e){aiErr(e.message);}finally{AI.probes.delete(m.id);await aiLoadModels();}}});b.disabled=AI.probes.size>0;row.append(b);}return row;
  }
  box.replaceChildren();
- for(const [route,title] of [['claude','Claude'],['chatgpt','Codex/GPT'],['free','Бесплатные']]){
-  box.append(el('h4',{text:title}),...M.models.filter(m=>m.route===route).map(m=>choice(m)));
+ for(const [route,title] of [['jarvis','Джарвис · инструменты и память'],['claude','Claude · без инструментов'],['chatgpt','Codex/GPT · без инструментов'],['free','Бесплатные']]){
+  const rows=M.models.filter(m=>m.route===route);if(!rows.length&&route!=='free')continue;
+  box.append(el('h4',{text:title}),...rows.map(m=>choice(m,route!=='jarvis')));
   if(route==='free'&&(M.free_models||[]).length){const search=el('input',{placeholder:'Поиск бесплатных моделей','aria-label':'Поиск бесплатных моделей'}),group=el('div');const draw=()=>{const q=search.value.toLowerCase();group.replaceChildren(...M.free_models.filter(m=>(m.id+' '+m.title).toLowerCase().includes(q)).map(m=>choice({...m,id:'free:'+m.id})));};search.addEventListener('input',draw);box.append(search,group);draw();}
  }
  box.append(el('h4',{text:'Авто'}),choice({...(M.auto||{}),id:'auto',title:M.auto?.label||'Авто · нет доступных моделей',why:'Нет доступных моделей'}));
@@ -2092,14 +2093,14 @@ function aiBubble(m){
  if(m.role==='user')node.append(el('div',{class:'bubble',text}));else node.append(text?aiMarkdown(text):el('div',{class:'typing'},'печатает',el('i'),el('i'),el('i')));
  if(m.attachments?.length)node.append(aiAttachmentLinks(m.attachments));
  const source={telegram:'Telegram',dashboard:'Сводка',agent:'агент',automation:'автоматизация',unknown:'другой интерфейс'}[m.source]||'другой интерфейс';
- const metadata=canonical?[m.model,source,m.source==='telegram'&&m.source_message_id!=null?'#'+m.source_message_id:'',m.delivered_to_channel?'доставлено в канал':'',m.edited?'изменено':'',m.deleted?'удалено':'',m.truncated?'обрезано':'',time]:m.role==='assistant'?[aiShort(m.model),m.actual_model?'фактически '+m.actual_model:'',m.transport||m.detail,'чат без инструментов',time,m.fallback,m.stopped?'остановлено':'']:[time];
+ const metadata=canonical?[m.model,source,m.source==='telegram'&&m.source_message_id!=null?'#'+m.source_message_id:'',m.delivered_to_channel?'доставлено в канал':'',m.edited?'изменено':'',m.deleted?'удалено':'',m.truncated?'обрезано':'',time]:m.role==='assistant'?[aiShort(m.model),m.actual_model?'фактически '+m.actual_model:'',m.transport||m.detail,m.mode==='jarvis'?'':'чат без инструментов',time,m.fallback,m.stopped?'остановлено':'']:[time];
  node.append(el('div',{class:'meta',text:metadata.filter(Boolean).join(' · ')}));
  if(m.role==='assistant'&&text){const copy=el('button',{class:'pill soft small',type:'button',text:'Копировать',onclick:()=>aiCopy(text,copy)});node.append(copy);}
  if(m.role==='user'&&!m.not_owner&&!m.pending){const edit=el('button',{class:'pill soft small',type:'button',text:canonical?'Уточнить':'Изменить',onclick:()=>canonical?chatRevision(m):aiEdit(m)});edit.disabled=canonical?!chatState.available:AI.busy;node.append(edit);}
  return node;
 }
 function aiHeader(){
- const canonical=aiCanonical();$('h-ai').textContent=canonical?'Telegram · основной диалог':AI.chat?.title||'Новый чат';$('ai-mode').textContent=canonical?'агент с инструментами':'чат без инструментов';$('ai-project-name').textContent=canonical?'':AI.projects.find(p=>p.id===AI.project)?.name||'';
+ const canonical=aiCanonical();$('h-ai').textContent=canonical?'Telegram · основной диалог':AI.chat?.title||'Новый чат';$('ai-mode').textContent=canonical?'агент с инструментами':aiWho()?.route==='jarvis'?'Джарвис · инструменты и память':'чат без инструментов';$('ai-project-name').textContent=canonical?'':AI.projects.find(p=>p.id===AI.project)?.name||'';
  $('ai-model').hidden=canonical;$('ai-session-model').hidden=!canonical;if(canonical){const model=[...chatState.messages].reverse().find(m=>m.model)?.model;$('ai-session-model').textContent='модель сессии агента'+(model?' · '+model:'');$('ai-picker').hidden=true;}
  $('ai-attach').disabled=canonical||AI.busy;$('ai-attach').title=canonical?'Вложения в агентскую сессию пока не поддерживаются':'Прикрепить файлы';$('ai-live').hidden=!canonical;$('ai-revision').hidden=!canonical||!$('ai-revision').childNodes.length;
  aiComposerState();

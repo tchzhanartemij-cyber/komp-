@@ -671,8 +671,24 @@ def model_row(mid, title, route, available, why, detail, image=False, **extra):
                 caps=dict(image=image, pdf=True, text=True), probe=probe_status(mid), **extra)
 
 
+JARVIS_MODELS = (('jarvis:gpt', 'Джарвис · GPT-6.1 Sol', 'openai/gpt-6.1-sol'),
+                 ('jarvis:claude', 'Джарвис · Claude Opus', 'anthropic/claude-opus-5-5'))
+
+
+def jarvis_ready():
+    try:
+        agent_service.config()
+        return True
+    except Unavailable:
+        return False
+
+
 def listed_models():
-    out = []
+    # Jarvis rows first: the same agent as Telegram, with tools and shared memory, one session per chat.
+    ready = jarvis_ready()
+    out = [model_row(mid, title, 'jarvis', ready, 'Джарвис недоступен: шлюз OpenClaw не настроен',
+                     'Джарвис · инструменты и общая память', True, provenance='OpenClaw', verified_runnable=False)
+           for mid, title, _ in JARVIS_MODELS] if ready else []
     ids = os.environ.get('SVODKA_CLAUDE_MODELS', 'claude-opus-5-5,claude-sonnet-5-5,claude-haiku-5-5').split(',')
     for mid in dict.fromkeys(x.strip() for x in ids):
         if re.fullmatch(r'claude-[a-zA-Z0-9._-]{1,93}', mid):
@@ -698,7 +714,7 @@ def models_payload():
     free_available = bool(free_key()) and gate_up()
     models = listed_models() + [model_row('free', 'Бесплатная', 'free', free_available, 'Шлюз недоступен', 'freellmapi')]
     # Auto prefers Opus, then Codex, then the free gateway. Other Claude choices stay explicit.
-    candidates = [m for m in models if m['route'] == 'claude' and 'opus' in m['id']] + [m for m in models if m['route'] != 'claude']
+    candidates = [m for m in models if m['route'] == 'jarvis'] + [m for m in models if m['route'] == 'claude' and 'opus' in m['id']] + [m for m in models if m['route'] not in ('claude', 'jarvis')]
     auto = next((dict(m, label='Авто → '+m['title']) for m in candidates if m['available']), None)
     free = [dict(model_row('free:'+m['id'], m.get('name') or m['id'], 'free', free_available, 'Шлюз недоступен', 'freellmapi'), id=m['id'], name=m.get('name'), provider=m.get('provider')) for m in gateway_models()]
     return dict(models=models, auto=auto, claude=c, free_models=free)
@@ -710,7 +726,7 @@ def model_pool(model_id):
     if model_id in ('claude', 'chatgpt'):
         model_id = next((m['id'] for m in rows if m['route'] == model_id), '')
     if model_id == 'auto':
-        pool = [m for m in rows if m['available'] and ((m['route'] == 'claude' and 'opus' in m['id']) or m['route'] == 'chatgpt' or m['id'] == 'free')]
+        pool = [m for m in rows if m['available'] and m['route'] == 'jarvis'] or [m for m in rows if m['available'] and ((m['route'] == 'claude' and 'opus' in m['id']) or m['route'] == 'chatgpt' or m['id'] == 'free')]
         if not pool:
             raise AIError('Нет настроенных маршрутов для авто')
         return pool
@@ -721,7 +737,7 @@ def model_pool(model_id):
 
 
 def route_name(provider, model=None):
-    return {'claude': 'Claude Code CLI · подписка', 'chatgpt': 'Codex CLI · подписка', 'free': 'freellmapi'}[provider]
+    return {'claude': 'Claude Code CLI · подписка', 'chatgpt': 'Codex CLI · подписка', 'free': 'freellmapi', 'jarvis': 'Джарвис · инструменты и общая память'}[provider]
 
 
 def ai_probe(model_id):
@@ -810,7 +826,12 @@ def list_chats():
 def stop_run(run):
     run["stop"].set()
     proc = run.get("proc")
-    if proc and proc.poll() is None:
+    if proc is not None and not hasattr(proc, "poll"):
+        try:
+            proc.close()  # a Jarvis stream: closing it ends the gateway response
+        except OSError:
+            pass
+    elif proc and proc.poll() is None:
         try:
             proc.kill()
         except OSError:
@@ -1002,6 +1023,63 @@ def call_gateway(model, messages, run, delta, timeout=180):
     return answer, actual
 
 
+def call_jarvis(chat_id, backend, text, run, delta, images=None, timeout=900):
+    """One turn of the chat's own Jarvis session through the OpenClaw Responses endpoint, streamed."""
+    url, token, agent, _ = agent_service.config()
+    # The Responses endpoint takes plain text; pictures stay in the workspace and Jarvis opens them with its image tool.
+    if images:
+        text += '\n\nВложенные картинки — открой их своим инструментом для изображений:\n' + '\n'.join(
+            f"- {img['name']} ({img['mime']}): {img['path']}" for img in images)
+    body = json.dumps(dict(model='openclaw/' + agent, stream=True, input=text)).encode()
+    headers = {'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json', 'Accept': 'text/event-stream',
+               'x-openclaw-session-key': f'agent:{agent}:svodka-{chat_id}', 'x-openclaw-model': backend}
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+    actual = None
+    try:
+        with opener.open(urllib.request.Request(url, data=body, headers=headers), timeout=timeout) as r:
+            with runs_lock:
+                run['proc'] = r
+            event = ''
+            for raw in r:
+                if run['stop'].is_set():
+                    break
+                line = raw.decode('utf-8', 'replace').rstrip('\r\n')
+                if line.startswith('event:'):
+                    event = line[6:].strip()
+                    continue
+                if not line.startswith('data:'):
+                    continue
+                data = line[5:].strip()
+                if data == '[DONE]':
+                    break
+                try:
+                    obj = json.loads(data)
+                except ValueError:
+                    continue
+                kind = obj.get('type', event)
+                resp = obj.get('response') if isinstance(obj.get('response'), dict) else {}
+                m = resp.get('model')
+                if isinstance(m, str) and not m.startswith('openclaw') and re.fullmatch(r'[A-Za-z0-9._:/-]{1,100}', m):
+                    actual = m
+                if kind == 'response.output_text.delta':
+                    delta(obj.get('delta', ''))
+                elif kind == 'response.failed':
+                    raise AIError('Джарвис не смог ответить')
+                elif kind in ('response.completed', 'response.incomplete'):
+                    break
+    except urllib.error.HTTPError as e:
+        e.close()
+        raise AIError({401: 'Шлюз отклонил авторизацию', 404: 'Точка ответов шлюза выключена'}.get(e.code, f'Ошибка шлюза {e.code}'))
+    except (urllib.error.URLError, OSError, ValueError):
+        if run['stop'].is_set():
+            return '', actual
+        raise AIError('Джарвис не ответил')
+    finally:
+        with runs_lock:
+            run['proc'] = None
+    return '', actual or backend
+
+
 def ai_send(chat_id, model_id, text, project, emit, attachments_ids=None, **kwargs):
     # Accept the public attachments keyword without shadowing the storage module.
     ids = kwargs.pop('attachments', attachments_ids if attachments_ids is not None else [])
@@ -1038,7 +1116,7 @@ def ai_send(chat_id, model_id, text, project, emit, attachments_ids=None, **kwar
         run_id = secrets.token_hex(12)
         now = time.time()
         run = dict(proc=None, stop=threading.Event(), started=now, updated=now,
-                   provider={'claude': 'Claude', 'chatgpt': 'ChatGPT', 'free': 'Бесплатная'}[pool[0]['route']], phase='waiting', chat=chat_id)
+                   provider={'claude': 'Claude', 'chatgpt': 'ChatGPT', 'free': 'Бесплатная', 'jarvis': 'Джарвис'}[pool[0]['route']], phase='waiting', chat=chat_id)
         with runs_lock:
             ai_runs[run_id] = run
         errors, answer, actual, fallback = [], '', None, ''
@@ -1069,13 +1147,23 @@ def ai_send(chat_id, model_id, text, project, emit, attachments_ids=None, **kwar
                 transport = route_name(provider)
                 fallback = 'резерв: '+selected['title']+', '+errors[-1] if n else ''
                 with runs_lock:
-                    run.update(provider={'claude':'Claude', 'chatgpt':'ChatGPT', 'free':'Бесплатная'}[provider], phase='waiting', updated=time.time())
+                    run.update(provider={'claude':'Claude', 'chatgpt':'ChatGPT', 'free':'Бесплатная', 'jarvis':'Джарвис'}[provider], phase='waiting', updated=time.time())
                 send(dict(type='switch' if n else 'start', chat=chat_id, run=run_id, id=mid, title=selected['title'], selected_id=mid, selected_title=selected['title'], model=selected['title'], transport=transport, detail=transport, reason=fallback, mode='chat'))
                 answer, actual = '', None
                 try:
                     if not selected['available']:
                         raise AIError(selected['why']+'; автоматическая замена отключена')
-                    if provider == 'free':
+                    if provider == 'jarvis':
+                        backend = next(b for i, _, b in JARVIS_MODELS if i == mid)
+                        first = not any(h.get('mode') == 'jarvis' for h in history)
+                        turn = text + store.prompt(files)
+                        if first and (history or pr):
+                            # A chat moving to Jarvis brings its earlier context into the new session once.
+                            past = '\n'.join(f"{'Артемий' if h['role'] == 'user' else 'Ответ'}: {h['content'][:1500]}" for h in messages[:-1][-12:])
+                            intro = (f"Инструкции проекта «{pr['name']}»: {pr['instructions']}\n\n" if pr and pr.get('instructions') else '')
+                            turn = intro + (f"Ранее в этом чате «Сводки»:\n{past}\n\n" if past else '') + 'Новое сообщение: ' + turn
+                        result, value = call_jarvis(chat_id, backend, turn, run, delta, images=images)
+                    elif provider == 'free':
                         result, value = call_gateway(model, [dict(role='system', content=system)] + messages, run, delta)
                     else:
                         result, value = call_process(provider, messages, system, run, delta, model, images=images)
@@ -1098,7 +1186,7 @@ def ai_send(chat_id, model_id, text, project, emit, attachments_ids=None, **kwar
                     chat = read_chat(chat_id)
                 chat['messages'].append(dict(role='user', text=text, time=stamp, attachments=[store.public(m) for m in files]))
                 if answer:
-                    chat['messages'].append(dict(role='assistant', text=answer, time=datetime.now().strftime('%Y-%m-%d %H:%M'), model=selected['title'], model_id=selected['id'], actual_model=actual, transport=route_name(selected['route']), mode='chat', auto=model_id == 'auto', fallback=fallback, stopped=stopped))
+                    chat['messages'].append(dict(role='assistant', text=answer, time=datetime.now().strftime('%Y-%m-%d %H:%M'), model=selected['title'], model_id=selected['id'], actual_model=actual, transport=route_name(selected['route']), mode='jarvis' if selected['route'] == 'jarvis' else 'chat', auto=model_id == 'auto', fallback=fallback, stopped=stopped))
                 chat['updated'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
                 previous = [m['chat'] for m in files]
                 store.attach(files, chat_id)
