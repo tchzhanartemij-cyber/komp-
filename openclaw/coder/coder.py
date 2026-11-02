@@ -185,6 +185,50 @@ def code_rule(task_id=0):
                                      writer="Claude Code" if writer == "claude" else "Codex", role=role)
 
 
+def roles_text(task_id):
+    """Кто какую роль берёт в задаче — для сообщения в Telegram и дневника."""
+    writer, claude, codex = code_writer(task_id)
+    fmt = lambda v: f"{v:.0f}%" if v is not None else "?"
+    who = "Codex (ChatGPT)" if writer == "codex" else "Claude Code"
+    return (f"Роли: Claude Code руководит, планирует и проверяет; код пишет {who}. "
+            f"Расход подписок: Claude {fmt(claude)}, Codex {fmt(codex)} — пишет тот, кто потратил меньше.")
+
+
+def work_summary(task_id):
+    """По журналу задачи: сколько раз Claude Code поручал код Codex."""
+    try:
+        files = sorted(LOGS.glob(f"{task_id}-*.json"), key=lambda f: f.stat().st_mtime)
+        data = files[-1].read_text(errors="replace") if files else ""
+    except OSError:
+        return ""
+    runs = 0
+    for line in data.splitlines():
+        if '"tool_use"' not in line or "codex" not in line:
+            continue
+        try:
+            obj = json.loads(line)
+        except ValueError:
+            continue
+        for item in (obj.get("message") or {}).get("content") or []:
+            cmd = (item.get("input") or {}).get("command", "") if isinstance(item, dict) and item.get("type") == "tool_use" else ""
+            if re.search(r"(^|[;&|]\s*|\s)codex\s+exec\b", cmd or ""):
+                runs += 1
+    if runs:
+        return f"Кто что делал: код писал Codex ({runs} заход{'а' if 1 < runs < 5 else 'ов' if runs >= 5 else ''}), Claude Code планировал, читал дифф и проверял."
+    return "Кто что делал: Claude Code сам писал код и проверял, Codex не понадобился."
+
+
+def diary(line):
+    """Строка в общий дневник агентов (SHARED.md), чтобы Джарвис и остальные знали о задаче."""
+    try:
+        folder = HOME / ".openclaw/workspace/memory"
+        folder.mkdir(parents=True, exist_ok=True)
+        with open(folder / f"{time.strftime('%Y-%m-%d')}.md", "a", encoding="utf-8") as f:
+            f.write(f"- {time.strftime('%H:%M')} [coder] {line}\n")
+    except OSError:
+        pass
+
+
 FOLLOWUP = {
     "answer": "Ответ владельца на твой вопрос по задаче №{id}:\n{text}\n\nПродолжай работу по тем же правилам.",
     "redo": "Владелец посмотрел результат по задаче №{id} и просит переделать:\n{text}\n\n"
@@ -759,6 +803,9 @@ def work(task, env):
         shutil.copytree(DATA / "refs" / str(task["id"]), repo_dir / REFS_DIR / f"task-{task['id']}",
                         dirs_exist_ok=True)
 
+    roles = roles_text(task["id"])
+    notify(env, f"▶️ Задача {task['id']} ({task['repo']}) взята в работу: {short(task['text'], 300)}\n\n{roles}")
+    diary(f"задача {task['id']} ({task['repo']}) начата: {short(task['text'], 120)}. {roles}")
     res = run_claude(task, repo_dir, env)
     if res.get("stopped") == "cancel":
         update(task["id"], status="cancelled", cancel=False)
@@ -797,9 +844,12 @@ def work(task, env):
     git(repo_dir, "push", "-u", "origin", branch)
     link = f"https://github.com/{full_name(task['repo'])}/compare/{base}...{branch}"
     update(task["id"], status="done", session=session, result=text, link=link, followup=None)
+    who = work_summary(task["id"])
+    diary(f"задача {task['id']} готова, ждёт решения Артемия. {who}")
     return (f"✅ Задача {task['id']} ({task['repo']}): {short(task['text'])}\n\n{short(text, 3000)}\n\n"
-            f"Ветка {branch}, коммитов: {ahead}\nИзменения: {link}\n\n"
-            f"Дальше: «принять {task['id']}», «переделать {task['id']}: ...» или «отменить {task['id']}».")
+            f"{who}\nВетка {branch}, коммитов: {ahead}\nИзменения: {link}\n\n"
+            f"Принять? Ответь «да» — и я солью в основную ветку. "
+            f"Или «переделать {task['id']}: ...», «отменить {task['id']}».")
 
 
 def merge(task):
@@ -816,6 +866,7 @@ def merge(task):
     git(repo_dir, "push", "origin", base)
     git(repo_dir, "push", "origin", "--delete", branch, check=False)
     update(task["id"], status="merged", action="work")
+    diary(f"задача {task['id']} принята Артемием и слита в {base}.")
     return f"🟢 Задача {task['id']} принята и слита в {base}."
 
 
