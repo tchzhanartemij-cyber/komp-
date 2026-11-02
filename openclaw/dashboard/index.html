@@ -904,6 +904,77 @@ body.jarvis-open { overflow:hidden; }
 @media(max-width:700px){#voice{right:8px;left:8px;bottom:calc(78px + env(safe-area-inset-bottom,0px));width:auto;max-height:70vh;max-height:70dvh;border-radius:20px;}#voice[data-collapsed="true"]{left:10px;right:10px;bottom:calc(88px + env(safe-area-inset-bottom,0px));}#voice[data-collapsed="true"] #voice-status{flex:1;max-width:none;}#voice-history{max-height:22vh;}}
 @media(min-width:1100px){body[data-voice-dock="true"] .main{margin-right:440px;}}
 @media(prefers-reduced-motion:reduce){#voice,#voice *{animation:none!important;transition:none!important;scroll-behavior:auto!important;}}
+/* ----- polish: calm surfaces and motion in the spirit of apple.com and claude.ai ----- */
+:root { --ease: cubic-bezier(0.22, 1, 0.36, 1); --glide: cubic-bezier(0.32, 0.72, 0, 1); }
+html { -webkit-tap-highlight-color: transparent; }
+body { text-rendering: optimizeLegibility; }
+h1, h2, h3 { text-wrap: balance; }
+p { text-wrap: pretty; }
+::selection { background: var(--accent-soft); color: var(--accent-ink); }
+
+/* frosted menu capsule with a highlight that glides to the open section */
+.nav { position: relative; background: color-mix(in srgb, var(--side) 80%, transparent); -webkit-backdrop-filter: blur(24px) saturate(180%); backdrop-filter: blur(24px) saturate(180%); box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.06) inset, 0 12px 40px rgba(10, 10, 20, 0.28); }
+.glide { position: absolute; left: 0; top: 0; z-index: 0; pointer-events: none; border-radius: 999px; opacity: 0; }
+.glide.ready { opacity: 1; transition: transform .55s var(--glide), width .55s var(--glide), height .55s var(--glide), opacity .2s; }
+.nav > .glide { background: var(--lav); }
+.nav.glided .item[aria-current="page"] { background: transparent; }
+.nav .item { z-index: 1; }
+.seg { position: relative; }
+.seg > .glide { background: var(--card); box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08), 0 3px 10px rgba(0, 0, 0, 0.06); }
+.seg.glided button[aria-pressed="true"] { background: transparent; box-shadow: none; }
+.seg button { position: relative; z-index: 1; }
+
+/* pages arrive softly out of focus, the way apple.com reveals sections */
+@keyframes rise-soft { from { opacity: 0; transform: translateY(20px) scale(0.985); filter: blur(8px); } }
+.banner.enter, .page.enter .grid > *, .page.enter .stats > * { animation: rise-soft .8s var(--ease) backwards; animation-delay: calc(var(--i, 0) * 50ms); }
+.page.enter > :not(.grid):not(.stats) { animation-timing-function: var(--ease); animation-duration: .7s; }
+.page.leave { opacity: 0; transform: translateY(8px) scale(0.995); transition: opacity .16s ease, transform .16s ease; }
+.card { transition: transform .5s var(--ease), box-shadow .5s var(--ease), background .3s; }
+@media (hover: hover) { .lift:hover { transform: translateY(-4px); } }
+.tile:active, .lift:active { transform: scale(0.985); transition-duration: .15s; }
+
+/* softer veil behind dialogs */
+dialog::backdrop { background: rgba(20, 18, 35, 0.28); -webkit-backdrop-filter: blur(12px) saturate(140%); backdrop-filter: blur(12px) saturate(140%); }
+dialog[open] { animation: pop .5s var(--ease); }
+
+/* chat: new messages slide in, the empty chat greets like ChatGPT and Claude */
+@keyframes msg-in { from { opacity: 0; transform: translateY(12px); filter: blur(4px); } }
+.msg.msg-in { animation: msg-in .5s var(--ease) backwards; }
+.msg.me.msg-in { transform-origin: 100% 100%; }
+.ai-empty { margin: auto 0; padding: 24px 0 48px; text-align: center; color: var(--ink); font: 600 clamp(22px, 3vw, 28px)/1.25 var(--font); letter-spacing: -0.02em; animation: rise-soft .8s var(--ease) backwards; }
+.ai-composer .ai-input { transition: box-shadow .3s var(--ease), background .3s; }
+.ai-composer .ai-input:focus-within { box-shadow: 0 0 0 1px var(--rule), 0 8px 28px rgba(20, 18, 40, 0.08); }
+
+/* phone fixes: overdue tasks keep the full width for their text, badges stay inside stat cards */
+@media (max-width: 760px) {
+  .nav .item { width: clamp(30px, 10vw, 46px); border-radius: 999px; }
+  li.row:has(> .badge) { flex-wrap: wrap; row-gap: 6px; }
+  li.row:has(> .badge) > .grow1 { flex: 1 1 calc(100% - 80px); min-width: 0; }
+  li.row:has(> .badge) > .badge { order: 5; margin-left: 34px; }
+  .stat .top { flex-wrap: wrap; row-gap: 6px; }
+  .stat .k { white-space: nowrap; }
+  .stat .top .badge { font-size: 11px; padding: 3px 9px; }
+  .head h2 { overflow: hidden; }
+  .head h2 small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .head:has(.seg) h2 small { display: none; }
+  li.row:has(> .badge) { align-items: flex-start; }
+  li.row:has(> .badge) > input { margin-top: 1px; }
+}
+
+/* plain header: no gradient or decoration, the type carries it */
+.banner { background: var(--card); color: var(--ink); min-height: 0; padding: 30px 34px 28px; }
+.banner .txt { max-width: 720px; }
+.banner .flower { display: none; }
+.banner h1 { font-weight: 700; letter-spacing: -0.035em; }
+.banner p { color: var(--muted); opacity: 1; }
+.banner .badge, :root[data-theme="dark"] .banner .badge { background: var(--field); color: var(--muted); -webkit-backdrop-filter: none; backdrop-filter: none; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .banner .badge { background: var(--field); } }
+.g-box { background: var(--field); }
+@media (max-width: 760px) { .banner { padding: 22px 20px; } }
+
+/* theme switch: the new theme spreads in a circle from the button */
+::view-transition-old(root), ::view-transition-new(root) { animation: none; mix-blend-mode: normal; }
+::view-transition-new(root) { z-index: 2; }
 </style>
 <aside id="voice" role="complementary" data-state="idle" data-collapsed="false" aria-labelledby="voice-title" hidden>
  <div class="voice-head"><h2 id="voice-title">Разговор с агентом</h2><button id="voice-collapse" class="pill soft" aria-label="Свернуть подробности" aria-expanded="true" aria-controls="voice-body">Свернуть</button><button id="voice-close" class="pill soft" aria-label="Закрыть панель и остановить разговор">×</button></div>
@@ -1136,6 +1207,7 @@ function showPage() {
     const next = $('page-' + current);
     void next.offsetWidth;
     next.classList.add('enter');
+    if (typeof countUp === 'function') next.querySelectorAll('.stat .v').forEach(v => countUp(v, 0));
     if (current === 'graph') requestAnimationFrame(graphShown);
     if (current === 'ai') aiShown();
     if(typeof officeVisibility==='function')officeVisibility();
@@ -2116,10 +2188,14 @@ function aiRender(){
   kids.push(...(AI.chat?.messages||[]).map(aiBubble));
   if(AI.pending)kids.push(aiBubble({role:'user',text:AI.pending.user,attachments:AI.pending.userAttachments,pending:true}),aiBubble(AI.pending));
   if(!AI.busy){const last=[...(AI.chat?.messages||[])].reverse().find(m=>m.role==='user');if(last)kids.push(el('button',{class:'pill soft small ai-retry',type:'button',text:'Повторить · новый запрос',title:'Отправить тот же текст и вложения новым сообщением',onclick:()=>aiSendLocal(last.text,last.attachments||[],true)}));}
-  if(!kids.length)kids.push(el('div',{class:'ai-empty',text:'Новый чат · выберите модель и напишите'}));
+  if(!kids.length)kids.push(el('div',{class:'ai-empty',text:'Чем помочь?'}));
  }
- const msgs=$('ai-msgs'),oldTop=msgs.scrollTop,near=msgs.scrollHeight-msgs.scrollTop-msgs.clientHeight<100;msgs.replaceChildren(...kids);aiFitMsgs();msgs.scrollTop=near?msgs.scrollHeight:oldTop;
+ const msgs=$('ai-msgs'),oldTop=msgs.scrollTop,near=msgs.scrollHeight-msgs.scrollTop-msgs.clientHeight<100;msgs.replaceChildren(...kids);aiAnimateNew(msgs);aiFitMsgs();msgs.scrollTop=near?msgs.scrollHeight:oldTop;
 }
+// New messages slide in; re-renders of the same messages and older history stay still.
+function aiAnimateNew(msgs){const all=[...msgs.querySelectorAll(':scope > .msg')],key=aiCanonical()?'telegram':(AI.chat?.id||'new'),n=msgs.__n||0;
+ if(msgs.__key===key&&all.length>n&&n>0&&all[n-1].firstChild?.textContent===msgs.__lastText||msgs.__key===key&&n===0&&all.length)all.slice(n).forEach(m=>m.classList.add('msg-in'));
+ msgs.__key=key;msgs.__n=all.length;msgs.__lastText=all[all.length-1]?.firstChild?.textContent;}
 function aiFitMsgs(){const msgs=$('ai-msgs');msgs.classList.remove('few');msgs.classList.toggle('few',msgs.scrollHeight<=msgs.clientHeight);}
 function aiSchedule(){if(!AI.frame)AI.frame=requestAnimationFrame(()=>{AI.frame=0;aiRender();});}
 function aiLists(open){$('ai-layout').classList.toggle('lists',open);$('ai-chats-btn').setAttribute('aria-expanded',String(open));}
@@ -2246,11 +2322,73 @@ try { theme = localStorage.getItem('svodka-theme') || 'auto'; } catch {}
 $('theme-btn').addEventListener('click', () => {
   const next = { auto: 'light', light: 'dark', dark: 'auto' }[theme];
   try { localStorage.setItem('svodka-theme', next); } catch {}
-  applyTheme(next);
+  themeTransition(() => applyTheme(next));
 });
 function mediaChange(q,f){if(q.addEventListener)q.addEventListener('change',f);else q.addListener(f);}
 mediaChange(matchMedia('(prefers-color-scheme: dark)'), () => applyTheme(theme));
 applyTheme(theme);
+
+// ----- polish: a highlight glides under the active menu item and segment button -----
+function glideBox(box, activeSelector) {
+  const g = document.createElement('span');
+  g.className = 'glide'; g.setAttribute('aria-hidden', 'true');
+  box.prepend(g);
+  const place = () => {
+    const a = box.querySelector(activeSelector);
+    if (!a || !a.offsetWidth) { g.classList.remove('ready'); box.classList.remove('glided'); return; }
+    g.style.width = a.offsetWidth + 'px'; g.style.height = a.offsetHeight + 'px';
+    g.style.transform = `translate(${a.offsetLeft}px, ${a.offsetTop}px)`;
+    if (!g.classList.contains('ready')) { void g.offsetWidth; g.classList.add('ready'); }
+    box.classList.add('glided');
+  };
+  new MutationObserver(place).observe(box, { subtree: true, attributes: true, attributeFilter: ['aria-current', 'aria-pressed', 'hidden'] });
+  if (window.ResizeObserver) new ResizeObserver(() => { g.classList.remove('ready'); place(); }).observe(box);
+  place();
+}
+glideBox(document.querySelector('.nav'), '.item[aria-current="page"]');
+document.querySelectorAll('.seg').forEach(s => glideBox(s, 'button[aria-pressed="true"]'));
+
+// ----- polish: big numbers count up to their new value -----
+function countUp(node, from) {
+  const final = node.textContent;
+  const m = final.match(/^(\d{1,3}(?:[\s  ]\d{3})*)(.*)$/s);
+  if (!m || RM.matches) return;
+  const to = +m[1].replace(/\D/g, ''), sep = (m[1].match(/[\s  ]/) || [' '])[0];
+  if (to === from || to > 1e9) return;
+  const fmt = v => String(v).replace(/\B(?=(\d{3})+(?!\d))/g, sep) + m[2];
+  const t0 = performance.now(), dur = Math.min(1100, 500 + Math.abs(to - from) * 8);
+  cancelAnimationFrame(node.__count);
+  const step = now => {
+    if (node.textContent !== node.__shown && node.__shown !== undefined) return; // the app wrote a newer value
+    const k = Math.min(1, (now - t0) / dur), e = 1 - Math.pow(2, -10 * k);
+    node.__shown = node.textContent = k < 1 ? fmt(Math.round(from + (to - from) * e)) : final;
+    if (k < 1) node.__count = requestAnimationFrame(step); else node.__shown = undefined;
+  };
+  node.__shown = node.textContent = fmt(from);
+  node.__count = requestAnimationFrame(step);
+}
+function numberOf(text) { const m = String(text || '').match(/^(\d{1,3}(?:[\s  ]\d{3})*)/); return m ? +m[1].replace(/\D/g, '') : null; }
+const countWatch = new MutationObserver(records => {
+  for (const node of new Set(records.map(r => r.target.nodeType === 1 ? r.target : r.target.parentElement))) {
+    if (!node || node.textContent === node.__shown) continue;
+    const before = numberOf(node.__last);
+    node.__last = node.textContent;
+    if (node.closest('.page') && node.closest('.page').hidden) continue;
+    countUp(node, before === null ? 0 : before);
+  }
+});
+document.querySelectorAll('.stat .v').forEach(v => { v.__last = v.textContent; countWatch.observe(v, { childList: true, characterData: true, subtree: true }); });
+
+// ----- polish: the theme spreads from the button in a circle -----
+function themeTransition(apply) {
+  if (!document.startViewTransition || RM.matches) return apply();
+  const r = $('theme-btn').getBoundingClientRect(), x = r.left + r.width / 2, y = r.top + r.height / 2;
+  const radius = Math.hypot(Math.max(x, innerWidth - x), Math.max(y, innerHeight - y));
+  document.startViewTransition(apply).ready.then(() => {
+    document.documentElement.animate({ clipPath: [`circle(0px at ${x}px ${y}px)`, `circle(${radius}px at ${x}px ${y}px)`] },
+      { duration: 650, easing: 'cubic-bezier(0.22, 1, 0.36, 1)', pseudoElement: '::view-transition-new(root)' });
+  }).catch(() => {});
+}
 
 $('banner').classList.add('enter');
 load();
