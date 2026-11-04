@@ -502,7 +502,10 @@ def eleven_speak(text):
 CODER_DATA = Path.home() / ".openclaw/workspace/coder"   # limits from coder.py (usage.json, limits.json)
 CHAT_ID_RE = re.compile(r"^[0-9a-f]{12}$")
 AI_SYSTEM = ("Ты собеседник владельца в его личном чате. Отвечай на языке вопроса, по делу, "
-             "без эмодзи. Оформление простое: абзацы и списки через дефис.")
+             "без эмодзи. Оформление простое: абзацы и списки через дефис. "
+             "В этом чате у тебя нет инструментов и доступа к файлам: не пиши вызовы инструментов. "
+             "Если просят что-то записать (дела, траты, память) или сделать на сервере, скажи одной строкой, "
+             "что это сделает Джарвис: модель «Джарвис» в списке моделей этого чата.")
 # Shared memory card for direct-model chats: who the owner is, durable facts, which project pages
 # exist and the page of the chat's project. Small on purpose (a few thousand characters) so every
 # message stays cheap; agents with tools (Джарвис) read the full memory themselves.
@@ -1686,6 +1689,19 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         route = urlsplit(self.path).path
+        if route in ("/fonts/onest-cyrillic.woff2", "/fonts/onest-latin.woff2"):
+            # Onest (SIL Open Font License), kept next to the page so nothing loads from third parties.
+            try:
+                data = (STATIC.parent / route.rsplit('/', 1)[1]).read_bytes()
+            except OSError:
+                return self.send_json(404, {"error": "not found"})
+            self.send_response(200)
+            self.send_header("Content-Type", "font/woff2")
+            self.send_header("Cache-Control", "public, max-age=31536000, immutable")
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+            return
         if route == "/apple-touch-icon.png" or route == "/icon.png":
             try:
                 data = ICON.read_bytes()
