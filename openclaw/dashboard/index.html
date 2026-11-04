@@ -974,6 +974,8 @@ dialog[open] { animation: pop .5s var(--ease); }
 @media (max-width: 760px) { .banner { padding: 22px 20px; } }
 
 .ai-tabs { display: flex; width: 100%; }
+.ai-row > button small { display: block; font-size: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ai-ext-title { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 #ai-new { justify-content: flex-start; background: var(--card); box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06); }
 #ai-new::before { content: "+"; font-size: 18px; line-height: 1; color: var(--muted); }
 .ai-tabs button { flex: 1; padding: 8px 4px; font-size: 13px; white-space: nowrap; }
@@ -2132,6 +2134,29 @@ function aiChatRow(c) {
  aiAction('Переименовать',()=>aiDialog('Переименовать чат',[{name:'title',label:'Название',value:c.title,max:80,required:true}],async v=>{await aiPost('rename',{id:c.id,...v});if(AI.chat?.id===c.id)AI.chat.title=v.title;})),
  el('label',{},'Перенести в проект',move),aiAction('Удалить',async()=>{if(confirm('Удалить чат «'+c.title+'»?')){await aiPost('delete',{id:c.id});if(aiChatId===c.id)aiNew();await aiLoadChats();}})]));
 }
+// Chats from Claude Code, Codex and ChatGPT exports: listed in the chats tab, opened read-only.
+const EXTERNAL_SOURCE={claude:'Claude Code',codex:'Codex',chatgpt:'ChatGPT'};
+async function aiLoadExternal(){try{const r=await aiGet('/api/all-chats');AI.external_list=r.chats||[];}catch{AI.external_list=AI.external_list||[];}if(aiTab()==='chats')aiSidebar();}
+function aiExternalRows(q){
+ const rows=(AI.external_list||[]).filter(c=>!q||c.title.toLowerCase().includes(q)||String(c.project||'').toLowerCase().includes(q));
+ if(!rows.length)return [];
+ return [el('div',{class:'ai-section-title'},el('b',{text:'Из других приложений'})),...rows.slice(0,80).map(c=>el('div',{class:'ai-row'+(c.id===aiChatId?' sel':'')},el('button',{type:'button',title:c.title,onclick:()=>aiOpenExternal(c.id)},el('span',{class:'ai-ext-title',text:c.title}),el('small',{class:'meta',text:EXTERNAL_SOURCE[c.source]+' · '+(c.project||'')+' · '+c.count+' сообщ.'}))))];
+}
+async function aiOpenExternal(id){
+ if(AI.busy)return;aiLists(false);const seq=AI.openSeq=(AI.openSeq||0)+1;
+ try{const chat=await aiGet('/api/all-chats/item?id='+encodeURIComponent(id));if(seq!==AI.openSeq)return;AI.external=chat;aiChatId=id;AI.chat=null;aiErr('');aiRender();aiSidebar();}catch(e){aiErr(e.message);}
+}
+function aiLeaveExternal(){if(!AI.external)return;AI.external=null;const f=document.querySelector('.ai-composer');if(f)f.hidden=false;}
+function aiRenderExternal(){
+ const chat=AI.external;
+ $('h-ai').textContent=chat.title;$('ai-mode').textContent='только чтение · '+EXTERNAL_SOURCE[chat.source];
+ $('ai-model').hidden=true;$('ai-session-model').hidden=true;$('ai-live').hidden=true;$('ai-revision').hidden=true;
+ const composer=document.querySelector('.ai-composer');if(composer)composer.hidden=true;
+ const kids=[];
+ if(chat.hidden)kids.push(el('p',{class:'meta',text:'Показаны последние сообщения, ранние скрыты (всего '+(chat.hidden+chat.messages.length)+')'}));
+ kids.push(...chat.messages.map(m=>el('div',{class:'msg'+(m.role==='user'?' me':'')},el('div',{class:'bubble',text:m.text}),el('div',{class:'meta',text:m.time?new Date(m.time).toLocaleString('ru-RU',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}):''}))));
+ const msgs=$('ai-msgs');msgs.replaceChildren(...kids);msgs.scrollTop=msgs.scrollHeight;
+}
 function aiSidebar() {
  const q=$('ai-search').value.toLowerCase(), matches=c=>c.title.toLowerCase().includes(q), list=$('ai-list');
  const tab=aiTab();$('ai-new').textContent=tab==='code'?'Новая задача по коду':tab==='projects'?'Новый проект':'Новый чат';
@@ -2139,7 +2164,7 @@ function aiSidebar() {
  if(tab==='code')return aiCodeList(q,list);
  const canonical=el('button',{type:'button',text:'Telegram · основной диалог',title:AI.canonical.available?'агент с инструментами':AI.canonical.reason,onclick:()=>aiOpen('canonical')});canonical.disabled=!AI.canonical.available;
  if(tab==='chats'){
-  list.replaceChildren(el('div',{class:'ai-row'+(aiCanonical()?' sel':'')},canonical),...(!AI.canonical.available?[el('div',{class:'meta',text:AI.canonical.reason})]:[]),el('div',{class:'ai-section-title'},el('b',{text:'Недавние'})),...AI.chats.filter(c=>!c.project && matches(c)).map(aiChatRow));
+  list.replaceChildren(el('div',{class:'ai-row'+(aiCanonical()?' sel':'')},canonical),...(!AI.canonical.available?[el('div',{class:'meta',text:AI.canonical.reason})]:[]),el('div',{class:'ai-section-title'},el('b',{text:'Недавние'})),...AI.chats.filter(c=>!c.project && matches(c)).map(aiChatRow),...aiExternalRows(q));
   return;
  }
  list.replaceChildren();if(!AI.projects.length)list.append(el('p',{class:'meta',text:'Проектов пока нет. Проект хранит свои инструкции и чаты; его страница из «Памяти» подмешивается в ответы.'}));
@@ -2153,7 +2178,7 @@ function aiSidebar() {
 }
 // The list has three tabs, as in the Claude and ChatGPT apps: ordinary chats, projects, code tasks.
 function aiTab(){if(!AI.tab){try{AI.tab=localStorage.getItem('svodka-ai-tab')||'';}catch{}}return ['chats','projects','code'].includes(AI.tab)?AI.tab:'chats';}
-function aiSetTab(tab){AI.tab=tab;try{localStorage.setItem('svodka-ai-tab',tab);}catch{}document.querySelectorAll('.ai-tabs button').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.tab===tab)));$('ai-search').value='';aiSidebar();if(tab==='code')aiCodeLoad();}
+function aiSetTab(tab){AI.tab=tab;if(tab==='chats')aiLoadExternal();try{localStorage.setItem('svodka-ai-tab',tab);}catch{}document.querySelectorAll('.ai-tabs button').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.tab===tab)));$('ai-search').value='';aiSidebar();if(tab==='code')aiCodeLoad();}
 const CODE_STATUS={queued:'в очереди',running:'в работе',waiting_limit:'ждёт лимита',question:'вопрос',done:'ждёт приёмки',nochange:'без изменений',failed:'ошибка',cancelled:'отменена',merged:'принята',timeout:'время вышло',unknown:'—'};
 async function aiCodeLoad(){try{const r=await aiGet('/api/office');AI.code=r.queue||{available:false,jobs:[]};}catch(e){AI.code={available:false,jobs:[],reason:e.message};}if(aiTab()==='code')aiSidebar();}
 function aiCodeList(q,list){
@@ -2214,6 +2239,7 @@ function aiHeader(){
  aiComposerState();
 }
 function aiRender(){
+ if(AI.external){aiRenderExternal();return;}
  aiHeader();const canonical=aiCanonical(),kids=[];
  if(canonical){
   const earlier=el('button',{id:'ai-earlier',class:'pill soft',type:'button',text:'Загрузить ранние',onclick:chatEarlier});earlier.disabled=chatState.next==null||!chatState.available;kids.push(earlier);
@@ -2236,10 +2262,10 @@ function aiFitMsgs(){const msgs=$('ai-msgs');msgs.classList.remove('few');msgs.c
 function aiSchedule(){if(!AI.frame)AI.frame=requestAnimationFrame(()=>{AI.frame=0;aiRender();});}
 function aiLists(open){$('ai-layout').classList.toggle('lists',open);$('ai-chats-btn').setAttribute('aria-expanded',String(open));}
 async function aiOpen(id,initial=false){
- if(AI.busy)return;if(!initial)aiDraftSave();aiLists(false);const seq=AI.openSeq=(AI.openSeq||0)+1;
+ if(AI.busy)return;aiLeaveExternal();if(!initial)aiDraftSave();aiLists(false);const seq=AI.openSeq=(AI.openSeq||0)+1;
  try{const chat=id==='canonical'?null:await aiGet('/api/ai/chat?id='+encodeURIComponent(id));if(seq!==AI.openSeq)return;if(!initial)aiDraftSave();clearTimeout(chatState.timer);AI.chat=chat;aiChatId=id;AI.project=chat?.project||'';aiSave();aiDraftRestore();aiErr('');aiRender();aiSidebar();aiChips();if(aiCanonical())chatPoll();}catch(e){aiErr(e.message);if(initial)aiNew('',true);}
 }
-function aiNew(project='',initial=false){if(AI.busy)return;if(!initial)aiDraftSave();AI.openSeq=(AI.openSeq||0)+1;clearTimeout(chatState.timer);aiLists(false);AI.chat=null;aiChatId='';AI.project=typeof project==='string'?project:'';aiSave();aiDraftRestore();aiErr('');aiRender();aiSidebar();aiChips();if(!initial)$('ai-text').focus();}
+function aiNew(project='',initial=false){if(AI.busy)return;aiLeaveExternal();if(!initial)aiDraftSave();AI.openSeq=(AI.openSeq||0)+1;clearTimeout(chatState.timer);aiLists(false);AI.chat=null;aiChatId='';AI.project=typeof project==='string'?project:'';aiSave();aiDraftRestore();aiErr('');aiRender();aiSidebar();aiChips();if(!initial)$('ai-text').focus();}
 function aiGrow(){const t=$('ai-text');t.style.height='auto';t.style.height=Math.min(180,t.scrollHeight)+'px';aiComposerState();}
 function aiFiles(){const key=aiKey();if(!AI.uploads.has(key))AI.uploads.set(key,[]);return AI.uploads.get(key);}
 function aiFileError(f){return f.error||(f.kind==='image'&&!aiWho()?.caps?.image?'Модель не принимает изображения — выберите Claude или Codex с поддержкой изображений':'');}
@@ -2293,7 +2319,7 @@ $('ai-text').addEventListener('keydown',ev=>{if(ev.key==='Enter'&&!ev.shiftKey&&
 $('ai-model').addEventListener('click',()=>{const open=$('ai-picker').hidden;$('ai-picker').hidden=!open;$('ai-model').setAttribute('aria-expanded',String(open));});
 $('ai-attach').addEventListener('click',()=>{if(!aiCanonical())$('ai-files').click();});
 $('ai-files').addEventListener('change',()=>{const files=[...$('ai-files').files];$('ai-files').value='';if(aiCanonical()||AI.busy)return;for(const file of files){if(aiFiles().length>=5){aiErr('Можно прикрепить до 5 файлов');break;}aiUpload(file);}if(aiFiles().reduce((n,f)=>n+f.size,0)>20*1024*1024)aiErr('Вложения сообщения больше 20 МБ');});
-$('ai-new').addEventListener('click',()=>{const tab=aiTab();if(tab==='code')aiCodeNew();else if(tab==='projects')aiProjectEdit();else aiNew();});document.querySelectorAll('.ai-tabs button').forEach(b=>b.addEventListener('click',()=>aiSetTab(b.dataset.tab)));document.querySelectorAll('.ai-tabs button').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.tab===aiTab())));if(aiTab()==='code')aiCodeLoad();$('ai-search').addEventListener('input',aiSidebar);
+$('ai-new').addEventListener('click',()=>{const tab=aiTab();if(tab==='code')aiCodeNew();else if(tab==='projects')aiProjectEdit();else aiNew();});document.querySelectorAll('.ai-tabs button').forEach(b=>b.addEventListener('click',()=>aiSetTab(b.dataset.tab)));document.querySelectorAll('.ai-tabs button').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.tab===aiTab())));if(aiTab()==='code')aiCodeLoad();aiLoadExternal();$('ai-search').addEventListener('input',aiSidebar);
 $('ai-chats-btn').addEventListener('click',()=>{
  if(matchMedia('(max-width:899px)').matches){aiLists(!$('ai-layout').classList.contains('lists'));return;}
  const collapsed=$('ai-layout').classList.toggle('collapsed');$('ai-chats-btn').setAttribute('aria-expanded',String(!collapsed));try{localStorage.setItem('svodka-ai-list',collapsed?'0':'1');}catch{}

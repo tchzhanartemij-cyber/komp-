@@ -44,6 +44,12 @@ _workspace_spec.loader.exec_module(_workspace_module)
 _attachments_path = (_dashboard_dir / 'attachments.py').resolve(strict=True)
 if _attachments_path.parent != _dashboard_dir:
     raise ImportError('attachments.py must resolve to a trusted dashboard sibling')
+_allchats_path = (_dashboard_dir / 'allchats.py').resolve(strict=True)
+if _allchats_path.parent != _dashboard_dir:
+    raise ImportError('allchats.py must resolve to a trusted dashboard sibling')
+_allchats_spec = importlib.util.spec_from_file_location('svodka_allchats', _allchats_path)
+_allchats = importlib.util.module_from_spec(_allchats_spec)
+_allchats_spec.loader.exec_module(_allchats)
 _attachments_spec = importlib.util.spec_from_file_location('svodka_attachments', _attachments_path)
 attachments = importlib.util.module_from_spec(_attachments_spec)
 sys.modules[_attachments_spec.name] = attachments
@@ -1697,6 +1703,11 @@ class Handler(BaseHTTPRequestHandler):
         if not allowed:
             self.deny()
             return
+        if route == "/api/all-chats":
+            return self.send_json(200, _allchats.list_chats(SECRET_RE))
+        if route == "/api/all-chats/item":
+            found = _allchats.read_chat(parse_qs(urlsplit(self.path).query).get('id', [''])[0], SECRET_RE)
+            return self.send_json(200, found) if found else self.send_json(404, {"error": "Чат не найден"})
         if route.startswith("/api/workspace"):
             return self.workspace_route(route)
         if route == "/manifest.webmanifest":
