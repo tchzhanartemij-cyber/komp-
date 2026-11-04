@@ -990,6 +990,25 @@ li.row:has(> .badge) > input { margin-top: 1px; }
 .b-date { text-transform: none; }
 .b-date::first-letter { text-transform: uppercase; }
 
+/* touch screens have no hover: a tapped control must not stay highlighted (press feedback stays on :active) */
+@media (hover: none) {
+  .nav .item:not([aria-current]):hover { color: var(--side-ink); background: none; }
+  .icon-btn:hover { background: var(--field); color: var(--ink); }
+  .pill:hover, button.ent:hover { filter: none; }
+  button.x:hover { color: var(--muted); background: none; }
+  .day:hover, .tile:hover, .lift:hover { transform: none; }
+  .tile:hover, .lift:hover { box-shadow: var(--shadow); }
+  .col:hover .bar { background: var(--accent-soft); }
+  .ai-code-row:hover, #office-list button:hover { background: transparent; }
+  input[type="checkbox"]:not(:checked):hover { border-color: var(--rule); }
+}
+/* the orb glows quietly at rest and pulses only while a conversation is live: a never-ending
+   animation under the blurred menu repainted every frame and cost scrolling smoothness and battery */
+.jarvis-btn:not(.live) .jarvis-orb { animation: none; }
+
+/* tags and names inside task text are small; give fingers a bigger target without moving the text */
+@media (pointer: coarse) { button.ent { position: relative; } button.ent::after { content: ""; position: absolute; inset: -8px -3px; } }
+
 /* phone: the platform layer from the mobile-native skill */
 html { -webkit-text-size-adjust: 100%; overscroll-behavior: none; }
 body { overscroll-behavior: none; }
@@ -1249,7 +1268,6 @@ function showPage() {
   // Old links to «Переписка» and «Серверный агент» open the unified chat.
   let page = ['chat', 'agent'].includes(asked) ? 'ai' : PAGES.includes(asked) ? asked : 'life';
   if (page === current) { if (page === 'graph') graphShown(); if(page==='ai')aiShown(); return; }
-  const prev = current && $('page-' + current);
   current = page;
   if(typeof officeVisibility==='function')officeVisibility();
   for (const name of PAGES) {
@@ -1270,7 +1288,8 @@ function showPage() {
     if(typeof officeVisibility==='function')officeVisibility();
     if (current === 'agents' || current === 'agent') refreshAgent();
   };
-  if (prev && !RM.matches) { prev.classList.add('leave'); leaveTimer = setTimeout(swap, 160); } else swap();
+  // Tabs switch at once, as in native apps; the new page only fades in.
+  swap();
 }
 addEventListener('hashchange', showPage);
 document.querySelectorAll('.page').forEach(p => {
