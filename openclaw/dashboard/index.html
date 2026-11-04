@@ -21,7 +21,7 @@
  if(window.Element&&!Element.prototype.replaceChildren)Element.prototype.replaceChildren=function(){while(this.firstChild)this.removeChild(this.firstChild);for(var i=0;i<arguments.length;i++)this.appendChild(typeof arguments[i]==='string'?document.createTextNode(arguments[i]):arguments[i]);};
 })();
 </script>
-<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,interactive-widget=resizes-content">
 <title>Сводка</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 32 32%27%3E%3Crect width=%2732%27 height=%2732%27 rx=%2710%27 fill=%27%23121216%27/%3E%3Ccircle cx=%2716%27 cy=%2716%27 r=%277%27 fill=%27%23cfc6ff%27/%3E%3C/svg%3E">
 <meta name="apple-mobile-web-app-title" content="Сводка">
@@ -697,10 +697,12 @@ dialog[open] { animation: pop .4s var(--spring); }
             <div id="ai-revision" class="ai-revision" hidden></div>
             <div id="ai-chips" class="ai-chips" aria-live="polite"></div>
             <input id="ai-files" type="file" multiple accept="image/*,application/pdf,text/plain,.md,.csv,.json,.txt,.log" hidden>
+            <div class="ai-refined" id="ai-refined" hidden><span>Промпт готов, проверь и отправь</span><button type="button" id="ai-refine-undo">Вернуть как сказал</button></div>
             <form class="ai-input" id="ai-form">
               <button class="icon-btn" id="ai-attach" type="button" aria-label="Прикрепить файлы">＋</button>
               <button class="icon-btn" id="ai-mic" type="button" aria-label="Надиктовать сообщение" aria-pressed="false"><svg class="i" viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="12" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg><span id="ai-mic-time"></span></button>
-              <textarea id="ai-text" maxlength="20000" rows="1" placeholder="Сообщение" aria-label="Сообщение"></textarea>
+              <button class="icon-btn" id="ai-refine" type="button" aria-label="Сделать из текста промпт" title="Сделать промпт"><svg class="i" viewBox="0 0 24 24"><path d="M12 3v4M12 17v4M3 12h4M17 12h4M6.3 6.3l2.5 2.5M15.2 15.2l2.5 2.5M6.3 17.7l2.5-2.5M15.2 8.8l2.5-2.5"/></svg></button>
+              <textarea id="ai-text" enterkeyhint="send" maxlength="20000" rows="1" placeholder="Сообщение" aria-label="Сообщение"></textarea>
               <div class="ai-model-wrap"><span id="ai-session-model" class="meta" hidden>модель сессии агента</span><button class="pill soft small" id="ai-model" type="button" aria-expanded="false">Авто</button><div class="ai-picker" id="ai-picker" role="group" aria-label="Модель" hidden></div></div>
               <button class="pill dark small" type="submit" id="ai-send">Отправить</button>
             </form>
@@ -987,6 +989,27 @@ li.row:has(> .badge) > .badge { order: 5; margin-left: 34px; }
 li.row:has(> .badge) > input { margin-top: 1px; }
 .b-date { text-transform: none; }
 .b-date::first-letter { text-transform: uppercase; }
+
+/* phone: the platform layer from the mobile-native skill */
+html { -webkit-text-size-adjust: 100%; overscroll-behavior: none; }
+body { overscroll-behavior: none; }
+button, a, [role="button"], .seg button, .nav .item { touch-action: manipulation; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+@media (pointer: coarse) { input, textarea, select { font-size: 16px; } }
+@media (max-width: 760px) {
+  /* the chat is pinned to the visible part of the screen, so the keyboard never pushes it around */
+  body[data-page="ai"] .ai-card { position: fixed; left: 0; right: 0; z-index: 5; top: calc(var(--vvtop, 0px) + env(safe-area-inset-top, 0px));
+    height: calc(var(--vvh, 100dvh) - env(safe-area-inset-top, 0px) - 74px - max(12px, env(safe-area-inset-bottom, 0px))); }
+  body.kb-open[data-page="ai"] .ai-card { height: calc(var(--vvh, 100dvh) - env(safe-area-inset-top, 0px)); }
+  /* native apps hide the tab bar while typing; ours would otherwise float over the keyboard */
+  body.kb-open .side { display: none; }
+}
+.ai-input { grid-template-columns: 40px auto auto minmax(0, 1fr) auto auto; grid-template-areas: 'text text text text text text' 'attach mic refine . model send'; }
+#ai-refine { grid-area: refine; width: 40px; height: 40px; border-radius: 50%; border: 1px solid var(--rule); background: var(--card); color: var(--ink); }
+#ai-refine .i { width: 18px; height: 18px; }
+#ai-refine.busy svg { animation: spin 1.2s linear infinite; }
+.ai-refined { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 12px; margin-bottom: 6px; border-radius: 12px; background: var(--accent-soft); color: var(--accent-ink); font-size: 13px; }
+.ai-refined[hidden] { display: none; }
+.ai-refined button { border: 0; background: none; color: inherit; font: 600 13px var(--font); text-decoration: underline; cursor: pointer; padding: 4px; }
 
 /* Onest: a calm grotesque with real Cyrillic, served from this server */
 @font-face { font-family: "Onest"; font-style: normal; font-weight: 400 700; font-display: swap; src: url(/fonts/onest-cyrillic.woff2) format("woff2"); unicode-range: U+0301, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116; }
@@ -2351,6 +2374,16 @@ try{if(localStorage.getItem('svodka-ai-list')==='0')$('ai-layout').classList.add
 // Dictation: record one message, recognize it with the voice service, put the text into the composer.
 const AID={rec:null,timer:0};
 function aiMicState(on,busy){$('ai-mic').setAttribute('aria-pressed',String(on));$('ai-mic').classList.toggle('busy',!!busy);$('ai-mic').setAttribute('aria-label',on?'Остановить запись':busy?'Распознаю…':'Надиктовать сообщение');if(!on)$('ai-mic-time').textContent=busy?'…':'';}
+// Dictation becomes a clear prompt in the field; the owner reads it, edits if needed and sends.
+async function aiRefine(){
+ const t=$('ai-text'),raw=t.value.trim();if(!raw||aiCanonical()&&!chatState.available)return;
+ const b=$('ai-refine');b.classList.add('busy');b.disabled=true;aiErr('');
+ try{const r=await fetch('/api/ai/prompt',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text:raw})}),j=await r.json();if(!r.ok)throw new Error(j.error||'Не удалось сделать промпт');
+  if(t.value.trim()!==raw)return;AID.said=raw;t.value=j.prompt;aiDraftSave();aiGrow();$('ai-refined').hidden=false;}
+ catch(e){aiErr('Промпт: '+e.message+'. Оставил текст как есть','warn');}
+ finally{b.classList.remove('busy');b.disabled=false;aiComposerState();}
+}
+function aiRefineUndo(){if(AID.said==null)return;$('ai-text').value=AID.said;AID.said=null;$('ai-refined').hidden=true;aiDraftSave();aiGrow();aiComposerState();}
 async function aiDictate(){
  if(AID.rec){AID.rec.stop();return;}
  if($('ai-mic').classList.contains('busy'))return;
@@ -2367,13 +2400,13 @@ async function aiDictate(){
   if(blob.size<1024){aiMicState(false);aiErr('Слишком короткая запись','warn');return;}
   aiMicState(false,true);
   try{const r=await fetch('/api/voice/transcribe',{method:'POST',headers:{'Content-Type':blob.type,'X-Svodka-Voice':'1'},body:blob}),j=await r.json();if(!r.ok)throw new Error(j.error||'Ошибка распознавания');
-   const t=$('ai-text'),said=String(j.text||'').trim();if(!said)throw new Error('Речь не распознана');t.value=(t.value.trim()?t.value.trim()+' ':'')+said;aiDraftSave();aiGrow();t.focus();}
+   const t=$('ai-text'),said=String(j.text||'').trim();if(!said)throw new Error('Речь не распознана');t.value=(t.value.trim()?t.value.trim()+' ':'')+said;aiDraftSave();aiGrow();await aiRefine();}
   catch(e){aiErr('Голосовое сообщение: '+e.message,'warn');}
   finally{aiMicState(false);}
  };
  rec.start(250);
 }
-$('ai-mic').addEventListener('click',aiDictate);$('ai-backdrop').addEventListener('click',()=>aiLists(false));
+$('ai-mic').addEventListener('click',aiDictate);$('ai-refine').addEventListener('click',aiRefine);$('ai-refine-undo').addEventListener('click',aiRefineUndo);$('ai-text').addEventListener('input',()=>{if(!$('ai-refined').hidden&&!$('ai-text').value.trim()){$('ai-refined').hidden=true;AID.said=null;}});$('ai-form').addEventListener('submit',()=>{$('ai-refined').hidden=true;AID.said=null;});$('ai-backdrop').addEventListener('click',()=>aiLists(false));
 document.addEventListener('keydown',ev=>{if(ev.key==='Escape'){aiLists(false);$('ai-picker').hidden=true;$('ai-model').setAttribute('aria-expanded','false');}});
 document.addEventListener('click',ev=>{if(!ev.target.closest('.ai-model-wrap')){$('ai-picker').hidden=true;$('ai-model').setAttribute('aria-expanded','false');}});
 async function aiShown(){
@@ -2382,7 +2415,7 @@ async function aiShown(){
 }
 setInterval(()=>{if(!document.hidden&&current==='ai')aiLoadModels();},60000);
 addEventListener('resize',aiFitMsgs);
-if(window.visualViewport){const viewport=window.visualViewport,resize=()=>{document.documentElement.style.setProperty('--kb',Math.max(0,window.innerHeight-viewport.height-viewport.offsetTop)+'px');aiFitMsgs();if(current==='ai'&&innerWidth<=760&&window.scrollY)window.scrollTo(0,0);};$('ai-text').addEventListener('blur',()=>setTimeout(()=>{if(current==='ai'&&window.scrollY)window.scrollTo(0,0);},60));viewport.addEventListener('resize',resize);viewport.addEventListener('scroll',resize);resize();}
+if(window.visualViewport){const viewport=window.visualViewport,resize=()=>{const kb=Math.max(0,window.innerHeight-viewport.height-viewport.offsetTop),root=document.documentElement.style;root.setProperty('--kb',kb+'px');root.setProperty('--vvh',viewport.height+'px');root.setProperty('--vvtop',viewport.offsetTop+'px');document.body.classList.toggle('kb-open',kb>80);aiFitMsgs();if(current==='ai'&&innerWidth<=760&&window.scrollY)window.scrollTo(0,0);};$('ai-text').addEventListener('blur',()=>setTimeout(()=>{if(current==='ai'&&window.scrollY)window.scrollTo(0,0);},60));viewport.addEventListener('resize',resize);viewport.addEventListener('scroll',resize);resize();}
 
 // ----- theme: auto → light → dark -----
 const THEME_ICON = {

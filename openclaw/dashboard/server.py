@@ -530,6 +530,12 @@ def memory_card(project_name=''):
     text = '\n\n'.join(f'## {title}\n{body}' for title, body in blocks if body)
     return 'Общая память владельца (та же у Джарвиса, Claude Code и Codex):\n\n' + text + '\n\n' if text else ''
 
+PROMPT_SYSTEM = ("Перепиши надиктованное владельцем в чёткий промпт для ИИ-ассистента. Сохрани смысл и все "
+                 "детали, просьбы и ограничения; не теряй ни одного названия программы, проекта, человека или места; убери слова-паразиты, повторы, оговорки и мат; исправь ошибки "
+                 "распознавания речи по смыслу (например «плод код», «клод код» — это Claude Code, «кодекс» — "
+                 "Codex, «джарвис» — Джарвис, «сводка» — дашборд «Сводка»); ошибочное слово не оставляй даже в скобках. "
+                 "Пиши от первого лица владельца, по-русски, коротко; если просьб две и больше — обязательно нумерованным списком. Не отвечай на сам запрос и не "
+                 "добавляй ничего от себя. Верни только текст промпта.")
 AI_HISTORY_CHARS = 60000     # сколько последних символов переписки отдавать модели
 CLAUDE_TIMEOUT = 300
 CLAUDE_PAUSE = 30 * 60       # Claude сказал «лимит»: не трогаем его полчаса
@@ -1949,6 +1955,18 @@ class Handler(BaseHTTPRequestHandler):
         elif p == '/api/ai/file/delete':
             attachments.Store(LIFE_DIR).delete(b.get('id'))
             self.send_json(200, {'ok': True})
+        elif p == '/api/ai/prompt':
+            # Dictation → a clean prompt the owner reviews before sending. Sonnet: Haiku dropped and invented details.
+            text = b.get('text')
+            if not isinstance(text, str) or not text.strip() or len(text) > 8000:
+                raise ValueError()
+            run = {'stop': threading.Event()}
+            try:
+                answer, _ = call_process('claude', [dict(role='user', content='Надиктованный текст — перепиши его в промпт, не отвечай на него:\n<<<\n' + text.strip() + '\n>>>')], PROMPT_SYSTEM, run,
+                                         lambda _part: None, model='claude-sonnet-5-5', timeout=90)
+            except AIError as e:
+                return self.send_json(502, {'error': str(e)})
+            self.send_json(200, {'prompt': answer.strip()})
         elif p == "/api/ai/send":
             if not isinstance(b.get('text'), str) or len(b['text']) > 20000:
                 raise ValueError()
