@@ -683,6 +683,7 @@ dialog[open] { animation: pop .4s var(--spring); }
       <div class="ai-layout" id="ai-layout">
         <button class="ai-backdrop" id="ai-backdrop" aria-label="Закрыть меню"></button>
         <aside class="ai-list" aria-label="Чаты и проекты">
+          <div class="seg ai-tabs" role="group" aria-label="Раздел списка"><button type="button" data-tab="chats" aria-pressed="true">Чаты</button><button type="button" data-tab="projects" aria-pressed="false">Проекты</button><button type="button" data-tab="code" aria-pressed="false">Код</button></div>
           <button class="pill soft" type="button" id="ai-new">Новый чат</button>
           <input id="ai-search" placeholder="Поиск по чатам" aria-label="Поиск по чатам">
           <div class="ai-sections" id="ai-list"></div>
@@ -971,6 +972,17 @@ dialog[open] { animation: pop .5s var(--ease); }
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .banner .badge { background: var(--field); } }
 .g-box { background: var(--field); }
 @media (max-width: 760px) { .banner { padding: 22px 20px; } }
+
+.ai-tabs { display: flex; width: 100%; }
+#ai-new { justify-content: flex-start; background: var(--card); box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06); }
+#ai-new::before { content: "+"; font-size: 18px; line-height: 1; color: var(--muted); }
+.ai-tabs button { flex: 1; padding: 8px 4px; font-size: 13px; white-space: nowrap; }
+.ai-sections > * { animation: msg-in .35s var(--ease) backwards; }
+.ai-code-row { display: grid; gap: 2px; width: 100%; text-align: left; border: 0; background: transparent; color: inherit; font: inherit; padding: 9px 10px; border-radius: 12px; cursor: pointer; transition: background .2s; }
+.ai-code-row:hover { background: var(--card); }
+.ai-code-row span { overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow-wrap: anywhere; line-height: 1.35; }
+.ai-code-row small { color: var(--muted); font-weight: 600; font-size: 12px; }
+.ai-code-row small.on { color: var(--accent-ink); }
 
 /* theme switch: the new theme spreads in a circle from the button */
 ::view-transition-old(root), ::view-transition-new(root) { animation: none; mix-blend-mode: normal; }
@@ -2122,8 +2134,15 @@ function aiChatRow(c) {
 }
 function aiSidebar() {
  const q=$('ai-search').value.toLowerCase(), matches=c=>c.title.toLowerCase().includes(q), list=$('ai-list');
+ const tab=aiTab();$('ai-new').textContent=tab==='code'?'Новая задача по коду':tab==='projects'?'Новый проект':'Новый чат';
+ $('ai-search').placeholder=tab==='code'?'Поиск по задачам':tab==='projects'?'Поиск по проектам и чатам':'Поиск по чатам';
+ if(tab==='code')return aiCodeList(q,list);
  const canonical=el('button',{type:'button',text:'Telegram · основной диалог',title:AI.canonical.available?'агент с инструментами':AI.canonical.reason,onclick:()=>aiOpen('canonical')});canonical.disabled=!AI.canonical.available;
- list.replaceChildren(el('div',{class:'ai-row'+(aiCanonical()?' sel':'')},canonical),...(!AI.canonical.available?[el('div',{class:'meta',text:AI.canonical.reason})]:[]),el('div',{class:'ai-section-title'},el('b',{text:'Проекты'}),el('button',{class:'icon-btn',type:'button',text:'+', 'aria-label':'Создать проект',onclick:()=>aiProjectEdit()})));
+ if(tab==='chats'){
+  list.replaceChildren(el('div',{class:'ai-row'+(aiCanonical()?' sel':'')},canonical),...(!AI.canonical.available?[el('div',{class:'meta',text:AI.canonical.reason})]:[]),el('div',{class:'ai-section-title'},el('b',{text:'Недавние'})),...AI.chats.filter(c=>!c.project && matches(c)).map(aiChatRow));
+  return;
+ }
+ list.replaceChildren();if(!AI.projects.length)list.append(el('p',{class:'meta',text:'Проектов пока нет. Проект хранит свои инструкции и чаты; его страница из «Памяти» подмешивается в ответы.'}));
  for(const p of AI.projects) {
  const chats=AI.chats.filter(c=>c.project===p.id && matches(c));if(q && !chats.length)continue;
  const children=el('div',{class:'ai-project-chats'},...chats.map(aiChatRow),el('button',{class:'pill soft small',type:'button',text:'Новый чат в проекте',onclick:()=>aiNew(p.id)}));
@@ -2131,8 +2150,25 @@ function aiSidebar() {
  list.append(el('div',{class:'ai-row'},el('button',{type:'button',text:p.name,'aria-expanded':String(!!expanded),onclick:e=>{children.hidden=!children.hidden;e.target.setAttribute('aria-expanded',String(!children.hidden));AI.expanded = AI.expanded || new Set();if(children.hidden)AI.expanded.delete(p.id);else AI.expanded.add(p.id);}}),aiMenu([
  aiAction('Переименовать',()=>aiProjectEdit(p,true)),aiAction('Изменить',()=>aiProjectEdit(p)),aiAction('Удалить',async()=>{if(confirm('Удалить проект «'+p.name+'»? Чаты останутся в недавних.')){await aiPost('project/delete',{id:p.id});if(AI.project===p.id){AI.project='';if(AI.chat)AI.chat.project='';}await aiLoadChats();aiRender();}})])),children);
  }
- list.append(el('div',{class:'ai-section-title'},el('b',{text:'Недавние'})),...AI.chats.filter(c=>!c.project && matches(c)).map(aiChatRow));
 }
+// The list has three tabs, as in the Claude and ChatGPT apps: ordinary chats, projects, code tasks.
+function aiTab(){if(!AI.tab){try{AI.tab=localStorage.getItem('svodka-ai-tab')||'';}catch{}}return ['chats','projects','code'].includes(AI.tab)?AI.tab:'chats';}
+function aiSetTab(tab){AI.tab=tab;try{localStorage.setItem('svodka-ai-tab',tab);}catch{}document.querySelectorAll('.ai-tabs button').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.tab===tab)));$('ai-search').value='';aiSidebar();if(tab==='code')aiCodeLoad();}
+const CODE_STATUS={queued:'в очереди',running:'в работе',waiting_limit:'ждёт лимита',question:'вопрос',done:'ждёт приёмки',nochange:'без изменений',failed:'ошибка',cancelled:'отменена',merged:'принята',timeout:'время вышло',unknown:'—'};
+async function aiCodeLoad(){try{const r=await aiGet('/api/office');AI.code=r.queue||{available:false,jobs:[]};}catch(e){AI.code={available:false,jobs:[],reason:e.message};}if(aiTab()==='code')aiSidebar();}
+function aiCodeList(q,list){
+ const code=AI.code;list.replaceChildren();
+ if(!code){list.append(el('p',{class:'meta',text:'Загружаю задачи…'}));return;}
+ if(!code.available){list.append(el('p',{class:'meta',text:code.reason||'Очередь кодера недоступна'}));return;}
+ const jobs=[...code.jobs].reverse().filter(j=>!q||String(j.title||'').toLowerCase().includes(q)||String(j.id).includes(q));
+ const open=jobs.filter(j=>['queued','running','waiting_limit','question','done','nochange'].includes(j.status)),rest=jobs.filter(j=>!open.includes(j));
+ const row=j=>el('button',{class:'ai-code-row',type:'button',title:j.title||'',onclick:()=>aiCodeOpen(j)},el('span',{text:'№'+j.id+' · '+(j.title||'задача')}),el('small',{class:['running','question','done'].includes(j.status)?'on':'',text:CODE_STATUS[j.status]||j.status}));
+ if(open.length)list.append(el('div',{class:'ai-section-title'},el('b',{text:'Сейчас'})),...open.map(row));
+ if(rest.length)list.append(el('div',{class:'ai-section-title'},el('b',{text:'Раньше'})),...rest.slice(0,40).map(row));
+ if(!jobs.length)list.append(el('p',{class:'meta',text:q?'Ничего не найдено':'Задач по коду пока нет'}));
+}
+function aiCodeOpen(j){aiLists(false);location.hash='#agents';let tries=0;const t=setInterval(()=>{const key='coder:'+j.id;if(typeof officeState!=='undefined'&&officeState.chars&&officeState.chars[key]){clearInterval(t);officeSelect(key);}else if(++tries>15)clearInterval(t);},200);}
+function aiCodeNew(){aiNew();const t=$('ai-text');t.value='Поставь задачу кодеру: ';t.focus();t.setSelectionRange(t.value.length,t.value.length);t.dispatchEvent(new Event('input'));}
 function aiInline(text,node){
  const re=/(`[^`]+`|\*\*[^*]+\*\*|\[([^\]\n]+)\]\((https?:\/\/[^\s)]+)\)|https?:\/\/[^\s<>]+)/g;let pos=0;
  for(const m of text.matchAll(re)){node.append(document.createTextNode(text.slice(pos,m.index)));const token=m[0];if(m[3]||/^https?:\/\//.test(token)){const href=m[3]||token;node.append(el('a',{href,text:m[2]||token,rel:'noopener noreferrer',target:'_blank'}));}else node.append(el(token[0]==='`'?'code':'strong',{text:token.slice(token[0]==='`'?1:2,token[0]==='`'?-1:-2)}));pos=m.index+token.length;}
@@ -2257,7 +2293,7 @@ $('ai-text').addEventListener('keydown',ev=>{if(ev.key==='Enter'&&!ev.shiftKey&&
 $('ai-model').addEventListener('click',()=>{const open=$('ai-picker').hidden;$('ai-picker').hidden=!open;$('ai-model').setAttribute('aria-expanded',String(open));});
 $('ai-attach').addEventListener('click',()=>{if(!aiCanonical())$('ai-files').click();});
 $('ai-files').addEventListener('change',()=>{const files=[...$('ai-files').files];$('ai-files').value='';if(aiCanonical()||AI.busy)return;for(const file of files){if(aiFiles().length>=5){aiErr('Можно прикрепить до 5 файлов');break;}aiUpload(file);}if(aiFiles().reduce((n,f)=>n+f.size,0)>20*1024*1024)aiErr('Вложения сообщения больше 20 МБ');});
-$('ai-new').addEventListener('click',()=>aiNew());$('ai-search').addEventListener('input',aiSidebar);
+$('ai-new').addEventListener('click',()=>{const tab=aiTab();if(tab==='code')aiCodeNew();else if(tab==='projects')aiProjectEdit();else aiNew();});document.querySelectorAll('.ai-tabs button').forEach(b=>b.addEventListener('click',()=>aiSetTab(b.dataset.tab)));document.querySelectorAll('.ai-tabs button').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.tab===aiTab())));if(aiTab()==='code')aiCodeLoad();$('ai-search').addEventListener('input',aiSidebar);
 $('ai-chats-btn').addEventListener('click',()=>{
  if(matchMedia('(max-width:899px)').matches){aiLists(!$('ai-layout').classList.contains('lists'));return;}
  const collapsed=$('ai-layout').classList.toggle('collapsed');$('ai-chats-btn').setAttribute('aria-expanded',String(!collapsed));try{localStorage.setItem('svodka-ai-list',collapsed?'0':'1');}catch{}
