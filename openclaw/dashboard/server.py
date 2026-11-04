@@ -638,6 +638,34 @@ def codex_bin():
 
 
 chatgpt_pause = {"until": 0.0}
+chatgpt_usage = {"at": 0.0, "busy": False, "windows": {}}
+
+
+def chatgpt_state():
+    """Подписка ChatGPT: сколько израсходовано по окнам. `openclaw models status` тяжёлый (около 8 с),
+    поэтому он идёт в фоне не чаще раза в 10 минут, а ответ берёт последнее известное значение."""
+    now = time.time()
+    if now - chatgpt_usage["at"] > 600 and not chatgpt_usage["busy"]:
+        chatgpt_usage["busy"] = True
+        threading.Thread(target=_refresh_chatgpt_usage, daemon=True).start()
+    until = chatgpt_pause["until"] if chatgpt_pause["until"] > now else 0
+    return {"exhausted": bool(until), "until": until, "windows": chatgpt_usage["windows"]}
+
+
+def _refresh_chatgpt_usage():
+    try:
+        binary = shutil.which("openclaw") or str(Path.home() / ".npm-global/bin/openclaw")
+        out = subprocess.run([binary, "models", "status"], capture_output=True, text=True, timeout=60).stdout
+        windows = {}
+        for hours, left, reset in re.findall(r"openai usage: (\d+)h (\d+)% left(?: ⏱(\d+d(?: \d+h)?|\d+h(?: \d+m)?|\d+m))?", out):
+            key = "five_hour" if hours == "5" else "seven_day" if hours == "168" else hours + "h"
+            windows[key] = {"pct": max(0, 100 - int(left)), "reset_in": reset.replace("d", " д").replace("h", " ч").replace("m", " мин")}
+        chatgpt_usage["windows"] = windows
+    except (OSError, subprocess.SubprocessError, ValueError):
+        pass
+    finally:
+        chatgpt_usage["at"] = time.time()
+        chatgpt_usage["busy"] = False
 free_models_cache = {"at": 0.0, "models": []}
 ai_runs = {}
 runs_lock = threading.Lock()
@@ -756,7 +784,7 @@ def models_payload():
     candidates = [m for m in models if m['route'] == 'jarvis'] + [m for m in models if m['route'] == 'claude' and 'opus' in m['id']] + [m for m in models if m['route'] not in ('claude', 'jarvis')]
     auto = next((dict(m, label='Авто → '+m['title']) for m in candidates if m['available']), None)
     free = [dict(model_row('free:'+m['id'], m.get('name') or m['id'], 'free', free_available, 'Шлюз недоступен', 'freellmapi'), id=m['id'], name=m.get('name'), provider=m.get('provider')) for m in gateway_models()]
-    return dict(models=models, auto=auto, claude=c, free_models=free)
+    return dict(models=models, auto=auto, claude=c, chatgpt=chatgpt_state(), free_models=free)
 
 
 def model_pool(model_id):

@@ -130,7 +130,9 @@ def _parsed(path, parse, summarize):
 
 
 def _file_summary(source, path, messages, secret_re):
-    if not messages:
+    first = next((m['text'] for m in messages if m['role'] == 'user'), '')
+    # Service runs ("1" and an answer) are noise in the owner's list.
+    if not messages or (len(messages) <= 2 and len(first.strip()) < 3):
         return None
     cwd = next((m['cwd'] for m in messages if m['cwd']), '')
     project = Path(cwd).name if cwd else ('Claude Code' if source == 'claude' else 'Codex')

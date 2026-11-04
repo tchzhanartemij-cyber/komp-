@@ -990,6 +990,30 @@ li.row:has(> .badge) > input { margin-top: 1px; }
 .b-date { text-transform: none; }
 .b-date::first-letter { text-transform: uppercase; }
 
+/* chat like the Claude app: round send button, limits with bars, no seams on the phone */
+#ai-send { width: 40px; height: 40px; min-width: 40px; padding: 0; border-radius: 50%; display: grid; place-items: center; }
+#ai-send .i { width: 20px; height: 20px; stroke-width: 2.2; }
+#ai-send[data-look="Отправка…"] .i { animation: spin 1s linear infinite; }
+#ai-model { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
+.ai-input { grid-template-columns: 40px auto auto minmax(0, 1fr) minmax(0, max-content) auto; }
+.ai-model-wrap { min-width: 0; justify-self: end; max-width: 100%; }
+.ai-limits { display: grid; gap: 10px; padding: 4px 2px 8px; }
+.ai-limit { display: grid; gap: 6px; }
+.ai-limit-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.ai-limit-head .meta { font-size: 12px; text-align: right; }
+.ai-limit.out .ai-limit-head b { color: var(--bad); }
+.ai-limit-bar { display: grid; grid-template-columns: 62px minmax(0, 1fr) auto; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); }
+.ai-limit-bar i { height: 6px; border-radius: 6px; background: var(--field); position: relative; overflow: hidden; }
+.ai-limit-bar i::after { content: ""; position: absolute; inset: 0 auto 0 0; width: var(--p); border-radius: inherit; background: var(--accent); }
+.ai-limit-bar i.hot::after { background: var(--bad); }
+@media (pointer: coarse) { .ai-msgs { scrollbar-width: none; } .ai-msgs::-webkit-scrollbar { display: none; } }
+@media (max-width: 760px) {
+  /* the chat runs to the bottom edge, the menu floats over its own background: no strip between them */
+  body[data-page="ai"] .ai-composer { padding-bottom: calc(80px + max(12px, env(safe-area-inset-bottom, 0px))); }
+  /* the measured visible height is used only while the keyboard is open, so it can never stick afterwards */
+  body.kb-open[data-page="ai"] .ai-composer { padding-bottom: 8px; }
+}
+
 /* touch screens have no hover: a tapped control must not stay highlighted (press feedback stays on :active) */
 @media (hover: none) {
   .nav .item:not([aria-current]):hover { color: var(--side-ink); background: none; }
@@ -1017,7 +1041,7 @@ button, a, [role="button"], .seg button, .nav .item { touch-action: manipulation
 @media (max-width: 760px) {
   /* the chat is pinned to the visible part of the screen, so the keyboard never pushes it around */
   body[data-page="ai"] .ai-card { position: fixed; left: 0; right: 0; z-index: 5; top: calc(var(--vvtop, 0px) + env(safe-area-inset-top, 0px));
-    height: calc(var(--vvh, 100dvh) - env(safe-area-inset-top, 0px) - 74px - max(12px, env(safe-area-inset-bottom, 0px))); }
+    height: calc(100dvh - env(safe-area-inset-top, 0px)); }
   body.kb-open[data-page="ai"] .ai-card { height: calc(var(--vvh, 100dvh) - env(safe-area-inset-top, 0px)); }
   /* native apps hide the tab bar while typing; ours would otherwise float over the keyboard */
   body.kb-open .side { display: none; }
@@ -2154,11 +2178,26 @@ async function aiLoadModels(){
   if(replacement){aiModel=replacement.id;aiSave();AI.modelWarning='модель заменена на '+aiShort(replacement.title)+': прежний выбор больше не поддерживается';aiErr(AI.modelWarning,'warn');}
  }
  $('ai-model').textContent=aiChoiceTitle();
- const c=M.claude,w=c.windows||{},parts=[w.five_hour&&`5 часов ${w.five_hour.pct}%`,w.seven_day&&`неделя ${w.seven_day.pct}%`].filter(Boolean);
- badge('ai-claude',c.exhausted?'Лимит Claude до '+aiWhen(c.until):'Claude: '+(parts.join(' · ')||'данных о лимите нет'),c.exhausted?'warn':'lav');
+ const c=M.claude,g=M.chatgpt||{};
+ badge('ai-claude',aiLimitsLine(),c.exhausted||g.exhausted?'warn':'lav');
  summary.ai=M.auto?'Авто → '+M.auto.title:'Нет доступных моделей.';renderBanner();aiPicker();aiChips();
 }
 function aiProbeLabel(m){const p=m.probe||{};return p.status==='ok'?'проверено: фактически '+(p.actual_model||'модель не сообщена')+', '+new Date(p.at*1000).toLocaleTimeString('ru-RU',{hour:'2-digit',minute:'2-digit'}):p.status==='failed'?'проверка не удалась: '+p.error:'не проверено';}
+// Subscription limits of every model family: Claude (5 hours and week) and ChatGPT (week), in plain words.
+function aiLimitRows(){
+ const M=AI.models||{},rows=[];
+ const add=(name,state,label)=>{const w=(state||{}).windows||{};const parts=[['five_hour','5 часов'],['seven_day','неделя']].filter(([k])=>w[k]).map(([k,l])=>({label:l,pct:w[k].pct,reset:w[k].reset?aiIn(w[k].reset):w[k].reset_in?'через '+w[k].reset_in:''}));
+  rows.push({name,label,exhausted:!!(state&&state.exhausted),until:state&&state.until,parts});};
+ add('Claude',M.claude,'Opus, Sonnet, Haiku, очередь кодера');add('ChatGPT',M.chatgpt,'Джарвис, Codex, голос');
+ return rows;
+}
+function aiIn(ts){const m=Math.max(0,Math.round((ts*1000-Date.now())/60000)),d=Math.floor(m/1440),h=Math.floor(m%1440/60);return 'через '+(d?d+' д '+h+' ч':h?h+' ч '+m%60+' мин':m%60+' мин');}
+function aiLimitsLine(){return aiLimitRows().map(r=>r.exhausted?r.name+': лимит до '+aiWhen(r.until):r.name+': '+(r.parts.map(p=>p.label+' '+p.pct+'%').join(', ')||'нет данных')).join(' · ');}
+function aiLimitsBox(){
+ return el('div',{class:'ai-limits'},...aiLimitRows().map(r=>el('div',{class:'ai-limit'+(r.exhausted?' out':'')},
+  el('div',{class:'ai-limit-head'},el('b',{text:r.name}),el('span',{class:'meta',text:r.exhausted?'исчерпан до '+aiWhen(r.until):r.label})),
+  ...(r.parts.length?r.parts.map(p=>el('div',{class:'ai-limit-bar'},el('span',{text:p.label}),el('i',{style:'--p:'+Math.min(100,p.pct)+'%',class:p.pct>=80?'hot':''}),el('span',{text:p.pct+'%'+(p.reset?' · '+p.reset:'')}))):[el('div',{class:'meta',text:'данные появятся после первого запроса'})]))));
+}
 function aiPicker(){
  const box=$('ai-picker'),M=AI.models;if(!M)return;
  function choice(m,probe=true){
@@ -2166,7 +2205,7 @@ function aiPicker(){
   const row=el('div',{class:'ai-model-row'},select);
   if(probe){const b=el('button',{type:'button',text:AI.probes.has(m.id)?'Проверка…':'Проверить',onclick:async()=>{AI.probes.add(m.id);aiPicker();try{const p=await aiPost('probe',{model:m.id});if(!p.ok)aiErr(p.error);}catch(e){aiErr(e.message);}finally{AI.probes.delete(m.id);await aiLoadModels();}}});b.disabled=AI.probes.size>0;row.append(b);}return row;
  }
- box.replaceChildren();
+ box.replaceChildren(el('h4',{text:'Лимиты подписок'}),aiLimitsBox());
  for(const [route,title] of [['jarvis','Джарвис · инструменты и память'],['claude','Claude · без инструментов'],['chatgpt','Codex/GPT · без инструментов'],['free','Бесплатные']]){
   const rows=M.models.filter(m=>m.route===route);if(!rows.length&&route!=='free')continue;
   box.append(el('h4',{text:title}),...rows.map(m=>choice(m,route!=='jarvis')));
@@ -2334,9 +2373,11 @@ function aiNew(project='',initial=false){if(AI.busy)return;aiLeaveExternal();if(
 function aiGrow(){const t=$('ai-text');t.style.height='auto';t.style.height=Math.min(180,t.scrollHeight)+'px';aiComposerState();}
 function aiFiles(){const key=aiKey();if(!AI.uploads.has(key))AI.uploads.set(key,[]);return AI.uploads.get(key);}
 function aiFileError(f){return f.error||(f.kind==='image'&&!aiWho()?.caps?.image?'Модель не принимает изображения — выберите Claude или Codex с поддержкой изображений':'');}
+const SEND_ICON={'Отправить':'<path d="M12 19V5M5.5 11.5 12 5l6.5 6.5"/>','Стоп':'<rect x="7" y="7" width="10" height="10" rx="2" fill="currentColor" stroke="none"/>','Отправка…':'<circle cx="12" cy="12" r="7" stroke-dasharray="30 14"/>'};
+function aiSendLook(label){const b=$('ai-send');if(b.dataset.look===label)return;b.dataset.look=label;b.setAttribute('aria-label',label);b.title=label;b.innerHTML='<svg class="i" viewBox="0 0 24 24">'+SEND_ICON[label]+'</svg>';}
 function aiComposerState(){
  const canonical=aiCanonical(),files=canonical?[]:aiFiles();$('ai-text').disabled=canonical?chatState.sending||!chatState.available:AI.busy;
- $('ai-send').textContent=AI.busy?'Стоп':canonical&&chatState.sending?'Отправка…':'Отправить';
+ aiSendLook(AI.busy?'Стоп':canonical&&chatState.sending?'Отправка…':'Отправить');
  $('ai-send').disabled=AI.busy?false:canonical?chatState.sending||!chatState.available||!$('ai-text').value.trim():files.some(f=>f.uploading||!f.id||aiFileError(f))||files.reduce((n,f)=>n+f.size,0)>20*1024*1024||(!$('ai-text').value.trim()&&!files.length);
 }
 function aiChips(){
@@ -2434,7 +2475,7 @@ async function aiShown(){
 }
 setInterval(()=>{if(!document.hidden&&current==='ai')aiLoadModels();},60000);
 addEventListener('resize',aiFitMsgs);
-if(window.visualViewport){const viewport=window.visualViewport,resize=()=>{const kb=Math.max(0,window.innerHeight-viewport.height-viewport.offsetTop),root=document.documentElement.style;root.setProperty('--kb',kb+'px');root.setProperty('--vvh',viewport.height+'px');root.setProperty('--vvtop',viewport.offsetTop+'px');document.body.classList.toggle('kb-open',kb>80);aiFitMsgs();if(current==='ai'&&innerWidth<=760&&window.scrollY)window.scrollTo(0,0);};$('ai-text').addEventListener('blur',()=>setTimeout(()=>{if(current==='ai'&&window.scrollY)window.scrollTo(0,0);},60));viewport.addEventListener('resize',resize);viewport.addEventListener('scroll',resize);resize();}
+if(window.visualViewport){const viewport=window.visualViewport,resize=()=>{const kb=Math.max(0,window.innerHeight-viewport.height-viewport.offsetTop),root=document.documentElement.style;root.setProperty('--kb',kb+'px');root.setProperty('--vvh',viewport.height+'px');root.setProperty('--vvtop',viewport.offsetTop+'px');document.body.classList.toggle('kb-open',kb>80);aiFitMsgs();if(current==='ai'&&innerWidth<=760&&window.scrollY)window.scrollTo(0,0);};$('ai-text').addEventListener('blur',()=>{for(const t of [60,350,700])setTimeout(()=>{resize();if(current==='ai'&&window.scrollY)window.scrollTo(0,0);},t);});viewport.addEventListener('resize',resize);viewport.addEventListener('scroll',resize);resize();}
 
 // ----- theme: auto → light → dark -----
 const THEME_ICON = {
