@@ -497,6 +497,30 @@ CODER_DATA = Path.home() / ".openclaw/workspace/coder"   # limits from coder.py 
 CHAT_ID_RE = re.compile(r"^[0-9a-f]{12}$")
 AI_SYSTEM = ("Ты собеседник владельца в его личном чате. Отвечай на языке вопроса, по делу, "
              "без эмодзи. Оформление простое: абзацы и списки через дефис.")
+# Shared memory card for direct-model chats: who the owner is, durable facts, which project pages
+# exist and the page of the chat's project. Small on purpose (a few thousand characters) so every
+# message stays cheap; agents with tools (Джарвис) read the full memory themselves.
+def memory_card(project_name=''):
+    workspace = LIFE_DIR.parent
+    def part(path, limit):
+        try:
+            text = re.sub(r'<!--.*?-->', '', path.read_text(encoding='utf-8', errors='replace'), flags=re.S)
+            return re.sub(r'\n{3,}', '\n\n', text).strip()[:limit]
+        except OSError:
+            return ''
+    pages = LIFE_DIR / 'memory'
+    try:
+        names = sorted(f.stem for f in pages.glob('*.md'))
+    except OSError:
+        names = []
+    blocks = [('Указания владельца', part(workspace / 'USER.md', 2000)),
+              ('Факты и решения', part(workspace / 'MEMORY.md', 3000)),
+              ('Страницы памяти (проекты, люди, темы)', ', '.join(names)[:1500])]
+    if project_name and (pages / f'{project_name}.md').is_file():
+        blocks.append((f'Страница проекта «{project_name}»', part(pages / f'{project_name}.md', 4000)))
+    text = '\n\n'.join(f'## {title}\n{body}' for title, body in blocks if body)
+    return 'Общая память владельца (та же у Джарвиса, Claude Code и Codex):\n\n' + text + '\n\n' if text else ''
+
 AI_HISTORY_CHARS = 60000     # сколько последних символов переписки отдавать модели
 CLAUDE_TIMEOUT = 300
 CLAUDE_PAUSE = 30 * 60       # Claude сказал «лимит»: не трогаем его полчаса
@@ -1166,7 +1190,7 @@ def ai_send(chat_id, model_id, text, project, emit, attachments_ids=None, **kwar
                     elif provider == 'free':
                         result, value = call_gateway(model, [dict(role='system', content=system)] + messages, run, delta)
                     else:
-                        result, value = call_process(provider, messages, system, run, delta, model, images=images)
+                        result, value = call_process(provider, messages, memory_card(pr['name'] if pr else '') + system, run, delta, model, images=images)
                     if value and value != actual:
                         meta(value)
                     if not answer and result:
