@@ -2173,7 +2173,7 @@ $('links').replaceChildren(...LINKS.map(l => el('a', { class: 'tile', href: l.ur
   el('span', { class: 'prev', text: l.title.trim()[0] || '·' }), el('div', {}, el('b', { text: l.title }), el('span', { text: l.url.replace(/^https?:\/\//, '') })))));
 
 // ----- ИИ: чаты и проекты -----
-const AI = {models:null,chat:null,chats:[],projects:[],project:'',busy:false,started:false,pending:null,run:'',controller:null,frame:0,canonical:{available:false,reason:'Загрузка…'},uploads:new Map(),probes:new Set()};
+const AI = {models:null,chat:null,chats:[],projects:[],project:'',busy:false,started:false,pending:null,run:'',controller:null,frame:0,canonical:{available:false,reason:'Загрузка…'},sessions:[],oc:null,uploads:new Map(),probes:new Set()};
 let aiModel='claude:claude-opus-5-5',aiChatId='',aiLast=null;
 try{aiModel=localStorage.getItem('svodka-ai-model')||aiModel;aiLast=localStorage.getItem('svodka-ai-chat');aiChatId=aiLast==='new'?'':aiLast||'';}catch{}
 function aiCanonical(){return aiChatId==='canonical';}
@@ -2233,7 +2233,7 @@ function aiPicker(){
  }
  box.append(el('h4',{text:'Авто'}),choice({...(M.auto||{}),id:'auto',title:M.auto?.label||'Авто · нет доступных моделей',why:'Нет доступных моделей'}));
 }
-async function aiLoadChats(){try{const [c,p]=await Promise.all([aiGet('/api/ai/chats'),aiGet('/api/ai/projects')]);AI.chats=c.chats;AI.projects=p.projects;AI.canonical=c.canonical||{available:false,reason:'Сессия недоступна'};if(AI.chat)AI.project=AI.chat.project||'';aiSidebar();aiHeader();}catch(e){aiErr(e.message);}}
+async function aiLoadChats(){try{const [c,p]=await Promise.all([aiGet('/api/ai/chats'),aiGet('/api/ai/projects')]);AI.chats=c.chats;AI.projects=p.projects;AI.canonical=c.canonical||{available:false,reason:'Сессия недоступна'};if(AI.chat)AI.project=AI.chat.project||'';aiSidebar();aiHeader();aiLoadSessions();}catch(e){aiErr(e.message);}}
 function aiMenu(items) { return el('details',{class:'ai-menu'},el('summary',{'aria-label':'Действия',text:'…'}),el('div',{},...items)); }
 function aiAction(text,fn) { return el('button',{type:'button',text,onclick:async e=>{e.target.closest('details')?.removeAttribute('open'); try {await fn();} catch(err) {aiErr(err.message);} }}); }
 function aiDialog(title,fields,save) {
@@ -2264,7 +2264,7 @@ function aiExternalRows(q){
  return [el('div',{class:'ai-section-title'},el('b',{text:'Из других приложений'})),...rows.slice(0,80).map(c=>el('div',{class:'ai-row'+(c.id===aiChatId?' sel':'')},el('button',{type:'button',title:c.title,onclick:()=>aiOpenExternal(c.id)},el('span',{class:'ai-ext-title',text:c.title}),el('small',{class:'meta',text:EXTERNAL_SOURCE[c.source]+' · '+(c.project||'')+' · '+c.count+' сообщ.'}))))];
 }
 async function aiOpenExternal(id){
- if(AI.busy)return;aiLists(false);const seq=AI.openSeq=(AI.openSeq||0)+1;
+ if(AI.busy)return;aiLeaveSession();aiLists(false);const seq=AI.openSeq=(AI.openSeq||0)+1;
  try{const chat=await aiGet('/api/all-chats/item?id='+encodeURIComponent(id));if(seq!==AI.openSeq)return;AI.external=chat;aiChatId=id;AI.chat=null;aiErr('');aiRender();aiSidebar();}catch(e){aiErr(e.message);}
 }
 function aiLeaveExternal(){if(!AI.external)return;AI.external=null;const f=document.querySelector('.ai-composer');if(f)f.hidden=false;}
@@ -2278,6 +2278,44 @@ function aiRenderExternal(){
  kids.push(...chat.messages.map(m=>el('div',{class:'msg'+(m.role==='user'?' me':'')},el('div',{class:'bubble',text:m.text}),el('div',{class:'meta',text:m.time?new Date(m.time).toLocaleString('ru-RU',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}):''}))));
  const msgs=$('ai-msgs');msgs.replaceChildren(...kids);msgs.scrollTop=msgs.scrollHeight;
 }
+// Sessions made in OpenClaw itself (Telegram, spawned work, other panels): listed next to the chats, opened through Gateway.
+const OC_SOURCE={telegram:'Telegram',openclaw:'OpenClaw',svodka:'Сводка'};
+async function aiLoadSessions(){try{const r=await aiGet('/api/workspace/sessions');AI.sessions=r.sessions||[];}catch{AI.sessions=[];}
+ const s=AI.oc&&AI.sessions.find(x=>x.key===AI.oc.key);if(s)Object.assign(AI.oc,{title:s.title,source:s.source,project:s.project});if(aiTab()!=='code')aiSidebar();if(AI.oc)aiRenderSession();}
+function aiSessionRow(s){return el('div',{class:'ai-row'+(aiChatId==='oc:'+s.key?' sel':'')},el('button',{type:'button',title:s.title,onclick:()=>aiOpenSession(s.key)},el('span',{class:'ai-ext-title',text:s.title}),el('small',{class:'meta',text:[OC_SOURCE[s.source]||'OpenClaw',s.active?'работает':'',s.updated?aiWhen(s.updated):''].filter(Boolean).join(' · ')})));}
+function aiSessionRows(rows){return rows.length?[el('div',{class:'ai-section-title'},el('b',{text:'OpenClaw'})),...rows.map(aiSessionRow)]:[];}
+function aiLeaveSession(){if(!AI.oc)return;clearTimeout(AI.oc.timer);AI.oc=null;}
+async function aiOpenSession(key,initial=false){
+ if(AI.busy)return;aiLeaveExternal();if(!initial)aiDraftSave();aiLists(false);const seq=AI.openSeq=(AI.openSeq||0)+1;
+ try{const h=await aiGet('/api/workspace/history?key='+encodeURIComponent(key));if(seq!==AI.openSeq)return;
+  clearTimeout(chatState.timer);aiLeaveSession();const s=AI.sessions.find(x=>x.key===key)||{key,title:'Сессия OpenClaw',source:'openclaw',project:''};
+  AI.oc={...s,messages:h.messages,next:h.next_offset,hidden:h.hidden_count,pending:[],sending:false,timer:0};AI.chat=null;aiChatId='oc:'+key;AI.project=s.project||'';aiSave();aiDraftRestore();aiErr('');aiRender();$('ai-msgs').scrollTop=$('ai-msgs').scrollHeight;aiSidebar();aiChips();aiSessionPoll();
+ }catch(e){aiErr(e.message);if(initial)aiNew('',true);}
+}
+// While the session is open its history is re-read: often while a sent message waits for an answer, rarely otherwise.
+async function aiSessionPoll(){
+ const oc=AI.oc;if(!oc)return;clearTimeout(oc.timer);
+ if(current==='ai'&&!document.hidden){try{const h=await aiGet('/api/workspace/history?key='+encodeURIComponent(oc.key));if(AI.oc!==oc)return;oc.messages=workspaceMerge(oc.messages,h.messages);oc.hidden=h.hidden_count;const done=new Set(oc.messages.map(m=>m.origin_request).filter(Boolean));oc.pending=oc.pending.filter(p=>!done.has(p.request));aiRender();}catch(e){if(AI.oc===oc)aiErr(e.message);}}
+ if(AI.oc===oc)oc.timer=setTimeout(aiSessionPoll,oc.pending.length?3000:8000);
+}
+async function aiSessionEarlier(){const oc=AI.oc;if(!oc||oc.next==null)return;try{const h=await aiGet('/api/workspace/history?key='+encodeURIComponent(oc.key)+'&offset='+encodeURIComponent(oc.next));if(AI.oc!==oc)return;oc.messages=workspaceMerge(h.messages,oc.messages);oc.next=h.next_offset;aiRender();}catch(e){aiErr(e.message);}}
+async function aiSessionSend(){
+ const oc=AI.oc,ta=$('ai-text'),text=ta.value.trim();if(!oc||oc.sending||!text)return;
+ const attempt={key:oc.key,text,request:chatId()};oc.sending=true;aiComposerState();
+ try{await chatJSON('/api/workspace/send',attempt);oc.pending.push(attempt);ta.value='';aiDraftSave();aiGrow();aiErr('');aiRender();aiSessionPoll();}
+ catch(e){aiErr(e.message);}finally{oc.sending=false;aiComposerState();}
+}
+function aiRenderSession(){
+ const oc=AI.oc,model=[...oc.messages].reverse().find(m=>m.model)?.model;
+ $('h-ai').textContent=oc.title;$('ai-mode').textContent='сессия OpenClaw · '+(OC_SOURCE[oc.source]||'OpenClaw');$('ai-project-name').textContent=AI.projects.find(p=>p.id===oc.project)?.name||'';
+ $('ai-model').hidden=true;$('ai-picker').hidden=true;$('ai-session-model').hidden=false;$('ai-session-model').textContent='модель сессии'+(model?' · '+model:'');$('ai-live').hidden=true;$('ai-revision').hidden=true;
+ $('ai-attach').disabled=true;$('ai-attach').title='Вложения в сессию OpenClaw пока не поддерживаются';
+ const kids=[];if(oc.next!=null)kids.push(el('button',{class:'pill soft',type:'button',text:'Загрузить ранние',onclick:aiSessionEarlier}));
+ if(oc.hidden)kids.push(el('p',{class:'meta',text:'скрыто '+oc.hidden+' служебных'}));
+ kids.push(...oc.messages.map(m=>aiBubble({...m,canonical:true,session:true})),...oc.pending.map(m=>el('div',{class:'msg me'},el('div',{class:'bubble',text:m.text}),el('div',{class:'meta',text:'отправлено, ждёт ответа'}))));
+ if(!kids.length)kids.push(el('div',{class:'ai-empty',text:'В этой сессии пока нет сообщений'}));
+ const msgs=$('ai-msgs'),oldTop=msgs.scrollTop,near=msgs.scrollHeight-msgs.scrollTop-msgs.clientHeight<100;msgs.replaceChildren(...kids);aiAnimateNew(msgs);aiFitMsgs();msgs.scrollTop=near?msgs.scrollHeight:oldTop;aiComposerState();
+}
 function aiSidebar() {
  const q=$('ai-search').value.toLowerCase(), matches=c=>c.title.toLowerCase().includes(q), list=$('ai-list');
  const tab=aiTab();$('ai-new').textContent=tab==='code'?'Новая задача по коду':tab==='projects'?'Новый проект':'Новый чат';
@@ -2285,13 +2323,13 @@ function aiSidebar() {
  if(tab==='code')return aiCodeList(q,list);
  const canonical=el('button',{type:'button',text:'Telegram · основной диалог',title:AI.canonical.available?'агент с инструментами':AI.canonical.reason,onclick:()=>aiOpen('canonical')});canonical.disabled=!AI.canonical.available;
  if(tab==='chats'){
-  list.replaceChildren(el('div',{class:'ai-row'+(aiCanonical()?' sel':'')},canonical),...(!AI.canonical.available?[el('div',{class:'meta',text:AI.canonical.reason})]:[]),el('div',{class:'ai-section-title'},el('b',{text:'Недавние'})),...AI.chats.filter(c=>!c.project && matches(c)).map(aiChatRow),...aiExternalRows(q));
+  list.replaceChildren(el('div',{class:'ai-row'+(aiCanonical()?' sel':'')},canonical),...(!AI.canonical.available?[el('div',{class:'meta',text:AI.canonical.reason})]:[]),el('div',{class:'ai-section-title'},el('b',{text:'Недавние'})),...AI.chats.filter(c=>!c.project && matches(c)).map(aiChatRow),...aiSessionRows(AI.sessions.filter(s=>!s.project&&matches(s))),...aiExternalRows(q));
   return;
  }
  list.replaceChildren();if(!AI.projects.length)list.append(el('p',{class:'meta',text:'Проектов пока нет. Проект хранит свои инструкции и чаты; его страница из «Памяти» подмешивается в ответы.'}));
  for(const p of AI.projects) {
- const chats=AI.chats.filter(c=>c.project===p.id && matches(c));if(q && !chats.length)continue;
- const children=el('div',{class:'ai-project-chats'},...chats.map(aiChatRow),el('button',{class:'pill soft small',type:'button',text:'Новый чат в проекте',onclick:()=>aiNew(p.id)}));
+ const chats=AI.chats.filter(c=>c.project===p.id && matches(c)),sessions=AI.sessions.filter(s=>s.project===p.id&&matches(s));if(q && !chats.length && !sessions.length)continue;
+ const children=el('div',{class:'ai-project-chats'},...chats.map(aiChatRow),...sessions.map(aiSessionRow),el('button',{class:'pill soft small',type:'button',text:'Новый чат в проекте',onclick:()=>aiNew(p.id)}));
  const expanded=q || AI.project===p.id || AI.expanded?.has(p.id);children.hidden=!expanded;
  list.append(el('div',{class:'ai-row'},el('button',{type:'button',text:p.name,'aria-expanded':String(!!expanded),onclick:e=>{children.hidden=!children.hidden;e.target.setAttribute('aria-expanded',String(!children.hidden));AI.expanded = AI.expanded || new Set();if(children.hidden)AI.expanded.delete(p.id);else AI.expanded.add(p.id);}}),aiMenu([
  aiAction('Переименовать',()=>aiProjectEdit(p,true)),aiAction('Изменить',()=>aiProjectEdit(p)),aiAction('Удалить',async()=>{if(confirm('Удалить проект «'+p.name+'»? Чаты останутся в недавних.')){await aiPost('project/delete',{id:p.id});if(AI.project===p.id){AI.project='';if(AI.chat)AI.chat.project='';}await aiLoadChats();aiRender();}})])),children);
@@ -2371,16 +2409,18 @@ function aiBubble(m){
  const metadata=canonical?[m.model,source,m.source==='telegram'&&m.source_message_id!=null?'#'+m.source_message_id:'',m.delivered_to_channel?'доставлено в канал':'',m.edited?'изменено':'',m.deleted?'удалено':'',m.truncated?'обрезано':'',time]:m.role==='assistant'?[aiShort(m.model),m.actual_model?'фактически '+m.actual_model:'',m.mode==='jarvis'?'':m.transport||m.detail,m.mode==='jarvis'?'':'чат без инструментов',time,m.fallback,m.stopped?'остановлено':'']:[time];
  node.append(el('div',{class:'meta',text:metadata.filter(Boolean).join(' · ')}));
  if(m.role==='assistant'&&text){const copy=el('button',{class:'pill soft small',type:'button',text:'Копировать',onclick:()=>aiCopy(text,copy)});node.append(copy);}
- if(m.role==='user'&&!m.not_owner&&!m.pending){const edit=el('button',{class:'pill soft small',type:'button',text:canonical?'Уточнить':'Изменить',onclick:()=>canonical?chatRevision(m):aiEdit(m)});edit.disabled=canonical?!chatState.available:AI.busy;node.append(edit);}
+ if(m.role==='user'&&!m.not_owner&&!m.pending&&!m.session){const edit=el('button',{class:'pill soft small',type:'button',text:canonical?'Уточнить':'Изменить',onclick:()=>canonical?chatRevision(m):aiEdit(m)});edit.disabled=canonical?!chatState.available:AI.busy;node.append(edit);}
  return node;
 }
 function aiHeader(){
+ if(AI.oc)return aiRenderSession();
  const canonical=aiCanonical();$('h-ai').textContent=canonical?'Telegram · основной диалог':AI.chat?.title||'Новый чат';$('ai-mode').textContent=canonical?'агент с инструментами':aiWho()?.route==='jarvis'?'Джарвис · инструменты и память':'чат без инструментов';$('ai-project-name').textContent=canonical?'':AI.projects.find(p=>p.id===AI.project)?.name||'';
  $('ai-model').hidden=canonical;$('ai-session-model').hidden=!canonical;if(canonical){const model=[...chatState.messages].reverse().find(m=>m.model)?.model;$('ai-session-model').textContent='модель сессии агента'+(model?' · '+model:'');$('ai-picker').hidden=true;}
  $('ai-attach').disabled=canonical||AI.busy;$('ai-attach').title=canonical?'Вложения в агентскую сессию пока не поддерживаются':'Прикрепить файлы';$('ai-live').hidden=!canonical;$('ai-revision').hidden=!canonical||!$('ai-revision').childNodes.length;
  aiComposerState();
 }
 function aiRender(){
+ if(AI.oc){aiRenderSession();return;}
  if(AI.external){aiRenderExternal();return;}
  aiHeader();const canonical=aiCanonical(),kids=[];
  if(canonical){
@@ -2397,17 +2437,17 @@ function aiRender(){
  const msgs=$('ai-msgs'),oldTop=msgs.scrollTop,near=msgs.scrollHeight-msgs.scrollTop-msgs.clientHeight<100;msgs.replaceChildren(...kids);aiAnimateNew(msgs);aiFitMsgs();msgs.scrollTop=near?msgs.scrollHeight:oldTop;
 }
 // New messages slide in; re-renders of the same messages and older history stay still.
-function aiAnimateNew(msgs){const all=[...msgs.querySelectorAll(':scope > .msg')],key=aiCanonical()?'telegram':(AI.chat?.id||'new'),n=msgs.__n||0;
+function aiAnimateNew(msgs){const all=[...msgs.querySelectorAll(':scope > .msg')],key=AI.oc?'oc:'+AI.oc.key:aiCanonical()?'telegram':(AI.chat?.id||'new'),n=msgs.__n||0;
  if(msgs.__key===key&&all.length>n&&n>0&&all[n-1].firstChild?.textContent===msgs.__lastText||msgs.__key===key&&n===0&&all.length)all.slice(n).forEach(m=>m.classList.add('msg-in'));
  msgs.__key=key;msgs.__n=all.length;msgs.__lastText=all[all.length-1]?.firstChild?.textContent;}
 function aiFitMsgs(){const msgs=$('ai-msgs');msgs.classList.remove('few');msgs.classList.toggle('few',msgs.scrollHeight<=msgs.clientHeight);}
 function aiSchedule(){if(!AI.frame)AI.frame=requestAnimationFrame(()=>{AI.frame=0;aiRender();});}
 function aiLists(open){$('ai-layout').classList.toggle('lists',open);$('ai-chats-btn').setAttribute('aria-expanded',String(open));}
 async function aiOpen(id,initial=false){
- if(AI.busy)return;aiLeaveExternal();if(!initial)aiDraftSave();aiLists(false);const seq=AI.openSeq=(AI.openSeq||0)+1;
+ if(AI.busy)return;aiLeaveExternal();aiLeaveSession();if(!initial)aiDraftSave();aiLists(false);const seq=AI.openSeq=(AI.openSeq||0)+1;
  try{const chat=id==='canonical'?null:await aiGet('/api/ai/chat?id='+encodeURIComponent(id));if(seq!==AI.openSeq)return;if(!initial)aiDraftSave();clearTimeout(chatState.timer);AI.chat=chat;aiChatId=id;AI.project=chat?.project||'';aiSave();aiDraftRestore();aiErr('');aiRender();aiSidebar();aiChips();if(aiCanonical()){chatPoll();if(!AI.liveWatch){AI.liveWatch=true;chatWatchSteps();}}}catch(e){aiErr(e.message);if(initial)aiNew('',true);}
 }
-function aiNew(project='',initial=false){if(AI.busy)return;aiLeaveExternal();if(!initial)aiDraftSave();AI.openSeq=(AI.openSeq||0)+1;clearTimeout(chatState.timer);aiLists(false);AI.chat=null;aiChatId='';AI.project=typeof project==='string'?project:'';aiSave();aiDraftRestore();aiErr('');aiRender();aiSidebar();aiChips();if(!initial&&matchMedia('(pointer: fine)').matches)$('ai-text').focus();}
+function aiNew(project='',initial=false){if(AI.busy)return;aiLeaveExternal();aiLeaveSession();if(!initial)aiDraftSave();AI.openSeq=(AI.openSeq||0)+1;clearTimeout(chatState.timer);aiLists(false);AI.chat=null;aiChatId='';AI.project=typeof project==='string'?project:'';aiSave();aiDraftRestore();aiErr('');aiRender();aiSidebar();aiChips();if(!initial&&matchMedia('(pointer: fine)').matches)$('ai-text').focus();}
 // The field grows with the text; when the reader was at the latest message, the list stays pinned to it.
 function aiGrow(){const t=$('ai-text'),m=$('ai-msgs'),pinned=m.scrollHeight-m.scrollTop-m.clientHeight<40,h=t.style.height;t.style.height='auto';const next=Math.min(180,t.scrollHeight)+'px';t.style.height=next;if(pinned&&next!==h)m.scrollTop=m.scrollHeight;aiComposerState();}
 function aiFiles(){const key=aiKey();if(!AI.uploads.has(key))AI.uploads.set(key,[]);return AI.uploads.get(key);}
@@ -2415,6 +2455,7 @@ function aiFileError(f){return f.error||(f.kind==='image'&&!aiWho()?.caps?.image
 const SEND_ICON={'Отправить':'<path d="M12 19V5M5.5 11.5 12 5l6.5 6.5"/>','Стоп':'<rect x="7" y="7" width="10" height="10" rx="2" fill="currentColor" stroke="none"/>','Отправка…':'<circle cx="12" cy="12" r="7" stroke-dasharray="30 14"/>'};
 function aiSendLook(label){const b=$('ai-send');if(b.dataset.look===label)return;b.dataset.look=label;b.setAttribute('aria-label',label);b.title=label;b.innerHTML='<svg class="i" viewBox="0 0 24 24">'+SEND_ICON[label]+'</svg>';}
 function aiComposerState(){
+ if(AI.oc){const oc=AI.oc;$('ai-text').disabled=oc.sending;aiSendLook(oc.sending?'Отправка…':'Отправить');$('ai-send').disabled=oc.sending||!$('ai-text').value.trim();return;}
  const canonical=aiCanonical(),files=canonical?[]:aiFiles();$('ai-text').disabled=canonical?chatState.sending||!chatState.available:AI.busy;
  aiSendLook(AI.busy?'Стоп':canonical&&chatState.sending?'Отправка…':'Отправить');
  $('ai-send').disabled=AI.busy?false:canonical?chatState.sending||!chatState.available||!$('ai-text').value.trim():files.some(f=>f.uploading||!f.id||aiFileError(f))||files.reduce((n,f)=>n+f.size,0)>20*1024*1024||(!$('ai-text').value.trim()&&!files.length);
@@ -2460,12 +2501,12 @@ async function aiSendLocal(text,files,retry=false){
   if(!finished){AI.pending=null;aiChatId=original;aiSave();if(!retry){ta.value=text;aiDraftSave();}aiGrow();if(!AI.stopping)aiErr(e instanceof TypeError?'Нет связи с сервером':e.message);}
  }finally{AI.busy=false;AI.controller=null;aiRender();aiChips();await aiLoadChats();aiLoadModels();}
 }
-$('ai-form').addEventListener('submit',async ev=>{ev.preventDefault();if(aiCanonical()){await chatSend();return;}if(AI.busy){await aiStop();return;}const text=$('ai-text').value.trim(),files=aiFiles();if($('ai-send').disabled||(!text&&!files.length))return;await aiSendLocal(text,[...files]);});
+$('ai-form').addEventListener('submit',async ev=>{ev.preventDefault();if(AI.oc){await aiSessionSend();return;}if(aiCanonical()){await chatSend();return;}if(AI.busy){await aiStop();return;}const text=$('ai-text').value.trim(),files=aiFiles();if($('ai-send').disabled||(!text&&!files.length))return;await aiSendLocal(text,[...files]);});
 $('ai-text').addEventListener('input',()=>{aiDraftSave();aiGrow();if(aiCanonical())chatDraft($('ai-text').value);});
 $('ai-text').addEventListener('keydown',ev=>{if(ev.key==='Enter'&&!ev.shiftKey&&!ev.isComposing&&matchMedia('(hover: hover)').matches){ev.preventDefault();if(!$('ai-send').disabled&&!AI.busy)$('ai-form').requestSubmit();}});
 $('ai-model').addEventListener('click',()=>{const open=$('ai-picker').hidden;$('ai-picker').hidden=!open;$('ai-model').setAttribute('aria-expanded',String(open));});
-$('ai-attach').addEventListener('click',()=>{if(!aiCanonical())$('ai-files').click();});
-$('ai-files').addEventListener('change',()=>{const files=[...$('ai-files').files];$('ai-files').value='';if(aiCanonical()||AI.busy)return;for(const file of files){if(aiFiles().length>=5){aiErr('Можно прикрепить до 5 файлов');break;}aiUpload(file);}if(aiFiles().reduce((n,f)=>n+f.size,0)>20*1024*1024)aiErr('Вложения сообщения больше 20 МБ');});
+$('ai-attach').addEventListener('click',()=>{if(!aiCanonical()&&!AI.oc)$('ai-files').click();});
+$('ai-files').addEventListener('change',()=>{const files=[...$('ai-files').files];$('ai-files').value='';if(aiCanonical()||AI.oc||AI.busy)return;for(const file of files){if(aiFiles().length>=5){aiErr('Можно прикрепить до 5 файлов');break;}aiUpload(file);}if(aiFiles().reduce((n,f)=>n+f.size,0)>20*1024*1024)aiErr('Вложения сообщения больше 20 МБ');});
 $('ai-new').addEventListener('click',()=>{const tab=aiTab();if(tab==='code')aiCodeNew();else if(tab==='projects')aiProjectEdit();else aiNew();});document.querySelectorAll('.ai-tabs button').forEach(b=>b.addEventListener('click',()=>aiSetTab(b.dataset.tab)));document.querySelectorAll('.ai-tabs button').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.tab===aiTab())));if(aiTab()==='code')aiCodeLoad();aiLoadExternal();$('ai-search').addEventListener('input',aiSidebar);
 $('ai-chats-btn').addEventListener('click',()=>{
  if(matchMedia('(max-width:899px)').matches){aiLists(!$('ai-layout').classList.contains('lists'));return;}
@@ -2512,7 +2553,7 @@ document.addEventListener('keydown',ev=>{if(ev.key==='Escape'){aiLists(false);$(
 document.addEventListener('click',ev=>{if(!ev.target.closest('.ai-model-wrap')){$('ai-picker').hidden=true;$('ai-model').setAttribute('aria-expanded','false');}});
 async function aiShown(){
  aiLoadModels();if(AI.started){if(location.hash==='#chat'&&!aiCanonical())await aiOpen('canonical');else if(aiCanonical()){chatPoll();if(!AI.liveWatch){AI.liveWatch=true;chatWatchSteps();}}return;}
- AI.started=true;await aiLoadChats();if(location.hash==='#chat'||aiLast==='canonical'||(aiLast==null&&AI.canonical.available))await aiOpen('canonical',true);else if(aiChatId)await aiOpen(aiChatId,true);else aiNew('',true);
+ AI.started=true;await aiLoadChats();if(location.hash==='#chat'||aiLast==='canonical'||(aiLast==null&&AI.canonical.available))await aiOpen('canonical',true);else if(aiChatId.startsWith('oc:')){await aiLoadSessions();await aiOpenSession(aiChatId.slice(3),true);}else if(aiChatId)await aiOpen(aiChatId,true);else aiNew('',true);
 }
 setInterval(()=>{if(!document.hidden&&current==='ai')aiLoadModels();},60000);
 addEventListener('resize',aiFitMsgs);

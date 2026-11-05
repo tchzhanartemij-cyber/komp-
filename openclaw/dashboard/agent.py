@@ -120,7 +120,8 @@ class Agent:
                           ('Поток выполнения остановлен; автоматический повтор не выполнялся', time.time(), row['id']))
                 self.active.pop(row['id'], None)
 
-    def submit(self, text, request=None):
+    def submit(self, text, request=None, session=None):
+        """Start a run in the canonical session, or in `session` (a key the caller has checked)."""
         if request is not None and (not isinstance(request, str) or not re.fullmatch(r'[A-Za-z0-9_-]{16,64}', request)):
             raise ValueError('Неверный идентификатор запроса')
         with self.lock:
@@ -129,9 +130,9 @@ class Agent:
                     row = c.execute('SELECT id FROM runs WHERE request=?', (request,)).fetchone()
                     if row:
                         return RunID(row['id'], True)
-            return self._submit_locked(text, self.config(), request)
+            return self._submit_locked(text, self.config(), request, session)
 
-    def _submit_locked(self, text, config, request=None):
+    def _submit_locked(self, text, config, request=None, session=None):
         with self.db() as c:
             self.recover(c)
             if c.execute("SELECT 1 FROM runs WHERE status='running'").fetchone():
@@ -139,7 +140,7 @@ class Agent:
             now = time.time()
             rid = c.execute("INSERT INTO runs(status,input,output,error,started,updated,request) VALUES('running',?,'','',?,?,?)", (text, now, now, request)).lastrowid
             c.execute('INSERT INTO events(run,status,time) VALUES(?,?,?)', (rid, 'running', now))
-            worker = threading.Thread(target=self.work, args=(rid, text, config), daemon=True)
+            worker = threading.Thread(target=self.work, args=(rid, text, config, session), daemon=True)
             self.active[rid] = worker
         try:
             worker.start()
@@ -156,7 +157,7 @@ class Agent:
                 c.execute('INSERT INTO events(run,status,time,output_chars) VALUES(?,?,?,?)', (rid, status, time.time(), len(output)))
             c.execute('UPDATE runs SET status=?,output=?,error=?,updated=? WHERE id=?', (status, output, error, time.time(), rid))
 
-    def work(self, rid, text, config):
+    def work(self, rid, text, config, session=None):
         url, token, agent, user = config
         output, status = '', 'running'
         deadline = time.monotonic() + TOTAL_TIMEOUT
@@ -165,7 +166,7 @@ class Agent:
         try:
             payload = dict(model='openclaw/'+agent, input=text, stream=True)
             headers = {'Authorization':'Bearer '+token, 'Content-Type':'application/json', 'Accept':'text/event-stream'}
-            canonical = self.canonical()
+            canonical = session or self.canonical()
             if canonical is not None:
                 headers['x-openclaw-session-key'] = canonical
             else:

@@ -26,6 +26,7 @@ async function fetch(url,opts={}){
  if(url==='/api/ai/chats')return reply({chats:[{...chat,messages:undefined}],canonical:{available:canonical,reason:canonical?'':'Отключено'}});
  if(url==='/api/ai/projects')return reply({projects:[]});
  if(url.startsWith('/api/ai/chat?'))return reply(chat);
+ if(url==='/api/workspace/sessions')return reply({sessions:[{key:'agent:main:dashboard:u1',title:'Офис: фоновые работы',source:'openclaw',updated:1700000000,project:'p1',chat:'c'.repeat(12),active:false},{key:'agent:main:telegram:group:1',title:'Чат из OpenClaw',source:'telegram',updated:1700000001,project:'',active:true}]});
  if(url==='/api/workspace')return reply({status:{available:canonical,reason:''},session:{key:'main'},tasks:[]});
  if(url.startsWith('/api/workspace/history'))return reply({messages:[{id:'old',role:'assistant',text:'**Telegram**',ts:123,model:'session-model'}],next_offset:30});
  if(url==='/api/workspace/send'){if(responseError)throw Error('offline');return reply({id:1});}
@@ -71,5 +72,11 @@ let completed=false;process.on('beforeExit',()=>{if(!completed){console.error('C
  const table=run('aiMarkdown("Итог:\\n| Модель | Цена |\\n|---|---:|\\n| **Opus** | 1 |\\n| Haiku |\\nпосле")'),cellsText=descendants(table).filter(n=>n.tagName==='TD'||n.tagName==='TH').map(n=>descendants(n).map(c=>c.textContent||'').join('')||n.textContent);
  assert.equal(descendants(table).filter(n=>n.tagName==='TABLE').length,1);assert.equal(descendants(table).filter(n=>n.tagName==='TD').length,4);assert.equal(descendants(table).filter(n=>n.tagName==='P').length,2);
  assert(!html.includes('id="tab-chat"'));assert(!html.includes('agent-toolbar'));assert(html.includes('--kb'));
+ // OpenClaw sessions: in the chats list or inside their project, opened from Gateway history, answered in the same session.
+ run("aiSetTab('chats')");await run('aiLoadSessions()');assert($('ai-list').textContent.includes('Чат из OpenClaw'));assert($('ai-list').textContent.includes('Telegram · работает'));assert(!$('ai-list').textContent.includes('Офис: фоновые работы'));
+ run("AI.projects=[{id:'p1',name:'Монотоника'}];aiSetTab('projects')");assert($('ai-list').textContent.includes('Офис: фоновые работы'));
+ await run("aiOpenSession('agent:main:dashboard:u1')");assert.equal($('h-ai').textContent,'Офис: фоновые работы');assert.equal($('ai-project-name').textContent,'Монотоника');assert.equal(run('aiChatId'),'oc:agent:main:dashboard:u1');assert($('ai-attach').disabled);assert(requests.some(r=>r.url==='/api/workspace/history?key='+encodeURIComponent('agent:main:dashboard:u1')));
+ $('ai-text').value='дальше';await $('ai-text').fire('input');assert(!$('ai-send').disabled);await $('ai-form').fire('submit');const toSession=requests.filter(r=>r.url==='/api/workspace/send').at(-1).body;assert.equal(toSession.key,'agent:main:dashboard:u1');assert.equal(toSession.text,'дальше');assert(!requests.some(r=>r.url==='/api/ai/send'&&r.body.text==='дальше'));assert($('ai-msgs').textContent.includes('ждёт ответа'));assert.equal($('ai-text').value,'');
+ run('aiNew()');assert.equal(run('AI.oc'),null);run("aiSetTab('chats')");
  console.log('Unified chat drafts, canonical routing, upload lifecycle, model probes and message actions passed');
 })().then(()=>{completed=true},e=>{completed=true;console.error(e);process.exitCode=1});

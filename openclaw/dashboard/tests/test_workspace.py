@@ -188,6 +188,49 @@ class WorkspaceTests(unittest.TestCase):
             self.assertEqual(len(self.seen),1)
             h=self.handler('/api/workspace/revision/send',{'id':draft['id'],'confirm':True});h.authorize=lambda:(True,None);h.do_POST()
             self.assertEqual(self.responses[-1][0],202);h.do_POST();self.assertEqual(self.responses[-1][0],200)
+    def test_openclaw_sessions(self):
+        self.rows=[
+            {'key':'main','channel':'telegram'},{'key':self.key,'channel':'telegram'},
+            {'key':'agent:owner:svodka-aaaaaaaaaaaa','label':'already listed','updatedAt':5000},
+            {'key':'agent:owner:dashboard:u1','label':'Офис: фоновые работы sk-abcdefghijk','parentSessionKey':'agent:owner:svodka-aaaaaaaaaaaa','updatedAt':9000,'status':'running'},
+            {'key':'agent:owner:dashboard:u2','displayName':'deeper','spawnedBy':'agent:owner:dashboard:u1','updatedAt':8000},
+            {'key':'agent:owner:dashboard:u3','parentSessionKey':'main','updatedAt':7000},
+            {'key':'agent:owner:svodka-deleted','label':'old panel chat','updatedAt':1000},
+            {'key':'agent:owner:telegram:group:42','channel':'telegram','label':'group','updatedAt':6000},
+            {'key':'agent:owner:subagent:hidden','parentSessionKey':'agent:owner:svodka-aaaaaaaaaaaa'},
+            {'key':'agent:owner:cron:daily'},{'key':'agent:owner:x','kind':'hook'},{'key':'agent:owner:y','kind':'cron'},
+            {'key':'agent:owner:archived','archived':True},'bad',{'key':'bad key'}]
+        rows=self.w.openclaw_sessions({'aaaaaaaaaaaa':'p1','bbbbbbbbbbbb':''})
+        self.assertEqual([r['key'] for r in rows],['agent:owner:dashboard:u1','agent:owner:dashboard:u2','agent:owner:dashboard:u3','agent:owner:telegram:group:42','agent:owner:svodka-deleted'])
+        office,deeper,plain,group,old=rows
+        self.assertEqual((office['title'],office['project'],office['chat'],office['source'],office['active'],office['updated']),('Офис: фоновые работы ***','p1','aaaaaaaaaaaa','openclaw',True,9.0))
+        self.assertEqual((deeper['title'],deeper['project']),('deeper','p1'))
+        self.assertEqual((plain['title'],plain['project'],plain['source']),('Сессия OpenClaw · u3','','openclaw'))
+        self.assertEqual(group['source'],'telegram');self.assertEqual(old['source'],'svodka')
+        n=len(self.seen);self.w.openclaw_sessions({'aaaaaaaaaaaa':'p1','bbbbbbbbbbbb':''});self.assertEqual(len(self.seen),n)
+        for key in ('agent:owner:subagent:a','agent:owner:cron:a','agent:owner:hook:a','agent:owner:acp:a','main','agent:x'):
+            self.assertFalse(self.w.session_key_ok(key))
+    def test_openclaw_session_routes(self):
+        self.rows=[{'key':self.key},{'key':'agent:owner:dashboard:u1','label':'work'},{'key':'agent:owner:subagent:hidden'}]
+        self.responses=[]
+        with patch.object(server,'workspace_service',self.w),patch.object(server,'agent_service',self.agent),patch.object(server,'load_token',return_value='panel-token'),patch.object(server,'list_chats',return_value=[]):
+            h=self.handler('/api/workspace/sessions');h.authorize=lambda:(True,None);h.do_GET()
+            self.assertEqual(self.responses[-1][0],200);self.assertEqual([r['key'] for r in self.responses[-1][1]['sessions']],['agent:owner:dashboard:u1'])
+            h=self.handler('/api/workspace/history?key=agent%3Aowner%3Adashboard%3Au1');h.authorize=lambda:(True,None);h.do_GET()
+            self.assertEqual(self.responses[-1][0],200);self.assertEqual(self.seen[-1][2]['args']['sessionKey'],'agent:owner:dashboard:u1')
+            for key in ('agent%3Aowner%3Asubagent%3Ahidden','agent%3Aowner%3Aunknown'):
+                h=self.handler('/api/workspace/history?key='+key);h.authorize=lambda:(True,None);h.do_GET();self.assertEqual(self.responses[-1][0],503)
+            request='abcdefghijklmnopqrstuv'
+            h=self.handler('/api/workspace/send',{'text':'дальше','request':request,'key':'agent:owner:dashboard:u1'});h.authorize=lambda:(True,None);h.do_POST()
+            self.assertEqual(self.responses[-1][0],202)
+            for worker in list(self.agent.active.values()):worker.join(3)
+            path,headers,body=[s for s in self.seen if s[0]=='/v1/responses'][-1]
+            self.assertEqual(headers['x-openclaw-session-key'],'agent:owner:dashboard:u1');self.assertEqual(body['input'],'[Сводка:'+request+'] дальше')
+            h=self.handler('/api/workspace/send',{'text':'x','request':'b'*22,'key':'agent:owner:subagent:hidden'});h.authorize=lambda:(True,None);h.do_POST()
+            self.assertEqual(self.responses[-1][0],400)
+            # Gateway down: the panel gets an error and keeps its own list.
+            self.w.oc_cache=None;self.error=500;h=self.handler('/api/workspace/sessions');h.authorize=lambda:(True,None);h.do_GET()
+            self.assertEqual(self.responses[-1][0],503)
     def test_unprotected_routes(self):
         self.responses=[]
         with patch.object(server,'load_token',return_value=None):

@@ -1732,9 +1732,15 @@ class Handler(BaseHTTPRequestHandler):
         if not status['available']:
             return self.send_json(503, {'error':status['reason']})
         try:
+            if not post and route == '/api/workspace/sessions':
+                # OpenClaw sessions for the AI list; the panel keeps its own list when this fails.
+                with ai_lock:
+                    chats = {c['id']: c['project'] for c in list_chats()}
+                return self.send_json(200, {'sessions': workspace.openclaw_sessions(chats)})
             if not post and route == '/api/workspace/history':
                 q = parse_qs(urlsplit(self.path).query)
-                return self.send_json(200, workspace.history(int(q.get('offset',['0'])[0]), int(q.get('limit',['30'])[0])))
+                key = self.openclaw_key(workspace, q.get('key', [None])[0])
+                return self.send_json(200, workspace.history(int(q.get('offset',['0'])[0]), int(q.get('limit',['30'])[0]), key))
             b = self.body() if post else {}
             if not isinstance(b,dict):
                 raise ValueError('Неверные данные')
@@ -1742,7 +1748,8 @@ class Handler(BaseHTTPRequestHandler):
                 text, request = b.get('text'), b.get('request')
                 if not isinstance(text,str) or not 0<len(text.strip())<=20000 or not isinstance(request,str) or not re.fullmatch(r'[A-Za-z0-9_-]{16,64}',request):
                     raise ValueError('Неверные данные')
-                rid = agent_service.submit('[Сводка:'+request+'] '+text.strip(),request)
+                key = self.openclaw_key(workspace, b.get('key'))
+                rid = agent_service.submit('[Сводка:'+request+'] '+text.strip(),request,key) if key else agent_service.submit('[Сводка:'+request+'] '+text.strip(),request)
                 duplicate = getattr(rid,'duplicate',False)
                 return self.send_json(200 if duplicate else 202,dict(id=int(rid),duplicate=duplicate))
             if route == '/api/workspace/revision' and post:
@@ -1757,6 +1764,16 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_json(503,{'error':str(e)})
         except (ValueError, TypeError) as e:
             return self.send_json(400 if post else 503,{'error':str(e) if isinstance(e,ValueError) else 'Неверные данные'})
+
+    def openclaw_key(self, workspace, key):
+        """None for the canonical dialog; otherwise a session from the visible OpenClaw list."""
+        if key is None:
+            return None
+        with ai_lock:
+            chats = {c['id']: c['project'] for c in list_chats()}
+        if not workspace.session_key_ok(key) or not any(s['key'] == key for s in workspace.openclaw_sessions(chats)):
+            raise ValueError('Сессия OpenClaw не найдена или скрыта')
+        return key
 
     def do_GET(self):
         route = urlsplit(self.path).path

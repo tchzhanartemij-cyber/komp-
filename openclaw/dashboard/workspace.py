@@ -119,23 +119,73 @@ class Workspace:
             out.append(item)
         return out
 
+    def openclaw_sessions(self, chats):
+        """Visible OpenClaw sessions for the AI list. `chats` maps Сводка chat id → project id.
+
+        Skipped: the canonical dialog (listed on its own), svodka chats already in the list,
+        hidden subagents, cron/hook/node/acp service sessions and archived ones.
+        A session spawned (directly or deeper) from a project chat carries that project."""
+        with self.lock:
+            cached = getattr(self, 'oc_cache', None)
+            if cached and cached[0] == chats and time.monotonic()-cached[1] < 5:
+                return cached[2]
+        payload = self.gateway_invoke('sessions_list', {'limit':100, 'includeLastMessage':False})
+        rows = payload.get('sessions', [])
+        if not isinstance(rows, list):
+            raise ValueError('Шлюз вернул некорректный список сессий')
+        canonical = self.canonical_keys()
+        parents = {r['key']: r.get('parentSessionKey') or r.get('spawnedBy') for r in rows if isinstance(r, dict) and isinstance(r.get('key'), str)}
+        def svodka(key):
+            m = re.fullmatch(r'agent:[a-z0-9_-]{1,64}:svodka-([A-Za-z0-9_-]{1,80})', key or '')
+            return m and m[1]
+        out = []
+        for row in rows:
+            key = row.get('key') if isinstance(row, dict) else None
+            if not self.session_key_ok(key) or key in canonical or row.get('kind') in ('cron', 'hook', 'node') or row.get('archived') is True:
+                continue
+            if svodka(key) in chats:
+                continue
+            parent, chat, seen = parents.get(key), None, {key}
+            while isinstance(parent, str) and parent not in seen and chat is None:
+                seen.add(parent)
+                chat = svodka(parent) if svodka(parent) in chats else None
+                parent = parents.get(parent)
+            title = next((row[k] for k in ('label', 'displayName', 'derivedTitle') if isinstance(row.get(k), str) and row[k].strip()), None)
+            source = 'svodka' if svodka(key) else 'telegram' if row.get('channel') == 'telegram' else 'openclaw'
+            item = dict(key=key, title=self.clean(title or 'Сессия OpenClaw · '+key.rsplit(':', 1)[-1][:8])[:120], source=source, updated=timestamp(row.get('updatedAt'), milliseconds=True), project=chats[chat] if chat else '', active=row.get('status') in ('running', 'queued') or row.get('hasActiveRun') is True)
+            if chat:
+                item['chat'] = chat
+            out.append(item)
+        out.sort(key=lambda r: r['updated'] or 0, reverse=True)
+        with self.lock:
+            self.oc_cache = (dict(chats), time.monotonic(), out)
+        return out
+
+    def session_key_ok(self, key):
+        """A session the panel may open: a well-formed agent key that is not a hidden or service one."""
+        if not isinstance(key, str) or not re.fullmatch(r'agent:[a-z0-9_-]{1,64}:[A-Za-z0-9:_.-]{1,160}', key):
+            return False
+        return not set(key.split(':')[2:]) & {'subagent', 'cron', 'hook', 'acp', 'node'}
+
     def clean(self, text):
         tags = 'think|thinking|reasoning|relevant-memories|relevant_memories|tool_call|function_call|tool_calls|function_calls'
         text = re.sub(r'<('+tags+r')\b[^>]*>.*?(?:</\1\s*>|$)', '', text, flags=re.I|re.S)
         text = re.sub(r'<\|[^\r\n]*?\|>', '', text)
         return self.secret_re.sub('***', text)
 
-    def history(self, offset=None, limit=30):
+    def history(self, offset=None, limit=30, key=None):
+        """History of the canonical dialog, or of another session the caller already checked."""
         self.require()
         offset = 0 if offset is None else int(offset)
         limit = int(limit)
         if offset < 0 or not 1 <= limit <= 50:
             raise ValueError('Неверная пагинация')
+        key = key or self.agent.canonical()
         with self.lock:
-            cache_key = (self.agent.canonical(), limit)
+            cache_key = (key, limit)
             if offset == 0 and self.tail and self.tail[0] == cache_key and time.monotonic()-self.tail_time < 2:
                 return self.tail[1]
-            data = self.gateway_invoke('sessions_history', {'sessionKey':self.agent.canonical(), 'limit':limit, 'offset':offset, 'includeTools':False})
+            data = self.gateway_invoke('sessions_history', {'sessionKey':key, 'limit':limit, 'offset':offset, 'includeTools':False})
             messages, hidden, seen = [], 0, set()
             rows = data.get('messages', [])
             if not isinstance(rows,list):
