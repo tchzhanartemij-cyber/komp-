@@ -2614,11 +2614,11 @@ load();
 setInterval(() => { if (!document.hidden) { load(); renderBanner(); } }, 10000);
 document.addEventListener('visibilitychange', () => { if (!document.hidden) scheduleRefresh(); });
 
-const statusLabels={running:'Выполняется',completed:'Завершён',incomplete:'Ответ неполный',failed:'Ошибка',interrupted:'Прерван',queued:'В очереди',waiting_limit:'Ожидание лимита',question:'Требуется ответ',done:'Готово',nochange:'Без изменений',cancelled:'Отменён',merged:'Объединён',unknown:'Неизвестно'};
+const statusLabels={running:'Выполняется',completed:'Завершён',incomplete:'Ответ неполный',failed:'Ошибка',interrupted:'Прерван',queued:'В очереди',waiting_limit:'Ожидание лимита',question:'Требуется ответ',stalled:'Зависла',done:'Готово',nochange:'Без изменений',cancelled:'Отменён',merged:'Объединён',unknown:'Неизвестно'};
 const statusLabel=s=>statusLabels[s] || 'Неизвестно';
 const officeTime=t=>typeof t==='number'?new Date(t*1000).toLocaleString('ru-RU'):t || 'неизвестно';
 // OFFICE_CORE_BEGIN — pure state, map and movement; also executed by Node tests.
-const OFFICE_ACTIONS={answering:'пишет ответ',waiting_model:'ждёт модель',code:'пишет код',search_code:'ищет в коде',web:'ищет в интернете',command:'запускает команду',subagent:'вызвал подагента',tool:'использует инструмент',thinking:'думает'};
+const OFFICE_ACTIONS={answering:'пишет ответ',waiting_model:'ждёт модель',code:'пишет код',search_code:'ищет в коде',web:'ищет в интернете',command:'запускает команду',subagent:'вызвал подагента',tool:'использует инструмент',thinking:'думает',job:'работает в фоне'};
 const OFFICE_DONE=new Set(['completed','done','nochange','merged']);
 const OFFICE_TERMINAL=new Set([...OFFICE_DONE,'failed','incomplete','interrupted','cancelled','timeout']);
 function officeMap(){
@@ -2662,7 +2662,13 @@ function officeInitial(){return {server_time:null,online:true,chars:{},latest:{}
 function officeView(s,now,missing){
  let place='entrance',text='неизвестно',badge='',tone='muted',working=false,stale=false;
  if(!missing){
-  if(s.status==='running'){
+  const progress=s.kind==='job'&&typeof s.progress==='string'&&s.progress?' · '+s.progress:'';
+  if(s.kind==='job'&&(s.status==='running'||s.status==='stalled')){
+   // Background jobs report through office-job; the server marks them stalled after 10 minutes.
+   place='desk';stale=s.status==='stalled'||!Number.isFinite(s.updated)||now-s.updated>600;
+   text=(stale?'зависла':'работает в фоне')+progress+(typeof s.detail==='string'&&s.detail?' · '+s.detail:'');
+   working=!stale;tone=stale?'warn':'good';badge=stale?'!':'';
+  }else if(s.status==='running'){
    const coder=s.kind==='coder'||s.kind==='codex';
    // A coder waiting on an unanswered tool call stays fresh up to the coder's 2 h hard limit.
    const limit=coder?(s.tool_pending===true?7200:120):90;
@@ -2672,7 +2678,7 @@ function officeView(s,now,missing){
   }else if(s.status==='question'&&s.kind==='coder'){place='desk';text='ждёт решения';badge='?';tone='warn';}
   else if(s.status==='waiting_limit'){place='desk';text='ждёт лимит';}
   else if(s.status==='queued'){place='queue';text='в очереди';}
-  else if(OFFICE_DONE.has(s.status)){place='lounge';text='отдыхает';badge='✓';tone='good';}
+  else if(OFFICE_DONE.has(s.status)){place='lounge';text=s.kind==='job'?'готово'+progress:'отдыхает';badge='✓';tone='good';}
   else if(['failed','incomplete','interrupted','timeout'].includes(s.status)){
    place='desk';badge='✗';tone='bad';text={failed:'ошибка',incomplete:'ответ неполный',interrupted:'прерван',timeout:'время вышло'}[s.status];
   }else if(s.status==='cancelled'){text='отменён';}
@@ -2691,13 +2697,15 @@ function officeReduce(state,snapshot){
  if(duplicate&&state.online)return state;
  const sources=new Map(),latest={...state.latest};
  for(const s of snapshot.sessions){
-  if(!s||typeof s.key!=='string'||!['agent','coder','codex','chat'].includes(s.kind))continue;
+  if(!s||typeof s.key!=='string'||!['agent','coder','codex','chat','job'].includes(s.kind))continue;
   // Snapshots are full server state ordered by server_time; per-session `updated` may be coarser
   // (coder stamps are minute-precision) than the log mtime used while running, so never prefer it.
   const source={...s};
   latest[s.key]=source;sources.set(s.key,{source,missing:0});
  }
  for(const [key,c] of Object.entries(state.chars))if(!sources.has(key)){
+  // Finished jobs leave when the server stops listing them (30 minutes after the last update).
+  if(OFFICE_TERMINAL.has(c.source.status)&&c.source.kind==='job')continue;
   if(OFFICE_TERMINAL.has(c.source.status))sources.set(key,{source:c.source,missing:0});
   else if(!c.missing||duplicate)sources.set(key,{source:c.source,missing:1});
  }
@@ -2740,7 +2748,7 @@ let officeState=officeInitial(),officeSelected='',officeReturn=null,officeFrame=
 const officeCanvas=$('office-canvas'),officeCtx=officeCanvas.getContext('2d'),officeActors=new Map(),officeRows=new Map();
 const officeCamera={w:0,h:0,s:1,fit:1,x:0,y:0};
 let officeHits=[],officeGoals={};
-const officeColors={agent:'#c7a3ef',coder:'#e9a47f',codex:'#71d5b2',chat:'#8dbbf1'};
+const officeColors={agent:'#c7a3ef',coder:'#e9a47f',codex:'#71d5b2',chat:'#8dbbf1',job:'#e6c86e'};
 function officeActive(){return !document.hidden&&current==='agents'&&!$('page-agents').hidden;}
 function officeClamp(){
  const c=officeCamera,w=416*c.s,h=256*c.s;
@@ -2847,7 +2855,7 @@ function officeDraw(stamp){
   if(px<0||px>v.w||py<-40||py>v.h+40)continue;
   // Narrow screens: compact "#id ✓" chips; the selected one and the list keep the full status.
   const compact=v.w<480&&key!==officeSelected,full=c.source.label || key;
-  const name=compact?(full.match(/#\S+/)?.[0] || full):full,action=compact?c.badge:(c.badge?c.badge+' ':'')+(officeState.online&&c.place==='lounge'&&officeActors.get(key).path.length?'готово':c.text);
+  const name=compact?(full.match(/#\S+/)?.[0] || (c.source.kind==='job'?'Фон':full)):full,action=compact?c.badge:(c.badge?c.badge+' ':'')+(officeState.online&&c.place==='lounge'&&officeActors.get(key).path.length?'готово':c.text);
   g.font='600 11px system-ui';const nw=g.measureText(name).width;g.font='11px system-ui';const aw=action?g.measureText(action).width:0;
   const wrap=!compact&&(v.w<480||nw+aw+29>v.w-8),w=Math.min(v.w-8,(wrap?Math.max(nw,aw):nw+aw)+29),h=wrap?38:23;
   let x=Math.max(4,Math.min(v.w-w-4,px-w/2)),y=Math.max(4,Math.min(v.h-h-4,py-h)),attempt=0;
@@ -2876,19 +2884,19 @@ function officeDetails(){
  if(signature===officeDetailSignature)return;officeDetailSignature=signature;
  const s=c.source,details=$('office-details');$('office-detail-label').textContent=s.label;
  const feedModel=officeFeed.key===officeFeedKey(officeSelected)?officeFeed.model:null;
- const action=s.status==='queued'?'ожидает запуска':!officeState.online||c.missing?'неизвестно':s.status!=='running'?'не работает':OFFICE_ACTIONS[s.activity]?OFFICE_ACTIONS[s.activity]+(s.detail?' · '+s.detail:''):'нет данных о действии';
+ const action=s.status==='queued'?'ожидает запуска':!officeState.online||c.missing?'неизвестно':s.kind==='job'?c.text:s.status!=='running'?'не работает':OFFICE_ACTIONS[s.activity]?OFFICE_ACTIONS[s.activity]+(s.detail?' · '+s.detail:''):'нет данных о действии';
  const clock=t=>Number.isFinite(t)?new Date(t*1000).toLocaleTimeString('ru-RU',{hour:'2-digit',minute:'2-digit'}):'?';
- const fields=[['Задача',s.title || 'Название не сообщено'],['Исполнитель',s.provider+' · '+(s.model || feedModel || (s.status==='queued'?'модель станет известна при запуске':'модель не сообщена'))],['Сейчас',action===c.text?action:c.text+' · '+action],['Время',clock(s.started)+' → '+clock(s.updated)+' · '+officeElapsed(c)]];
+ const fields=[['Задача',s.title || 'Название не сообщено'],['Исполнитель',s.kind==='job'?s.provider+(s.job_kind?' · '+s.job_kind:''):s.provider+' · '+(s.model || feedModel || (s.status==='queued'?'модель станет известна при запуске':'модель не сообщена'))],['Сейчас',action===c.text?action:c.text+' · '+action],['Время',clock(s.started)+' → '+clock(s.updated)+' · '+officeElapsed(c)]];
  const add=n=>details.append(n);
  details.replaceChildren(el('dl',{},...fields.map(([label,value])=>el('div',{},el('dt',{text:label}),el('dd',{text:value})))));
  if(c.stale)add(el('p',{class:'meta',text:'данные устарели'}));
  if(c.place==='aisle')add(el('p',{class:'meta',text:'В проходе: нет свободного стола'}));
- if(s.parent){const parent=officeState.chars[s.parent];add(parent?el('button',{type:'button',text:'Родитель: '+parent.source.label,onclick:()=>officeSelect(s.parent)}):el('p',{class:'meta',text:'Родительский кодер не присутствует в снимке'}));}
+ if(s.parent){const parent=officeState.chars[s.parent];add(parent?el('button',{type:'button',text:'Родитель: '+parent.source.label,onclick:()=>officeSelect(s.parent)}):el('p',{class:'meta',text:s.kind==='job'?'Родительская работа не присутствует в снимке':'Родительский кодер не присутствует в снимке'}));}
  const kind=s.kind==='codex'?'coder':s.kind;
- add(el('p',{class:'meta',text:kind==='coder'?'Отмена/ответ — через существующие команды кодера в Telegram':kind==='chat'?'Остановить можно в окне диалога ИИ':'Новый запуск — через форму серверного агента'}));
+ add(el('p',{class:'meta',text:kind==='job'?'Статус пишет сама работа через office-job':kind==='coder'?'Отмена/ответ — через существующие команды кодера в Telegram':kind==='chat'?'Остановить можно в окне диалога ИИ':'Новый запуск — через форму серверного агента'}));
  // The feed lives in its own slot so detail refreshes keep its scroll position.
  $('office-feed-slot').hidden=kind!=='coder';
- if(kind!=='coder')add(el('a',{href:'#ai',text:'Открыть чат ИИ',onclick:()=>officeClose()}));
+ if(kind!=='coder'&&kind!=='job')add(el('a',{href:'#ai',text:'Открыть чат ИИ',onclick:()=>officeClose()}));
 }
 // Live work feed of the selected coder task: public tool steps and visible replies, polled while open.
 const officeFeedBox=el('section',{class:'office-feed','aria-label':'Ход работы'});
@@ -2973,7 +2981,7 @@ function officeRender(){
   row.action.textContent=(c.badge?c.badge+' ':'')+c.text+(c.place==='aisle'?' · в проходе':'');row.button.setAttribute('aria-pressed',String(key===officeSelected));
  }
  // Working first, then waiting for a decision, queued, failed and finished; newest first inside a group.
- const rank=c=>c.working?0:c.source.status==='running'||c.text==='ждёт решения'||c.source.status==='waiting_limit'?1:c.place==='queue'?2:c.tone==='bad'?3:4;
+ const rank=c=>c.working?0:c.source.status==='running'||c.source.status==='stalled'||c.text==='ждёт решения'||c.source.status==='waiting_limit'?1:c.place==='queue'?2:c.tone==='bad'?3:4;
  const order=Object.entries(officeState.chars).sort(([ka,a],[kb,b])=>rank(a)-rank(b)||(b.source.updated||0)-(a.source.updated||0)||ka.localeCompare(kb));
  order.forEach(([key],i)=>{const li=officeRows.get(key).li;if($('office-list').children[i]!==li)$('office-list').insertBefore(li,$('office-list').children[i] || null);});
  if(officeSelected&&!officeState.chars[officeSelected]){officeClose();return;}

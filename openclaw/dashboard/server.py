@@ -93,6 +93,7 @@ _office_module = importlib.util.module_from_spec(_office_spec)
 sys.modules[_office_spec.name] = _office_module
 _office_spec.loader.exec_module(_office_module)
 office_sessions, coder_metadata, coder_feed = _office_module.office_sessions, _office_module.coder_metadata, _office_module.coder_feed
+read_jobs, jobs_dir = _office_module.read_jobs, _office_module.jobs_dir
 
 LIFE_DIR = Path(os.environ.get("LIFE_DIR", Path.home() / ".openclaw/workspace/life")).expanduser()
 agent_service = Agent(LIFE_DIR / "dashboard-agent")
@@ -1887,7 +1888,7 @@ class Handler(BaseHTTPRequestHandler):
             queue = queue_snapshot(filename, lambda row: coder_metadata(row, logs_dir))
             with runs_lock:
                 chats = {key: {k: row.get(k) for k in ('started', 'updated', 'provider', 'phase')} for key, row in ai_runs.items()}
-            self.send_json(200, {"server_time": time.time(), "sessions": office_sessions(state, queue, chats),
+            self.send_json(200, {"server_time": time.time(), "sessions": office_sessions(state, queue, chats, read_jobs(jobs_dir())),
                                  "agent": {k: state[k] for k in ('available', 'reason')},
                                  "runs": [{k:r[k] for k in ("id", "status", "started", "updated")} for r in state["runs"]],
                                  "events": state["events"], "queue": queue})

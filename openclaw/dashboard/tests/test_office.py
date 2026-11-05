@@ -15,7 +15,8 @@ from unittest.mock import MagicMock, patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import server
 from agent import Agent, queue_snapshot
-from office import LOG_LIMIT, coder_metadata, model_name, office_sessions, parse_coder_log, redact
+from office import LOG_LIMIT, JOB_BYTES, JOB_FILES, coder_metadata, jobs_dir, model_name, office_sessions, parse_coder_log, read_jobs, redact
+import office_job
 
 
 def message(kind, *items):
@@ -34,7 +35,8 @@ class OfficeTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.root = Path(self.tmp.name)
-        self.env = patch.dict(os.environ, {}, clear=True)
+        # Never read the real background jobs directory.
+        self.env = patch.dict(os.environ, {'SVODKA_OFFICE_JOBS_DIR': str(self.root / 'office-jobs')}, clear=True)
         self.env.start()
 
     def tearDown(self):
@@ -352,6 +354,119 @@ class OfficeTests(unittest.TestCase):
         self.assertEqual([s['activity'] for s in seen], ['waiting_model', 'answering'])
         self.assertEqual(seen[0]['key'], seen[1]['key'])
         self.assertNotIn('private user message', json.dumps(seen))
+
+    def write_job(self, name, **fields):
+        directory = self.root / 'office-jobs'
+        directory.mkdir(exist_ok=True)
+        (directory / (name + '.json')).write_text(json.dumps({'id': name, **fields}, ensure_ascii=False))
+
+    def test_jobs_progress_stalled_hidden_and_parent(self):
+        now = 10000
+        self.write_job('video', title='Монтаж видео', kind='video', status='running', progress_done=8, progress_total=46,
+                       detail='Gemini разбирает ролики', started=now - 900, updated=now - 30)
+        self.write_job('part-1', title='Поток 1', status='running', parent='video', started=now - 60, updated=now - 601)
+        self.write_job('fresh-done', title='Готово', status='done', updated=now - 1799)
+        self.write_job('old-done', title='Давно', status='done', updated=now - 1801)
+        self.write_job('old-fail', title='Давно', status='failed', updated=now - 1801)
+        self.write_job('fail', title='Сбой', status='failed', updated=now - 10, parent='../etc')
+        self.write_job('bad-status', title='x', status='paused', updated=now)
+        rows = {r['key']: r for r in office_sessions({}, {}, {}, read_jobs(jobs_dir()), now)}
+        self.assertEqual(set(rows), {'job:video', 'job:part-1', 'job:fresh-done', 'job:fail'})
+        video = rows['job:video']
+        self.assertEqual((video['kind'], video['label'], video['title'], video['provider']), ('job', 'Фон · Монтаж видео', 'Монтаж видео', 'Фоновая работа'))
+        self.assertEqual((video['status'], video['activity'], video['progress'], video['detail'], video['job_kind']),
+                         ('running', 'job', '8/46', 'Gemini разбирает ролики', 'video'))
+        self.assertEqual((video['started'], video['updated'], video['parent']), (now - 900, now - 30, None))
+        part = rows['job:part-1']
+        self.assertEqual((part['status'], part['activity'], part['parent'], part['progress']), ('stalled', None, 'job:video', None))
+        self.assertEqual(rows['job:fresh-done']['status'], 'done')
+        self.assertEqual((rows['job:fail']['status'], rows['job:fail']['parent']), ('failed', None))
+        # A running file nobody has touched for a day is not shown forever.
+        self.write_job('abandoned', title='x', status='running', updated=now - 86401)
+        self.assertNotIn('job:abandoned', [r['key'] for r in office_sessions({}, {}, {}, read_jobs(jobs_dir()), now)])
+
+    def test_jobs_skip_broken_files_and_redact(self):
+        directory = self.root / 'office-jobs'
+        directory.mkdir()
+        secret = 'sk-' + 'a' * 30
+        self.write_job('ok', title='Скачать https://drive.google.com/file/d/x ' + secret, status='running', updated=100,
+                       detail='пишет /home/jarvis/private/render.mp4 token=abc', progress_done='8', progress_total=True)
+        (directory / 'broken.json').write_text('{"id": "broken", "status": ')
+        (directory / 'list.json').write_text('[1, 2]')
+        (directory / 'other.json').write_text(json.dumps({'id': 'not-other', 'status': 'running', 'updated': 100}))
+        (directory / 'big.json').write_text(json.dumps({'id': 'big', 'status': 'running', 'updated': 100, 'detail': 'x' * JOB_BYTES}))
+        (directory / 'bin.json').write_bytes(b'\xff\xfe\x00')
+        (directory / '.tmp.json').write_text(json.dumps({'id': '.tmp', 'status': 'running', 'updated': 100}))
+        (directory / 'nodate.json').write_text(json.dumps({'id': 'nodate', 'status': 'running'}))
+        (directory / 'link.json').symlink_to(directory / 'ok.json')
+        (directory / 'dir.json').mkdir()
+        rows = office_sessions({}, {}, {}, read_jobs(directory), 110)
+        self.assertEqual([r['key'] for r in rows], ['job:ok'])
+        public = json.dumps(rows, ensure_ascii=False)
+        for raw in (secret, 'drive.google.com', '/home/jarvis', 'token=abc'):
+            self.assertNotIn(raw, public)
+        self.assertIn('render.mp4', rows[0]['detail'])
+        self.assertIsNone(rows[0]['progress'])
+        self.assertEqual(read_jobs(self.root / 'missing'), [])
+        for i in range(JOB_FILES + 5):
+            self.write_job('many-' + str(i), title='x', status='running', updated=100)
+        self.assertEqual(len(read_jobs(directory)), JOB_FILES)
+
+    def test_office_route_includes_jobs(self):
+        self.write_job('video', title='Монтаж', status='running', updated=server.time.time())
+        h = object.__new__(server.Handler)
+        h.path = '/api/office'
+        h.headers = {}
+        sent = []
+        h.send_json = lambda code, payload: sent.append((code, payload))
+        with patch.object(server, 'TOKEN_FILE', self.root / 'none'), patch.object(server, 'agent_service', Agent(self.root / 'state')):
+            h.do_GET()
+        self.assertEqual(sent[-1][0], 200)
+        self.assertEqual([s['key'] for s in sent[-1][1]['sessions']], ['job:video'])
+
+    def test_office_job_cli_atomic_and_keeps_started(self):
+        directory = self.root / 'office-jobs'
+        with patch('office_job.time.time', return_value=1000.0):
+            self.assertEqual(office_job.main(['start', 'video', 'Монтаж видео', '--kind', 'video', '--total', '46', '--detail', 'скачивание']), 0)
+        with patch('office_job.time.time', return_value=1100.0), patch('office_job.os.replace', wraps=os.replace) as replace:
+            office_job.main(['progress', 'video', '--done', '8', '--detail', 'Gemini'])
+        src, dst = replace.call_args.args
+        self.assertEqual((Path(src).parent, Path(dst)), (directory, directory / 'video.json'))
+        job = json.loads((directory / 'video.json').read_text())
+        self.assertEqual(job, {'id': 'video', 'status': 'running', 'updated': 1100.0, 'title': 'Монтаж видео', 'started': 1000.0,
+                               'kind': 'video', 'progress_total': 46, 'detail': 'Gemini', 'progress_done': 8})
+        with patch('office_job.time.time', return_value=1200.0):
+            office_job.main(['done', 'video'])
+        job = json.loads((directory / 'video.json').read_text())
+        self.assertEqual((job['status'], job['started'], job['updated'], job['progress_done'], job['detail']), ('done', 1000.0, 1200.0, 46, 'Gemini'))
+        with patch('office_job.time.time', return_value=1300.0):
+            office_job.main(['start', 'part', 'Поток', '--parent', 'video'])
+            office_job.main(['fail', 'part', '--detail', 'ffmpeg упал'])
+        part = json.loads((directory / 'part.json').read_text())
+        self.assertEqual((part['status'], part['parent'], part['detail'], part['started']), ('failed', 'video', 'ffmpeg упал', 1300.0))
+        self.assertEqual(sorted(p.name for p in directory.iterdir()), ['part.json', 'video.json'], 'no temp files left')
+        # Written files are what the office reads.
+        rows = office_sessions({}, {}, {}, read_jobs(directory), 1310)
+        self.assertEqual({r['key']: r['status'] for r in rows}, {'job:part': 'failed', 'job:video': 'done'})
+        # A progress update for an unknown job creates it; a broken old file is replaced.
+        (directory / 'lost.json').write_text('{oops')
+        office_job.main(['progress', 'lost', '--done', '1'])
+        self.assertEqual(json.loads((directory / 'lost.json').read_text())['title'], 'lost')
+
+    def test_office_job_cli_rejects_bad_ids_and_never_breaks_caller(self):
+        for argv in (['start', '../x', 't'], ['start', 'a/b', 't'], ['progress', '.hidden'], ['done', ''], ['start', 'ok', 't', '--parent', '../p'],
+                     ['progress', 'ok', '--done', '-1'], ['progress', 'ok', '--total', 'many'], ['pause', 'ok'], ['start', 'x' * 65, 't']):
+            with self.subTest(argv=argv), patch('sys.stderr', io.StringIO()), self.assertRaises(SystemExit) as raised:
+                office_job.main(argv)
+            self.assertEqual(raised.exception.code, 2)
+        self.assertFalse((self.root / 'office-jobs').exists())
+        blocker = self.root / 'file'
+        blocker.write_text('')
+        os.environ['SVODKA_OFFICE_JOBS_DIR'] = str(blocker / 'jobs')
+        err = io.StringIO()
+        with patch('sys.stderr', err):
+            self.assertEqual(office_job.main(['done', 'video']), 0)
+        self.assertIn('office-job:', err.getvalue())
 
 
 if __name__ == '__main__':

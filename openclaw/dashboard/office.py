@@ -5,6 +5,7 @@ import math
 import os
 import re
 import shlex
+import time
 from datetime import datetime
 from pathlib import Path
 
@@ -178,7 +179,58 @@ def coder_metadata(row, logs_dir):
     return result
 
 
-def office_sessions(agent, queue, chats):
+JOB_ID = re.compile(r'[A-Za-z0-9][A-Za-z0-9_.-]{0,63}')
+JOB_FILES = 100
+JOB_BYTES = 16 * 1024
+JOB_STALLED = 10 * 60   # running without updates this long is shown as stalled
+JOB_FINISHED = 30 * 60  # done/failed stay visible this long after the last update
+JOB_FORGOTTEN = 24 * 3600  # abandoned running files stop cluttering the office
+
+
+def jobs_dir():
+    """Background jobs directory: SVODKA_OFFICE_JOBS_DIR or ~jarvis/.openclaw/office-jobs."""
+    custom = os.environ.get('SVODKA_OFFICE_JOBS_DIR')
+    if custom:
+        return Path(custom)
+    home = Path(os.path.expanduser('~jarvis'))
+    return (home if home.is_absolute() and home.is_dir() else Path.home()) / '.openclaw' / 'office-jobs'
+
+
+def read_job_file(path):
+    """One job file as a dict, or None if missing, too big, unreadable or not a JSON object."""
+    try:
+        fd = os.open(path, os.O_RDONLY | getattr(os, 'O_NOFOLLOW', 0))
+        with os.fdopen(fd, 'rb') as f:
+            data = f.read(JOB_BYTES + 1)
+        if len(data) > JOB_BYTES:
+            return None
+        obj = json.loads(data)
+    except (OSError, ValueError, UnicodeError, RecursionError):
+        return None
+    return obj if isinstance(obj, dict) else None
+
+
+def read_jobs(directory):
+    """Local job files (<id>.json), newest first, at most JOB_FILES; broken files are skipped."""
+    try:
+        entries = [e for e in os.scandir(directory)
+                   if e.name.endswith('.json') and JOB_ID.fullmatch(e.name[:-5]) and e.is_file(follow_symlinks=False)]
+        entries.sort(key=lambda e: e.stat(follow_symlinks=False).st_mtime, reverse=True)
+    except OSError:
+        return []
+    jobs = []
+    for entry in entries[:JOB_FILES]:
+        row = read_job_file(entry.path)
+        if row is not None and row.get('id') == entry.name[:-5]:
+            jobs.append(row)
+    return jobs
+
+
+def count(value):
+    return value if isinstance(value, int) and not isinstance(value, bool) and 0 <= value < 10 ** 9 else None
+
+
+def office_sessions(agent, queue, chats, jobs=(), now=None):
     sessions = []
     def session(key, kind, label, title, provider, row, activity=None, at=None, parent=None, detail=None):
         return dict(key=key, kind=kind, label=label, title=title, provider=provider,
@@ -218,6 +270,26 @@ def office_sessions(agent, queue, chats):
         sessions.append(session(key, 'chat', 'Чат · ' + provider, 'Диалог в ИИ', provider,
                                 {**row, 'status': 'running', 'model': None},
                                 'answering' if row.get('phase') == 'streaming' else 'waiting_model', row.get('updated')))
+    now = time.time() if now is None else now
+    for row in jobs:
+        rid, status, updated = row.get('id'), row.get('status'), timestamp(row.get('updated'))
+        if not isinstance(rid, str) or not JOB_ID.fullmatch(rid) or status not in ('running', 'done', 'failed') or updated is None:
+            continue
+        age = now - updated
+        if age > (JOB_FINISHED if status != 'running' else JOB_FORGOTTEN):
+            continue
+        if status == 'running' and age > JOB_STALLED:
+            status = 'stalled'
+        title = public_text(row.get('title'), 60) or 'Без названия'
+        done, total = count(row.get('progress_done')), count(row.get('progress_total'))
+        parent = row.get('parent')
+        parent = 'job:' + parent if isinstance(parent, str) and JOB_ID.fullmatch(parent) and parent != rid else None
+        kind = row.get('kind') if isinstance(row.get('kind'), str) and re.fullmatch(r'[a-z_-]{1,20}', row['kind']) else None
+        item = session('job:' + rid, 'job', 'Фон · ' + title, title, 'Фоновая работа',
+                       {'status': status, 'started': row.get('started'), 'updated': updated},
+                       'job' if status == 'running' else None, updated, parent, public_text(row.get('detail'), 120) or None)
+        item.update(job_kind=kind, progress=f'{done or 0}/{total}' if total else None)
+        sessions.append(item)
     return sessions
 
 

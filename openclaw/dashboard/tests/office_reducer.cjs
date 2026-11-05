@@ -57,6 +57,20 @@ assert.equal(Object.keys(terminal.chars).length,6);assert(!terminal.chars['coder
 terminal=reduce(terminal,snap(100010));assert.equal(Object.keys(terminal.chars).length,6);
 terminal=reduce(terminal,snap(200000));assert.equal(Object.keys(terminal.chars).length,0);
 assert.equal(Object.keys(reduce(initial(),snap(1000)).chars).length,0);
+// Background jobs: progress and step on the desk, server-marked stall, finished jobs leave with the snapshot.
+{const job=(status,extra={})=>row(status,{key:'job:v1',kind:'job',label:'Фон · Монтаж',provider:'Фоновая работа',activity:status==='running'?'job':null,progress:'8/46',detail:'рендер',...extra});
+ let j=reduce(initial(),snap(1000,job('running'))).chars['job:v1'];
+ assert.equal(j.place,'desk');assert(j.working);assert.equal(j.tone,'good');assert.equal(j.text,'работает в фоне · 8/46 · рендер');
+ j=reduce(initial(),snap(1700,job('stalled',{updated:1000}))).chars['job:v1'];
+ assert.equal(j.place,'desk');assert(!j.working);assert(j.stale);assert.equal(j.tone,'warn');assert.equal(j.badge,'!');assert.equal(j.text,'зависла · 8/46 · рендер');
+ assert(reduce(initial(),snap(1601,job('running'))).chars['job:v1'].stale,'stale even before the next server pass');
+ j=reduce(initial(),snap(1000,job('running',{progress:null,detail:null}))).chars['job:v1'];assert.equal(j.text,'работает в фоне');
+ let done=reduce(initial(),snap(1000,job('done',{progress:'46/46'})));
+ assert.equal(done.chars['job:v1'].place,'lounge');assert.equal(done.chars['job:v1'].text,'готово · 46/46');assert.equal(done.chars['job:v1'].badge,'✓');
+ assert.equal(reduce(initial(),snap(1000,job('failed'))).chars['job:v1'].badge,'✗');
+ assert(!reduce(done,snap(1010)).chars['job:v1'],'hidden finished job is not kept by the browser');
+ const mixed=reduce(initial(),snap(1000,row('running'),job('running',{key:'job:v1-part',parent:'job:v1'}),job('running')));
+ assert.equal(Object.keys(mixed.chars).length,3);assert.equal(mixed.chars['coder:8'].text,'пишет код');assert.equal(mixed.chars['job:v1-part'].source.parent,'job:v1');}
 const crowded=reduce(initial(),snap(1000,...Array.from({length:14},(_,i)=>row('running',{key:'coder:'+i}))));
 assert.equal(Object.values(crowded.chars).filter(c=>c.place==='desk').length,9);assert.equal(Object.values(crowded.chars).filter(c=>c.place==='aisle').length,5);
 assert.equal(new Set(Object.values(crowded.chars).filter(c=>c.desk!==null).map(c=>c.desk)).size,9);
