@@ -7,7 +7,7 @@
 set -uo pipefail
 SRC=$(cd "$(dirname "$0")" && pwd)
 APP=/home/jarvis/life-dashboard
-FILES="server.py agent.py office.py workspace.py attachments.py allchats.py talk_helper.mjs index.html icon.png onest-cyrillic.woff2 onest-latin.woff2"
+FILES="server.py agent.py office.py workspace.py attachments.py allchats.py activity.py talk_helper.mjs index.html icon.png onest-cyrillic.woff2 onest-latin.woff2"
 B=/home/jarvis/backups/life-dashboard-$(date +%Y%m%d-%H%M%S)
 OWN=(); [ "$(id -u)" = 0 ] && OWN=(-o jarvis -g jarvis)
 restart() { if [ "$(id -u)" = 0 ]; then systemctl restart life-dashboard; else sudo -n /usr/bin/systemctl restart life-dashboard; fi; }

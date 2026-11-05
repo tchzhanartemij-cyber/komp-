@@ -990,6 +990,22 @@ li.row:has(> .badge) > input { margin-top: 1px; }
 .b-date { text-transform: none; }
 .b-date::first-letter { text-transform: uppercase; }
 
+/* Jarvis steps: a quiet list above the answer, like the tool trail in the Claude app */
+.ai-steps { list-style: none; margin: 0 0 10px; padding: 0; display: grid; gap: 4px; font-size: 13px; color: var(--muted); }
+.ai-step { display: grid; grid-template-columns: 16px minmax(0, 1fr) auto; gap: 8px; align-items: baseline; }
+.ai-step span:nth-child(2) { overflow-wrap: anywhere; }
+.ai-step time { font-size: 11px; font-variant-numeric: tabular-nums; opacity: .7; }
+.ai-step-mark { text-align: center; font-weight: 700; }
+.ai-step.done .ai-step-mark { color: var(--good); }
+.ai-step.failed { color: var(--bad); }
+.ai-step.running .ai-step-mark { color: var(--accent); animation: blink 1.2s ease-in-out infinite; }
+.ai-step.running span:nth-child(2) { color: var(--ink); }
+.ai-steps-box { margin: 0 0 10px; }
+.ai-steps-box summary { cursor: pointer; font-size: 13px; color: var(--muted); padding: 4px 0; list-style: none; }
+.ai-steps-box summary::before { content: "›"; display: inline-block; width: 14px; transition: transform .2s; }
+.ai-steps-box[open] summary::before { transform: rotate(90deg); }
+.ai-steps-box .ai-steps { margin-top: 6px; padding-left: 4px; }
+
 /* chat like the Claude app: round send button, limits with bars, no seams on the phone */
 #ai-send { width: 40px; height: 40px; min-width: 40px; padding: 0; border-radius: 50%; display: grid; place-items: center; }
 #ai-send .i { width: 20px; height: 20px; stroke-width: 2.2; }
@@ -2214,7 +2230,7 @@ function aiPicker(){
  box.append(el('h4',{text:'Авто'}),choice({...(M.auto||{}),id:'auto',title:M.auto?.label||'Авто · нет доступных моделей',why:'Нет доступных моделей'}));
 }
 async function aiLoadChats(){try{const [c,p]=await Promise.all([aiGet('/api/ai/chats'),aiGet('/api/ai/projects')]);AI.chats=c.chats;AI.projects=p.projects;AI.canonical=c.canonical||{available:false,reason:'Сессия недоступна'};if(AI.chat)AI.project=AI.chat.project||'';aiSidebar();aiHeader();}catch(e){aiErr(e.message);}}
-function aiMenu(items) { return el('details',{class:'ai-menu'},el('summary',{'aria-label':'Действия',text:'...'}),el('div',{},...items)); }
+function aiMenu(items) { return el('details',{class:'ai-menu'},el('summary',{'aria-label':'Действия',text:'…'}),el('div',{},...items)); }
 function aiAction(text,fn) { return el('button',{type:'button',text,onclick:async e=>{e.target.closest('details')?.removeAttribute('open'); try {await fn();} catch(err) {aiErr(err.message);} }}); }
 function aiDialog(title,fields,save) {
  const dialog=$('ai-dialog'), form=el('form',{},el('h3',{text:title}));
@@ -2323,14 +2339,32 @@ function aiMarkdown(text) {
 }
 function aiAttachmentLinks(files){return el('div',{class:'ai-chips'},...(files||[]).map(a=>{const valid=/^[0-9a-f]{24}$/.test(a.id||'');if(!valid)return el('span',{class:'ai-chip',text:'['+a.kind+(a.name?': '+a.name:'')+']'});const href='/api/ai/file?id='+encodeURIComponent(a.id);return el('a',{class:'ai-chip',href,download:a.name,target:'_blank',rel:'noopener noreferrer'},a.kind==='image'?el('img',{src:href,alt:a.name}):el('span',{text:a.kind==='pdf'?'▤ PDF':'▤'}),el('span',{text:a.name}));}));}
 function aiEdit(m){if(AI.busy)return;$('ai-text').value=m.text;aiDraftSave();aiGrow();$('ai-text').focus();aiErr('Текст в черновике; отправка создаст новое сообщение','warn');}
+// What Jarvis did on the way to the answer: one line per tool step, read from his session as it happens.
+const STEP_MARK={running:'•',done:'✓',failed:'✕'};
+function aiSteps(steps,live){
+ const list=el('ol',{class:'ai-steps'},...steps.map(s=>el('li',{class:'ai-step '+s.state},el('span',{class:'ai-step-mark','aria-hidden':'true',text:STEP_MARK[s.state]||'•'}),el('span',{text:s.title+(s.state==='failed'?' — ошибка':'')}),el('time',{text:s.at?new Date(s.at).toLocaleTimeString('ru-RU',{hour:'2-digit',minute:'2-digit',second:'2-digit'}):''}))));
+ if(live)return el('div',{class:'ai-steps-live','aria-live':'polite'},list);
+ const failed=steps.filter(s=>s.state==='failed').length;
+ return el('details',{class:'ai-steps-box'},el('summary',{text:'Что делал Джарвис · '+steps.length+' '+aiPlural(steps.length,'шаг','шага','шагов')+(failed?' · ошибок: '+failed:'')}),list);
+}
+function aiPlural(n,one,few,many){const t=n%10,h=n%100;return t===1&&h!==11?one:t>=2&&t<=4&&(h<12||h>14)?few:many;}
+// While a Jarvis reply is being prepared, ask once a second which tools he is running.
+async function aiWatchSteps(chat,from){
+ const seq=AI.watchSeq=(AI.watchSeq||0)+1;
+ while(AI.busy&&AI.pending&&seq===AI.watchSeq){
+  const id=AI.runChat||chat;
+  if(id){try{const r=await aiGet('/api/ai/activity?chat='+encodeURIComponent(id)+'&after='+from);const steps=r.steps.filter(x=>x.state!=='input');if(AI.pending&&JSON.stringify(steps)!==JSON.stringify(AI.pending.steps||[])){AI.pending.steps=steps;aiRender();}}catch{}}
+  await new Promise(r=>setTimeout(r,1000));
+ }
+}
 function aiBubble(m){
  const canonical=!!m.canonical,time=m.ts==null?aiTime(m.time):new Date(m.ts*1000).toLocaleTimeString('ru-RU',{hour:'2-digit',minute:'2-digit'}),text=m.not_owner?'сообщение не владельца скрыто':m.text||'';
  if(m.role==='activity')return el('div',{class:'meta',text:'⚙ инструменты: '+(m.tools||[]).join(', ')});
  const node=el('article',{class:'msg '+(m.role==='user'?'me':'bot')});
- if(m.role==='user')node.append(el('div',{class:'bubble',text}));else node.append(text?aiMarkdown(text):el('div',{class:'typing'},'печатает',el('i'),el('i'),el('i')));
+ if(m.role==='user')node.append(el('div',{class:'bubble',text}));else{if(m.steps?.length)node.append(aiSteps(m.steps,m===AI.pending));node.append(text?aiMarkdown(text):el('div',{class:'typing'},m.steps?.length?'работает':'печатает',el('i'),el('i'),el('i')));}
  if(m.attachments?.length)node.append(aiAttachmentLinks(m.attachments));
  const source={telegram:'Telegram',dashboard:'Сводка',agent:'агент',automation:'автоматизация',unknown:'другой интерфейс'}[m.source]||'другой интерфейс';
- const metadata=canonical?[m.model,source,m.source==='telegram'&&m.source_message_id!=null?'#'+m.source_message_id:'',m.delivered_to_channel?'доставлено в канал':'',m.edited?'изменено':'',m.deleted?'удалено':'',m.truncated?'обрезано':'',time]:m.role==='assistant'?[aiShort(m.model),m.actual_model?'фактически '+m.actual_model:'',m.transport||m.detail,m.mode==='jarvis'?'':'чат без инструментов',time,m.fallback,m.stopped?'остановлено':'']:[time];
+ const metadata=canonical?[m.model,source,m.source==='telegram'&&m.source_message_id!=null?'#'+m.source_message_id:'',m.delivered_to_channel?'доставлено в канал':'',m.edited?'изменено':'',m.deleted?'удалено':'',m.truncated?'обрезано':'',time]:m.role==='assistant'?[aiShort(m.model),m.actual_model?'фактически '+m.actual_model:'',m.mode==='jarvis'?'':m.transport||m.detail,m.mode==='jarvis'?'':'чат без инструментов',time,m.fallback,m.stopped?'остановлено':'']:[time];
  node.append(el('div',{class:'meta',text:metadata.filter(Boolean).join(' · ')}));
  if(m.role==='assistant'&&text){const copy=el('button',{class:'pill soft small',type:'button',text:'Копировать',onclick:()=>aiCopy(text,copy)});node.append(copy);}
  if(m.role==='user'&&!m.not_owner&&!m.pending){const edit=el('button',{class:'pill soft small',type:'button',text:canonical?'Уточнить':'Изменить',onclick:()=>canonical?chatRevision(m):aiEdit(m)});edit.disabled=canonical?!chatState.available:AI.busy;node.append(edit);}
@@ -2348,7 +2382,7 @@ function aiRender(){
  if(canonical){
   const earlier=el('button',{id:'ai-earlier',class:'pill soft',type:'button',text:'Загрузить ранние',onclick:chatEarlier});earlier.disabled=chatState.next==null||!chatState.available;kids.push(earlier);
   for(const [on,text] of [[chatState.gap,'пропуск в истории'],[chatState.hidden,'скрыто '+chatState.hidden+' служебных'],[chatState.redacted,'Часть содержимого скрыта шлюзом'],[chatState.content_truncated,'длинные сообщения обрезаны шлюзом до 4000 символов']])if(on)kids.push(el('p',{class:'meta',text}));
-  kids.push(...chatState.messages.map(m=>aiBubble({...m,canonical:true})),...chatState.pending.map(m=>el('div',{class:'msg me'},el('div',{class:'bubble',text:m.text}),el('div',{class:'meta',text:'ожидает подтверждения в истории'}))));
+  kids.push(...chatState.messages.map(m=>aiBubble({...m,canonical:true})),...(AI.liveSteps?.length?[el('article',{class:'msg bot'},aiSteps(AI.liveSteps,true),el('div',{class:'meta',text:'Джарвис работает сейчас'}))]:[]),...chatState.pending.map(m=>el('div',{class:'msg me'},el('div',{class:'bubble',text:m.text}),el('div',{class:'meta',text:'ожидает подтверждения в истории'}))));
   if(chatState.tasks?.length){const list=el('details',{class:'ai-tasks',id:'ai-tasks'},el('summary',{text:'Задачи агента'}));for(const t of chatState.tasks){const b=el('button',{type:'button',text:'Отменить',title:t.cancel?.reason||'Отмена недоступна'});b.disabled=true;list.append(el('p',{text:(t.title||String(t.id))+' · '+t.kind+' · '+t.status}),b);}kids.push(list);}
  }else{
   kids.push(...(AI.chat?.messages||[]).map(aiBubble));
@@ -2367,10 +2401,11 @@ function aiSchedule(){if(!AI.frame)AI.frame=requestAnimationFrame(()=>{AI.frame=
 function aiLists(open){$('ai-layout').classList.toggle('lists',open);$('ai-chats-btn').setAttribute('aria-expanded',String(open));}
 async function aiOpen(id,initial=false){
  if(AI.busy)return;aiLeaveExternal();if(!initial)aiDraftSave();aiLists(false);const seq=AI.openSeq=(AI.openSeq||0)+1;
- try{const chat=id==='canonical'?null:await aiGet('/api/ai/chat?id='+encodeURIComponent(id));if(seq!==AI.openSeq)return;if(!initial)aiDraftSave();clearTimeout(chatState.timer);AI.chat=chat;aiChatId=id;AI.project=chat?.project||'';aiSave();aiDraftRestore();aiErr('');aiRender();aiSidebar();aiChips();if(aiCanonical())chatPoll();}catch(e){aiErr(e.message);if(initial)aiNew('',true);}
+ try{const chat=id==='canonical'?null:await aiGet('/api/ai/chat?id='+encodeURIComponent(id));if(seq!==AI.openSeq)return;if(!initial)aiDraftSave();clearTimeout(chatState.timer);AI.chat=chat;aiChatId=id;AI.project=chat?.project||'';aiSave();aiDraftRestore();aiErr('');aiRender();aiSidebar();aiChips();if(aiCanonical()){chatPoll();if(!AI.liveWatch){AI.liveWatch=true;chatWatchSteps();}}}catch(e){aiErr(e.message);if(initial)aiNew('',true);}
 }
-function aiNew(project='',initial=false){if(AI.busy)return;aiLeaveExternal();if(!initial)aiDraftSave();AI.openSeq=(AI.openSeq||0)+1;clearTimeout(chatState.timer);aiLists(false);AI.chat=null;aiChatId='';AI.project=typeof project==='string'?project:'';aiSave();aiDraftRestore();aiErr('');aiRender();aiSidebar();aiChips();if(!initial)$('ai-text').focus();}
-function aiGrow(){const t=$('ai-text');t.style.height='auto';t.style.height=Math.min(180,t.scrollHeight)+'px';aiComposerState();}
+function aiNew(project='',initial=false){if(AI.busy)return;aiLeaveExternal();if(!initial)aiDraftSave();AI.openSeq=(AI.openSeq||0)+1;clearTimeout(chatState.timer);aiLists(false);AI.chat=null;aiChatId='';AI.project=typeof project==='string'?project:'';aiSave();aiDraftRestore();aiErr('');aiRender();aiSidebar();aiChips();if(!initial&&matchMedia('(pointer: fine)').matches)$('ai-text').focus();}
+// The field grows with the text; when the reader was at the latest message, the list stays pinned to it.
+function aiGrow(){const t=$('ai-text'),m=$('ai-msgs'),pinned=m.scrollHeight-m.scrollTop-m.clientHeight<40,h=t.style.height;t.style.height='auto';const next=Math.min(180,t.scrollHeight)+'px';t.style.height=next;if(pinned&&next!==h)m.scrollTop=m.scrollHeight;aiComposerState();}
 function aiFiles(){const key=aiKey();if(!AI.uploads.has(key))AI.uploads.set(key,[]);return AI.uploads.get(key);}
 function aiFileError(f){return f.error||(f.kind==='image'&&!aiWho()?.caps?.image?'Модель не принимает изображения — выберите Claude или Codex с поддержкой изображений':'');}
 const SEND_ICON={'Отправить':'<path d="M12 19V5M5.5 11.5 12 5l6.5 6.5"/>','Стоп':'<rect x="7" y="7" width="10" height="10" rx="2" fill="currentColor" stroke="none"/>','Отправка…':'<circle cx="12" cy="12" r="7" stroke-dasharray="30 14"/>'};
@@ -2407,10 +2442,12 @@ function aiUpload(file){
 async function aiStop(){AI.stopping=true;AI.controller?.abort();if(AI.run)await aiPost('stop',{run:AI.run}).catch(()=>{});}
 async function aiSendLocal(text,files,retry=false){
  if(AI.busy||aiCanonical())return;const chosen=aiWho();if(files.some(f=>f.kind==='image')&&!chosen?.caps?.image){aiErr('Модель не принимает изображения — выберите Claude или Codex с поддержкой изображений');return;}
- const ta=$('ai-text'),original=aiChatId,originalKey=aiKey();AI.busy=true;AI.stopping=false;AI.run='';AI.runChat='';AI.controller=new AbortController();AI.pending={role:'assistant',user:text,userAttachments:files,text:'',model:chosen?.title||'Модель',mode:'chat',time:''};if(!retry){ta.value='';aiDraftSave();}aiGrow();aiErr('');aiRender();aiChips();let finished=false;
+ let stepsFrom=0;if(chosen?.route==='jarvis'&&aiChatId){try{stepsFrom=(await aiGet('/api/ai/activity?chat='+encodeURIComponent(aiChatId)+'&after=-1')).last;}catch{}}
+ const ta=$('ai-text'),original=aiChatId,originalKey=aiKey();AI.busy=true;AI.stopping=false;AI.run='';AI.runChat='';AI.controller=new AbortController();AI.pending={role:'assistant',user:text,userAttachments:files,text:'',model:chosen?.title||'Модель',mode:chosen?.route==='jarvis'?'jarvis':'chat',time:''};if(!retry){ta.value='';aiDraftSave();}aiGrow();aiErr('');aiRender();aiChips();let finished=false;
  function accept(chat){AI.chat=chat;aiChatId=chat.id;if(!retry){for(const f of files){if(f.url)URL.revokeObjectURL(f.url);f.attached=true;}AI.uploads.delete(originalKey);AI.uploads.set(aiKey(),[]);try{localStorage.setItem('svodka-ai-draft:'+originalKey,'');}catch{}}aiSave();aiDraftSave();AI.pending=null;finished=true;}
  function event(j){if(j.type==='start'||j.type==='switch'){AI.run=j.run||AI.run;AI.runChat=j.chat||AI.runChat;Object.assign(AI.pending,{model:j.title||j.model,transport:j.transport||j.detail,actual_model:null,text:'',fallback:j.reason});if(j.type==='switch')aiErr(j.reason,'warn');if(AI.stopping)aiPost('stop',{run:AI.run}).catch(()=>{});}else if(j.type==='meta'){AI.pending.actual_model=j.actual_model;}else if(j.type==='delta'){AI.pending.text+=j.text;}else if(j.type==='done'){accept(j.chat);if(j.fallback)aiErr(j.fallback,'warn');}else if(j.type==='error'){throw Error(j.error);}aiSchedule();}
  try{
+  if(chosen?.route==='jarvis')aiWatchSteps(original,stepsFrom);
   const r=await fetch('/api/ai/send',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({chat:original,model:aiModel,text,project:AI.project,attachments:files.map(f=>f.id)}),signal:AI.controller.signal});if(!r.ok)throw Error((await r.json()).error||'Ошибка сервера');
   const reader=r.body.getReader(),decoder=new TextDecoder();let buffer='';while(true){const {done,value}=await reader.read();buffer+=decoder.decode(value||new Uint8Array(),{stream:!done});let n;while((n=buffer.indexOf('\n'))>=0){const line=buffer.slice(0,n);buffer=buffer.slice(n+1);if(line.trim())event(JSON.parse(line));}if(done){if(buffer.trim())event(JSON.parse(buffer));break;}}
   if(!finished)throw Error('Поток ответа завершён');
@@ -2470,7 +2507,7 @@ $('ai-mic').addEventListener('click',aiDictate);$('ai-refine').addEventListener(
 document.addEventListener('keydown',ev=>{if(ev.key==='Escape'){aiLists(false);$('ai-picker').hidden=true;$('ai-model').setAttribute('aria-expanded','false');}});
 document.addEventListener('click',ev=>{if(!ev.target.closest('.ai-model-wrap')){$('ai-picker').hidden=true;$('ai-model').setAttribute('aria-expanded','false');}});
 async function aiShown(){
- aiLoadModels();if(AI.started){if(location.hash==='#chat'&&!aiCanonical())await aiOpen('canonical');else if(aiCanonical())chatPoll();return;}
+ aiLoadModels();if(AI.started){if(location.hash==='#chat'&&!aiCanonical())await aiOpen('canonical');else if(aiCanonical()){chatPoll();if(!AI.liveWatch){AI.liveWatch=true;chatWatchSteps();}}return;}
  AI.started=true;await aiLoadChats();if(location.hash==='#chat'||aiLast==='canonical'||(aiLast==null&&AI.canonical.available))await aiOpen('canonical',true);else if(aiChatId)await aiOpen(aiChatId,true);else aiNew('',true);
 }
 setInterval(()=>{if(!document.hidden&&current==='ai')aiLoadModels();},60000);
@@ -3379,6 +3416,18 @@ function chatRevision(message){
 function chatTasks(tasks){chatState.tasks=tasks;const list=$('chat-tasks');list.replaceChildren();const labels={queued:'в очереди',running:'выполняется',waiting_approval:'ждёт решения владельца',completed:'готово',failed:'ошибка',cancelled:'отменено',unknown:'неизвестно',stale:'устарело'};for(const t of tasks){const row=chatNode('p',(t.title||String(t.id))+' · '+t.kind+' · '+(labels[t.status]||labels.unknown)+(t.model?' · '+t.model:''));const b=chatNode('button','Отменить');b.disabled=true;b.title=t.cancel.reason;row.append(b);list.append(row);}}
 function chatApply(h,earlier){chatState.messages=workspaceMerge(earlier?h.messages:chatState.messages,earlier?chatState.messages:h.messages);if(earlier||chatState.next==null)chatState.next=h.next_offset;chatState.gap=chatState.gap||h.gap;chatState.hidden=h.hidden_count;chatState.redacted=h.redacted;chatState.content_truncated=h.content_truncated;const confirmed=new Set(chatState.messages.map(m=>m.origin_request).filter(Boolean));chatState.pending=chatState.pending.filter(p=>!confirmed.has(p.request));chatSave();chatRender();}
 function chatLive(text){$('chat-live').textContent=text;if(aiCanonical())$('ai-live').textContent=text;}
+// The main Telegram dialog: steps of Jarvis's current turn, shown while he works or just finished.
+async function chatWatchSteps(){
+ if(!aiVisibleCanonical()){AI.liveSteps=null;AI.liveWatch=false;return;}
+ try{
+  if(AI.liveFrom==null)AI.liveFrom=Math.max(0,(await aiGet('/api/ai/activity?chat=canonical&after=-1')).last-200);
+  const r=await aiGet('/api/ai/activity?chat=canonical&after='+AI.liveFrom),cut=r.steps.map(x=>x.state).lastIndexOf('input'),turn=r.steps.slice(cut+1);
+  const fresh=turn.filter(x=>x.state==='running'||Date.now()-(x.done_at||x.at)<90000);
+  const next=turn.some(x=>x.state==='running')||fresh.length?turn:null;
+  if(JSON.stringify(next)!==JSON.stringify(AI.liveSteps||null)){AI.liveSteps=next;aiRender();}
+ }catch{}
+ setTimeout(chatWatchSteps,2000);
+}
 async function chatPoll(){
  clearTimeout(chatState.timer);if(!aiVisibleCanonical()||chatState.busy)return;
  chatState.busy=true;

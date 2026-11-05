@@ -44,6 +44,12 @@ _workspace_spec.loader.exec_module(_workspace_module)
 _attachments_path = (_dashboard_dir / 'attachments.py').resolve(strict=True)
 if _attachments_path.parent != _dashboard_dir:
     raise ImportError('attachments.py must resolve to a trusted dashboard sibling')
+_activity_path = (_dashboard_dir / 'activity.py').resolve(strict=True)
+if _activity_path.parent != _dashboard_dir:
+    raise ImportError('activity.py must resolve to a trusted dashboard sibling')
+_activity_spec = importlib.util.spec_from_file_location('svodka_activity', _activity_path)
+_activity = importlib.util.module_from_spec(_activity_spec)
+_activity_spec.loader.exec_module(_activity)
 _allchats_path = (_dashboard_dir / 'allchats.py').resolve(strict=True)
 if _allchats_path.parent != _dashboard_dir:
     raise ImportError('allchats.py must resolve to a trusted dashboard sibling')
@@ -68,6 +74,7 @@ import queue
 import re
 import secrets
 import shutil
+import sqlite3
 import subprocess
 import tempfile
 import threading
@@ -1090,6 +1097,33 @@ def call_gateway(model, messages, run, delta, timeout=180):
     return answer, actual
 
 
+def jarvis_session_key(chat_id):
+    """OpenClaw session of a chat: its own `svodka-<chat>` session, or the owner's main dialog."""
+    _, _, agent, _ = agent_service.config()
+    if chat_id == 'canonical':
+        key = agent_service.canonical()
+        return f'agent:{agent}:main' if key == 'main' else key
+    return f'agent:{agent}:svodka-{chat_id}' if CHAT_ID_RE.fullmatch(str(chat_id)) else None
+
+
+def jarvis_activity_start(chat_id):
+    try:
+        key = jarvis_session_key(chat_id)
+        return key, _activity.position(key.split(':')[1], key) if key else 0
+    except (Unavailable, OSError, sqlite3.Error):
+        return None, 0
+
+
+def jarvis_activity_steps(key, start):
+    if not key:
+        return []
+    try:
+        found, _ = _activity.steps(key.split(':')[1], key, start, SECRET_RE)
+    except (OSError, sqlite3.Error):
+        return []
+    return [{k: s[k] for k in ('title', 'state', 'at') if k in s} for s in found if s['state'] != 'input'][-40:]
+
+
 def call_jarvis(chat_id, backend, text, run, delta, images=None, timeout=900):
     """One turn of the chat's own Jarvis session through the OpenClaw Responses endpoint, streamed."""
     url, token, agent, _ = agent_service.config()
@@ -1205,6 +1239,7 @@ def ai_send(chat_id, model_id, text, project, emit, attachments_ids=None, **kwar
             actual = value
             send(dict(type='meta', actual_model=value))
         run['meta'] = meta
+        steps = []  # Jarvis tool steps of this turn, kept with the answer
         try:
             for n, selected in enumerate(pool):
                 if run['stop'].is_set():
@@ -1229,7 +1264,9 @@ def ai_send(chat_id, model_id, text, project, emit, attachments_ids=None, **kwar
                             past = '\n'.join(f"{'Артемий' if h['role'] == 'user' else 'Ответ'}: {h['content'][:1500]}" for h in messages[:-1][-12:])
                             intro = (f"Инструкции проекта «{pr['name']}»: {pr['instructions']}\n\n" if pr and pr.get('instructions') else '')
                             turn = intro + (f"Ранее в этом чате «Сводки»:\n{past}\n\n" if past else '') + 'Новое сообщение: ' + turn
+                        steps_key, steps_from = jarvis_activity_start(chat_id)
                         result, value = call_jarvis(chat_id, backend, turn, run, delta, images=images)
+                        steps = jarvis_activity_steps(steps_key, steps_from)
                     elif provider == 'free':
                         result, value = call_gateway(model, [dict(role='system', content=system)] + messages, run, delta)
                     else:
@@ -1253,7 +1290,7 @@ def ai_send(chat_id, model_id, text, project, emit, attachments_ids=None, **kwar
                     chat = read_chat(chat_id)
                 chat['messages'].append(dict(role='user', text=text, time=stamp, attachments=[store.public(m) for m in files]))
                 if answer:
-                    chat['messages'].append(dict(role='assistant', text=answer, time=datetime.now().strftime('%Y-%m-%d %H:%M'), model=selected['title'], model_id=selected['id'], actual_model=actual, transport=route_name(selected['route']), mode='jarvis' if selected['route'] == 'jarvis' else 'chat', auto=model_id == 'auto', fallback=fallback, stopped=stopped))
+                    chat['messages'].append(dict(role='assistant', text=answer, time=datetime.now().strftime('%Y-%m-%d %H:%M'), model=selected['title'], model_id=selected['id'], actual_model=actual, transport=route_name(selected['route']), mode='jarvis' if selected['route'] == 'jarvis' else 'chat', auto=model_id == 'auto', fallback=fallback, stopped=stopped, **({'steps': steps} if steps else {})))
                 chat['updated'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
                 previous = [m['chat'] for m in files]
                 store.attach(files, chat_id)
@@ -1753,6 +1790,25 @@ class Handler(BaseHTTPRequestHandler):
         if not allowed:
             self.deny()
             return
+        if route == "/api/ai/activity":
+            # Live tool steps of a Jarvis session; read-only, titles and statuses only.
+            q = parse_qs(urlsplit(self.path).query)
+            chat, after = q.get('chat', [''])[0], q.get('after', ['-1'])[0]
+            try:
+                key = jarvis_session_key(chat)
+                after = int(after)
+            except (Unavailable, ValueError):
+                key = None
+            if not key:
+                return self.send_json(404, {"error": "Сессия Джарвиса не найдена"})
+            agent = key.split(':')[1]
+            try:
+                if after < 0:
+                    return self.send_json(200, {"steps": [], "last": _activity.position(agent, key)})
+                found, last = _activity.steps(agent, key, after, SECRET_RE)
+            except (OSError, sqlite3.Error):
+                return self.send_json(503, {"error": "Журнал сессии сейчас недоступен"})
+            return self.send_json(200, {"steps": found, "last": last})
         if route == "/api/all-chats":
             return self.send_json(200, _allchats.list_chats(SECRET_RE))
         if route == "/api/all-chats/item":
