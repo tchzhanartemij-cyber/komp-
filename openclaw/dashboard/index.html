@@ -860,7 +860,11 @@ body::before { content:""; position:fixed; inset:0 0 auto; height:env(safe-area-
 .nav .jarvis-btn { position:static; transform:none; width:46px; height:46px; flex:none; background:transparent; box-shadow:none; }
 .nav .jarvis-btn .jarvis-orb { width:30px; height:30px; }
 body.jarvis-open { overflow:hidden; }
-#jarvis-orb { align-self:center; width:min(72vw,340px,46dvh); height:min(72vw,340px,46dvh); cursor:pointer; touch-action:manipulation; }
+#jarvis-talk { align-self:center; padding:0; border:0; background:none; border-radius:50%; cursor:pointer; touch-action:manipulation; -webkit-tap-highlight-color:transparent; }
+#jarvis-talk:focus-visible { outline:2px solid var(--accent); outline-offset:6px; }
+#jarvis-orb { display:block; width:min(72vw,340px,46dvh); height:min(72vw,340px,46dvh); pointer-events:none; }
+#jarvis { -webkit-user-select:none; user-select:none; -webkit-touch-callout:none; }
+#jarvis #jarvis-caption { -webkit-user-select:text; user-select:text; }
 #jarvis-state { margin:0; font-size:24px; font-weight:600; letter-spacing:.01em; text-align:center; }
 #jarvis-caption { margin:0; min-height:3em; max-width:32ch; font-size:16px; line-height:1.5; color:#aab6d8; text-align:center; display:-webkit-box; -webkit-line-clamp:3; -webkit-box-orient:vertical; overflow:hidden; }
 .jarvis-controls { display:flex; gap:22px; margin-top:6px; }
@@ -1109,7 +1113,7 @@ body { font-size: 15px; line-height: 1.5; font-feature-settings: "tnum" 0; }
 </aside>
 <div id="jarvis" role="dialog" aria-modal="true" aria-label="Разговор с Джарвисом" data-state="idle" hidden>
  <button id="jarvis-history" class="jarvis-link" type="button">История и текст</button>
- <canvas id="jarvis-orb" aria-hidden="true"></canvas>
+ <button id="jarvis-talk" type="button" aria-label="Начать разговор"><canvas id="jarvis-orb" aria-hidden="true"></canvas></button>
  <p id="jarvis-state" role="status" aria-live="polite">Подключаюсь…</p>
  <p id="jarvis-caption"></p>
  <div class="jarvis-controls">
@@ -3290,7 +3294,7 @@ function liveSupported(){return !!(window.RTCPeerConnection&&navigator.mediaDevi
 function liveLevel(an){if(!an)return 0;an.getByteTimeDomainData(LT.buf);let p=0;for(const n of LT.buf)p+=((n-128)/128)**2;return Math.sqrt(p/LT.buf.length);}
 function liveMeter(stream){try{const an=LT.ac.createAnalyser();an.fftSize=1024;LT.ac.createMediaStreamSource(stream).connect(an);LT.buf=LT.buf||new Uint8Array(an.fftSize);return an;}catch{return null;}}
 async function liveStart(){
- if(LT.pc)return;LT.muted=false;jarvisState('starting');$('jarvis-caption').textContent='';
+ if(LT.pc||LT.starting)return;LT.starting=true;LT.muted=false;jarvisState('starting');$('jarvis-caption').textContent='';
  try{
   const stream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true,noiseSuppression:true,autoGainControl:true}});LT.stream=stream;
   const r=await fetch('/api/jarvis/talk',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'}),j=await r.json().catch(()=>({}));
@@ -3298,7 +3302,7 @@ async function liveStart(){
   LT.id=j.id;const pc=new RTCPeerConnection();LT.pc=pc;
   stream.getTracks().forEach(t=>pc.addTrack(t,stream));
   pc.ontrack=e=>{const remote=e.streams[0]||new MediaStream([e.track]);LT.audio.srcObject=remote;LT.audio.play().catch(()=>{});LT.remote=liveMeter(remote);};
-  pc.onconnectionstatechange=()=>{if(LT.pc!==pc)return;const st=pc.connectionState;if(st==='connected')jarvisState('listening');else if(st==='failed'||st==='closed')liveStop(st==='failed'?'Связь с голосом потеряна. Нажмите на сферу, чтобы подключиться снова.':'');};
+  pc.onconnectionstatechange=()=>{if(LT.pc!==pc)return;const st=pc.connectionState;clearTimeout(LT.drop);if(st==='disconnected')LT.drop=setTimeout(()=>{if(LT.pc===pc&&pc.connectionState==='disconnected')liveStop('Связь с голосом прервалась. Нажмите на сферу, чтобы подключиться снова.');},6000);if(st==='connected')jarvisState('listening');else if(st==='failed'||st==='closed')liveStop(st==='failed'?'Связь с голосом потеряна. Нажмите на сферу, чтобы подключиться снова.':'');};
   const offer=await pc.createOffer();await pc.setLocalDescription(offer);
   const a=await fetch('/api/jarvis/offer?id='+encodeURIComponent(j.id),{method:'POST',headers:{'Content-Type':'application/sdp'},body:offer.sdp});
   if(!a.ok)throw new Error((await a.json().catch(()=>({}))).error||'Голос не подключился');
@@ -3306,7 +3310,8 @@ async function liveStart(){
   await pc.setRemoteDescription({type:'answer',sdp:await a.text()});
   LT.mic=liveMeter(stream);
   $('jarvis-caption').textContent=j.model?'Живой голос · '+j.model:'';
- }catch(e){liveStop(e.name==='NotAllowedError'?'Доступ к микрофону запрещён: разрешите его в настройках Safari':e.message||'Голос не подключился');}
+ }catch(e){liveStop(e.name==='NotAllowedError'?'Доступ к микрофону запрещён: разрешите его в настройках Safari':e.name==='NotFoundError'?'Микрофон не найден: подключите его или проверьте настройки':e.name==='NotReadableError'?'Микрофон занят другим приложением, например звонком':e.message||'Голос не подключился');}
+ finally{LT.starting=false;}
 }
 function liveStop(message){
  const pc=LT.pc,id=LT.id;LT.pc=null;LT.id='';try{pc?.close();}catch{}
@@ -3356,7 +3361,7 @@ function jarvisDraw(now){
  g.globalAlpha=.35;g.beginPath();g.ellipse(cx-R*.3,cy-R*.42,R*.32,R*.16,-.5,0,Math.PI*2);g.fillStyle='#fff';g.fill();g.globalAlpha=1;
  J.frame=requestAnimationFrame(jarvisDraw);
 }
-$('jarvis-orb').onclick=()=>{if(liveSupported()){if(!LT.pc){jarvisUnlock();liveStart();}return;}if(V.speech||V.queue.length)voiceInterrupt();else if(!V.session&&!V.starting){jarvisUnlock();voiceStart();}};
+$('jarvis-talk').onclick=()=>{if(liveSupported()){if(!LT.pc&&!LT.starting){jarvisUnlock();liveStart();}return;}if(V.speech||V.queue.length)voiceInterrupt();else if(!V.session&&!V.starting){jarvisUnlock();voiceStart();}};
 $('jarvis-mute').onclick=()=>{if(LT.pc){LT.muted=!LT.muted;LT.stream?.getAudioTracks().forEach(t=>t.enabled=!LT.muted);LT.shown='';jarvisState(LT.muted?'paused':'listening');return;}voicePause();jarvisState(V.panel.dataset.state||'idle');};
 $('jarvis-min').onclick=()=>{jarvisClose();V.opener?.focus?.();};
 $('jarvis-end').onclick=()=>{if(LT.pc)liveStop();else voiceStop('Разговор завершён');jarvisClose();$('voice-btn').focus();};
