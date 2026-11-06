@@ -58,6 +58,13 @@ Root владелец вводит сам; команды под root дават
 - Общая память агентов: `~/.openclaw/workspace/SHARED.md`, `MEMORY.md`, `memory/`. Скиллы общие,
   включая build-your-harness (проверка: `python3 ~/.agents/skills/build-your-harness/better-your-harness/scripts/scan.py <папка>`).
 
+Сделано 04–06.11 (всё на боевом): шрифт Onest, спокойный дизайн без градиента; вкладки «Чаты / Проекты / Код»;
+чаты Claude Code и Codex в «Чатах» (`allchats.py`, только чтение); шаги Джарвиса в реальном времени и раскрытие
+«что выполнил / что получил» (`activity.py` читает журнал сессии из `~/.openclaw/agents/main/agent/openclaw-agent.sqlite`);
+диктовка → промпт (`/api/ai/prompt`, Sonnet); лимиты Claude и ChatGPT в выборе модели; телефон: чат привязан к видимой
+области, меню прячется при клавиатуре. Heartbeat Джарвиса выключен (`every: 0m`) — он съедал подписку ChatGPT.
+Скиллы через `find-skills`: frontend-design, mobile-native, web-design-guidelines (в `~/.agents/skills`, у всех агентов).
+
 Ждёт владельца: перезапуск очереди (`sudo -u jarvis XDG_RUNTIME_DIR=/run/user/$(id -u jarvis) systemctl --user restart jarvis-coder`);
 автоматизации Джарвиса «Дневник дня» и «Разбор недели» (`openclaw cron add`, защита Claude Code не даёт
 их создать); проверка голоса на iPhone; решение по задачам №10 и №17.
