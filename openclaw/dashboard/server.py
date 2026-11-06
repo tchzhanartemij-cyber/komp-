@@ -1121,7 +1121,7 @@ def jarvis_activity_steps(key, start):
         found, _ = _activity.steps(key.split(':')[1], key, start, SECRET_RE)
     except (OSError, sqlite3.Error):
         return []
-    return [{k: s[k] for k in ('title', 'state', 'at') if k in s} for s in found if s['state'] != 'input'][-40:]
+    return [{k: s[k] for k in ('id', 'title', 'state', 'at') if k in s} for s in found if s['state'] != 'input'][-60:]
 
 
 def call_jarvis(chat_id, backend, text, run, delta, images=None, timeout=900):
@@ -1794,7 +1794,7 @@ class Handler(BaseHTTPRequestHandler):
         if route == "/api/ai/activity":
             # Live tool steps of a Jarvis session; read-only, titles and statuses only.
             q = parse_qs(urlsplit(self.path).query)
-            chat, after = q.get('chat', [''])[0], q.get('after', ['-1'])[0]
+            chat, after, step = q.get('chat', [''])[0], q.get('after', ['-1'])[0], q.get('step', [''])[0]
             try:
                 key = jarvis_session_key(chat)
                 after = int(after)
@@ -1804,6 +1804,9 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send_json(404, {"error": "Сессия Джарвиса не найдена"})
             agent = key.split(':')[1]
             try:
+                if step:
+                    found = _activity.detail(agent, key, step, SECRET_RE)
+                    return self.send_json(200, found) if found else self.send_json(404, {"error": "Шаг больше не хранится в журнале"})
                 if after < 0:
                     return self.send_json(200, {"steps": [], "last": _activity.position(agent, key)})
                 found, last = _activity.steps(agent, key, after, SECRET_RE)

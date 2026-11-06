@@ -1005,11 +1005,23 @@ li.row:has(> .badge) > input { margin-top: 1px; }
 .ai-step.running .ai-step-mark { color: var(--accent); animation: blink 1.2s ease-in-out infinite; }
 .ai-step.running span:nth-child(2) { color: var(--ink); }
 .ai-steps-box { margin: 0 0 10px; }
-.ai-steps-box summary { cursor: pointer; font-size: 13px; color: var(--muted); padding: 4px 0; list-style: none; }
-.ai-steps-box summary::before { content: "›"; display: inline-block; width: 14px; transition: transform .2s; }
-.ai-steps-box[open] summary::before { transform: rotate(90deg); }
+.ai-steps-box > summary { cursor: pointer; font-size: 13px; color: var(--muted); padding: 4px 0; list-style: none; }
+.ai-steps-box > summary::before { content: "›"; display: inline-block; width: 14px; transition: transform .2s; }
+.ai-steps-box[open] > summary::before { transform: rotate(90deg); }
 .ai-steps-box .ai-steps { margin-top: 6px; padding-left: 4px; }
 
+.ai-step-open { margin: 0; }
+.ai-step-open > summary { list-style: none; cursor: pointer; border-radius: 8px; padding: 2px 4px; margin: 0 -4px; }
+.ai-step-open > summary::-webkit-details-marker { display: none; }
+@media (hover: hover) and (pointer: fine) { .ai-step-open > summary:hover { background: var(--field); } }
+.ai-step-open[open] > summary { color: var(--ink); }
+.ai-step-detail { margin: 6px 0 10px 24px; display: grid; gap: 4px; }
+.ai-step-label { font-size: 11px; color: var(--muted); }
+.ai-step-pre { margin: 0 0 6px; padding: 10px 12px; background: var(--field); border-radius: 10px; font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 260px; overflow: auto; color: var(--ink); }
+.ai-step-pre.bad { color: var(--bad); }
+.ai-step.note { color: var(--ink); }
+.ai-step.think { font-style: italic; }
+.typing-time { margin-left: 6px; color: var(--muted); font-variant-numeric: tabular-nums; }
 /* chat like the Claude app: round send button, limits with bars, no seams on the phone */
 #ai-send { width: 40px; height: 40px; min-width: 40px; padding: 0; border-radius: 50%; display: grid; place-items: center; }
 #ai-send .i { width: 20px; height: 20px; stroke-width: 2.2; }
@@ -2344,13 +2356,37 @@ function aiMarkdown(text) {
 function aiAttachmentLinks(files){return el('div',{class:'ai-chips'},...(files||[]).map(a=>{const valid=/^[0-9a-f]{24}$/.test(a.id||'');if(!valid)return el('span',{class:'ai-chip',text:'['+a.kind+(a.name?': '+a.name:'')+']'});const href='/api/ai/file?id='+encodeURIComponent(a.id);return el('a',{class:'ai-chip',href,download:a.name,target:'_blank',rel:'noopener noreferrer'},a.kind==='image'?el('img',{src:href,alt:a.name}):el('span',{text:a.kind==='pdf'?'▤ PDF':'▤'}),el('span',{text:a.name}));}));}
 function aiEdit(m){if(AI.busy)return;$('ai-text').value=m.text;aiDraftSave();aiGrow();$('ai-text').focus();aiErr('Текст в черновике; отправка создаст новое сообщение','warn');}
 // What Jarvis did on the way to the answer: one line per tool step, read from his session as it happens.
-const STEP_MARK={running:'•',done:'✓',failed:'✕'};
-function aiSteps(steps,live){
- const list=el('ol',{class:'ai-steps'},...steps.map(s=>el('li',{class:'ai-step '+s.state},el('span',{class:'ai-step-mark','aria-hidden':'true',text:STEP_MARK[s.state]||'•'}),el('span',{text:s.title+(s.state==='failed'?' — ошибка':'')}),el('time',{text:s.at?new Date(s.at).toLocaleTimeString('ru-RU',{hour:'2-digit',minute:'2-digit',second:'2-digit'}):''}))));
- if(live)return el('div',{class:'ai-steps-live','aria-live':'polite'},list);
- const failed=steps.filter(s=>s.state==='failed').length;
- return el('details',{class:'ai-steps-box'},el('summary',{text:'Что делал Джарвис · '+steps.length+' '+aiPlural(steps.length,'шаг','шага','шагов')+(failed?' · ошибок: '+failed:'')}),list);
+// Like the tool trail in Claude Code: thinking headlines and notes as lines, each tool step opens to show
+// what it ran and what came back (fetched on demand, so the live list stays light).
+const STEP_MARK={running:'•',done:'✓',failed:'✕',think:'◦',note:''};
+AI.openSteps=new Set();AI.stepDetail=new Map();
+function aiStepTime(at){return at?new Date(at).toLocaleTimeString('ru-RU',{hour:'2-digit',minute:'2-digit',second:'2-digit'}):'';}
+function aiStepDetailNode(chat,s,box){
+ const d=AI.stepDetail.get(s.id);box.replaceChildren();
+ if(!d){box.append(el('p',{class:'meta',text:'Загружаю…'}));aiGet('/api/ai/activity?chat='+encodeURIComponent(chat)+'&step='+encodeURIComponent(s.id)).then(r=>{AI.stepDetail.set(s.id,r);aiStepDetailNode(chat,s,box);}).catch(e=>{box.replaceChildren(el('p',{class:'meta',text:e.message}));});return;}
+ if(d.input)box.append(el('div',{class:'ai-step-label',text:'Что выполнил'+(d.tool?' · '+d.tool:'')}),el('pre',{class:'ai-step-pre',text:d.input}));
+ if(d.output)box.append(el('div',{class:'ai-step-label',text:d.failed?'Ошибка':'Что получил'}),el('pre',{class:'ai-step-pre'+(d.failed?' bad':''),text:d.output}));
+ if(!d.input&&!d.output)box.append(el('p',{class:'meta',text:'Подробностей нет'}));
 }
+function aiStepNode(chat,s){
+ if(s.state==='note')return el('li',{class:'ai-step note'},el('span',{class:'ai-step-mark'}),el('span',{text:s.title}),el('time',{text:aiStepTime(s.at)}));
+ if(s.state==='think')return el('li',{class:'ai-step think'},el('span',{class:'ai-step-mark','aria-hidden':'true',text:STEP_MARK.think}),el('span',{text:'думает: '+s.title}),el('time',{text:aiStepTime(s.at)}));
+ const box=el('div',{class:'ai-step-detail'}),open=AI.openSteps.has(s.id);
+ const d=el('details',{class:'ai-step-open',...(open?{open:''}:{})},el('summary',{class:'ai-step '+s.state},el('span',{class:'ai-step-mark','aria-hidden':'true',text:STEP_MARK[s.state]||'•'}),el('span',{text:s.title+(s.state==='failed'?' — ошибка':'')}),el('time',{text:aiStepTime(s.at)})),box);
+ // Open state is remembered on the tap itself: the list re-renders every second and would close it otherwise.
+ d.firstChild.addEventListener('click',e=>{e.preventDefault();d.open=!d.open;if(d.open){AI.openSteps.add(s.id);if(chat&&s.id)aiStepDetailNode(chat,s,box);}else AI.openSteps.delete(s.id);});
+ if(open&&chat&&s.id)aiStepDetailNode(chat,s,box);
+ return el('li',{},d);
+}
+function aiSteps(steps,live,chat){
+ const list=el('ol',{class:'ai-steps'},...steps.map(s=>aiStepNode(chat,s)));
+ if(live)return el('div',{class:'ai-steps-live','aria-live':'polite'},list);
+ const tools=steps.filter(s=>!['note','think'].includes(s.state)),failed=tools.filter(s=>s.state==='failed').length,key='box:'+(steps[0]?.id||'');
+ const box=el('details',{class:'ai-steps-box',...(AI.openSteps.has(key)?{open:''}:{})},el('summary',{text:'Что делал Джарвис · '+tools.length+' '+aiPlural(tools.length,'шаг','шага','шагов')+(failed?' · ошибок: '+failed:'')}),list);
+ box.firstChild.addEventListener('click',e=>{e.preventDefault();box.open=!box.open;if(box.open)AI.openSteps.add(key);else AI.openSteps.delete(key);});
+ return box;
+}
+function aiElapsed(){if(!AI.pendingAt)return '';const s=Math.floor((Date.now()-AI.pendingAt)/1000);return s<3?'':' · '+Math.floor(s/60)+':'+String(s%60).padStart(2,'0');}
 function aiPlural(n,one,few,many){const t=n%10,h=n%100;return t===1&&h!==11?one:t>=2&&t<=4&&(h<12||h>14)?few:many;}
 // While a Jarvis reply is being prepared, ask once a second which tools he is running.
 async function aiWatchSteps(chat,from){
@@ -2365,7 +2401,7 @@ function aiBubble(m){
  const canonical=!!m.canonical,time=m.ts==null?aiTime(m.time):new Date(m.ts*1000).toLocaleTimeString('ru-RU',{hour:'2-digit',minute:'2-digit'}),text=m.not_owner?'сообщение не владельца скрыто':m.text||'';
  if(m.role==='activity')return el('div',{class:'meta',text:'⚙ инструменты: '+(m.tools||[]).join(', ')});
  const node=el('article',{class:'msg '+(m.role==='user'?'me':'bot')});
- if(m.role==='user')node.append(el('div',{class:'bubble',text}));else{if(m.steps?.length)node.append(aiSteps(m.steps,m===AI.pending));node.append(text?aiMarkdown(text):el('div',{class:'typing'},m.steps?.length?'работает':'печатает',el('i'),el('i'),el('i')));}
+ if(m.role==='user')node.append(el('div',{class:'bubble',text}));else{if(m.steps?.length)node.append(aiSteps(m.steps,m===AI.pending,canonical?'canonical':m===AI.pending?(AI.runChat||aiChatId):aiChatId));node.append(text?aiMarkdown(text):el('div',{class:'typing'},m.steps?.some(x=>!['note','think'].includes(x.state))?'работает':m.mode==='jarvis'?'думает':'печатает',el('i'),el('i'),el('i'),el('span',{class:'typing-time',text:aiElapsed()})));}
  if(m.attachments?.length)node.append(aiAttachmentLinks(m.attachments));
  const source={telegram:'Telegram',dashboard:'Сводка',agent:'агент',automation:'автоматизация',unknown:'другой интерфейс'}[m.source]||'другой интерфейс';
  const metadata=canonical?[m.model,source,m.source==='telegram'&&m.source_message_id!=null?'#'+m.source_message_id:'',m.delivered_to_channel?'доставлено в канал':'',m.edited?'изменено':'',m.deleted?'удалено':'',m.truncated?'обрезано':'',time]:m.role==='assistant'?[aiShort(m.model),m.actual_model?'фактически '+m.actual_model:'',m.mode==='jarvis'?'':m.transport||m.detail,m.mode==='jarvis'?'':'чат без инструментов',time,m.fallback,m.stopped?'остановлено':'']:[time];
@@ -2386,7 +2422,7 @@ function aiRender(){
  if(canonical){
   const earlier=el('button',{id:'ai-earlier',class:'pill soft',type:'button',text:'Загрузить ранние',onclick:chatEarlier});earlier.disabled=chatState.next==null||!chatState.available;kids.push(earlier);
   for(const [on,text] of [[chatState.gap,'пропуск в истории'],[chatState.hidden,'скрыто '+chatState.hidden+' служебных'],[chatState.redacted,'Часть содержимого скрыта шлюзом'],[chatState.content_truncated,'длинные сообщения обрезаны шлюзом до 4000 символов']])if(on)kids.push(el('p',{class:'meta',text}));
-  kids.push(...chatState.messages.map(m=>aiBubble({...m,canonical:true})),...(AI.liveSteps?.length?[el('article',{class:'msg bot'},aiSteps(AI.liveSteps,true),el('div',{class:'meta',text:'Джарвис работает сейчас'}))]:[]),...chatState.pending.map(m=>el('div',{class:'msg me'},el('div',{class:'bubble',text:m.text}),el('div',{class:'meta',text:'ожидает подтверждения в истории'}))));
+  kids.push(...chatState.messages.map(m=>aiBubble({...m,canonical:true})),...(AI.liveSteps?.length?[el('article',{class:'msg bot'},aiSteps(AI.liveSteps,true,'canonical'),el('div',{class:'meta',text:'Джарвис работает сейчас'}))]:[]),...chatState.pending.map(m=>el('div',{class:'msg me'},el('div',{class:'bubble',text:m.text}),el('div',{class:'meta',text:'ожидает подтверждения в истории'}))));
   if(chatState.tasks?.length){const list=el('details',{class:'ai-tasks',id:'ai-tasks'},el('summary',{text:'Задачи агента'}));for(const t of chatState.tasks){const b=el('button',{type:'button',text:'Отменить',title:t.cancel?.reason||'Отмена недоступна'});b.disabled=true;list.append(el('p',{text:(t.title||String(t.id))+' · '+t.kind+' · '+t.status}),b);}kids.push(list);}
  }else{
   kids.push(...(AI.chat?.messages||[]).map(aiBubble));
@@ -2447,7 +2483,7 @@ async function aiStop(){AI.stopping=true;AI.controller?.abort();if(AI.run)await 
 async function aiSendLocal(text,files,retry=false){
  if(AI.busy||aiCanonical())return;const chosen=aiWho();if(files.some(f=>f.kind==='image')&&!chosen?.caps?.image){aiErr('Модель не принимает изображения — выберите Claude или Codex с поддержкой изображений');return;}
  let stepsFrom=0;if(chosen?.route==='jarvis'&&aiChatId){try{stepsFrom=(await aiGet('/api/ai/activity?chat='+encodeURIComponent(aiChatId)+'&after=-1')).last;}catch{}}
- const ta=$('ai-text'),original=aiChatId,originalKey=aiKey();AI.busy=true;AI.stopping=false;AI.run='';AI.runChat='';AI.controller=new AbortController();AI.pending={role:'assistant',user:text,userAttachments:files,text:'',model:chosen?.title||'Модель',mode:chosen?.route==='jarvis'?'jarvis':'chat',time:''};if(!retry){ta.value='';aiDraftSave();}aiGrow();aiErr('');aiRender();aiChips();let finished=false;
+ const ta=$('ai-text'),original=aiChatId,originalKey=aiKey();AI.busy=true;AI.pendingAt=Date.now();if(typeof setInterval==='function'&&typeof clearInterval==='function'){clearInterval(AI.tick);AI.tick=setInterval(()=>{if(!AI.busy){clearInterval(AI.tick);return;}for(const n of document.querySelectorAll('.typing-time'))n.textContent=aiElapsed();},1000);}AI.stopping=false;AI.run='';AI.runChat='';AI.controller=new AbortController();AI.pending={role:'assistant',user:text,userAttachments:files,text:'',model:chosen?.title||'Модель',mode:chosen?.route==='jarvis'?'jarvis':'chat',time:''};if(!retry){ta.value='';aiDraftSave();}aiGrow();aiErr('');aiRender();aiChips();let finished=false;
  function accept(chat){AI.chat=chat;aiChatId=chat.id;if(!retry){for(const f of files){if(f.url)URL.revokeObjectURL(f.url);f.attached=true;}AI.uploads.delete(originalKey);AI.uploads.set(aiKey(),[]);try{localStorage.setItem('svodka-ai-draft:'+originalKey,'');}catch{}}aiSave();aiDraftSave();AI.pending=null;finished=true;}
  function event(j){if(j.type==='start'||j.type==='switch'){AI.run=j.run||AI.run;AI.runChat=j.chat||AI.runChat;Object.assign(AI.pending,{model:j.title||j.model,transport:j.transport||j.detail,actual_model:null,text:'',fallback:j.reason});if(j.type==='switch')aiErr(j.reason,'warn');if(AI.stopping)aiPost('stop',{run:AI.run}).catch(()=>{});}else if(j.type==='meta'){AI.pending.actual_model=j.actual_model;}else if(j.type==='delta'){AI.pending.text+=j.text;}else if(j.type==='done'){accept(j.chat);if(j.fallback)aiErr(j.fallback,'warn');}else if(j.type==='error'){throw Error(j.error);}aiSchedule();}
  try{
