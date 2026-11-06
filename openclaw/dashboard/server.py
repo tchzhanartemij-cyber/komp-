@@ -1171,7 +1171,8 @@ def call_jarvis(chat_id, backend, text, run, delta, images=None, timeout=900):
     except urllib.error.HTTPError as e:
         e.close()
         raise AIError({401: 'Шлюз отклонил авторизацию', 404: 'Точка ответов шлюза выключена'}.get(e.code, f'Ошибка шлюза {e.code}'))
-    except (urllib.error.URLError, OSError, ValueError):
+    except (urllib.error.URLError, OSError, ValueError, AttributeError):
+        # «Стоп» closes the response under the reader; http.client then fails with AttributeError on its closed socket.
         if run['stop'].is_set():
             return '', actual
         raise AIError('Джарвис не ответил')
