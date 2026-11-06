@@ -36,8 +36,9 @@ Root владелец вводит сам; команды под root дават
 
 - `openclaw gateway restart` и перезапуск `life-dashboard` обрывают работу у владельца
   (Telegram, открытая «Сводка»). Предупреждать перед этим.
-- Выкладку на боевую «Сводку» делать только после «да» владельца, с резервной копией и
-  способом отката.
+- Выкладка на боевую «Сводку»: с 06.11.2026 Claude выкладывает сам после тестов —
+  `bash openclaw/dashboard/deploy-live.sh` (копия и откат встроены; право только на перезапуск
+  службы — `/etc/sudoers.d/jarvis-svodka`). После выкладки — итог и команда отката владельцу.
 - Необратимые действия в интернете (покупки, отправка сообщений от его имени) только после «да».
 - Задачи по коду, включая «Сводку», идут по цепочке: Джарвис ставит их в очередь кодера
   (скилл `coder`), Claude Code делает в ветке `jarvis/task-N` и отдаёт объёмный код Codex.
@@ -47,7 +48,7 @@ Root владелец вводит сам; команды под root дават
 
 ## Состояние (02.11.2026)
 
-Работает (в ветке, выкладка — `sudo bash openclaw/dashboard/deploy-live.sh`, делает владелец):
+Работает (выложено 06.11.2026; выкладка — `bash openclaw/dashboard/deploy-live.sh`):
 - «Сводка»: меню из 5 разделов, кнопка Джарвиса; чаты в «ИИ» идут через Джарвиса (сессия
   `agent:main:svodka-<чат>`, инструменты и общая память, GPT-6.1 Sol или Claude Opus); живой голос —
   OpenClaw Talk (GPT-Live по подписке ChatGPT); офис агентов с живой лентой; память из Mem разложена по темам.
@@ -57,7 +58,7 @@ Root владелец вводит сам; команды под root дават
 - Общая память агентов: `~/.openclaw/workspace/SHARED.md`, `MEMORY.md`, `memory/`. Скиллы общие,
   включая build-your-harness (проверка: `python3 ~/.agents/skills/build-your-harness/better-your-harness/scripts/scan.py <папка>`).
 
-Ждёт владельца: выкладка «Сводки»; перезапуск очереди (`sudo -u jarvis XDG_RUNTIME_DIR=/run/user/$(id -u jarvis) systemctl --user restart jarvis-coder`);
+Ждёт владельца: перезапуск очереди (`sudo -u jarvis XDG_RUNTIME_DIR=/run/user/$(id -u jarvis) systemctl --user restart jarvis-coder`);
 автоматизации Джарвиса «Дневник дня» и «Разбор недели» (`openclaw cron add`, защита Claude Code не даёт
 их создать); проверка голоса на iPhone; решение по задачам №10 и №17.
 
